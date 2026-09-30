@@ -67,6 +67,13 @@ The committed record of a session is its pull request and its changelog entry. P
 |---|---|---|
 | `aw-start-task` | user only | Creates the session worktree via `aw start-task`, loads the plan into a task list, hands over to implementation |
 | `aw-finalize` | user only | Docs, `aw verify`, commit, PR, changelog entry, review + CI, then `aw finish` |
+| `aw-plan-story` | user or model | Issue + parent + project context → plan, grilled with the user, saved to `plan_dir` |
+| `aw-grilling` | user or model | Interview in rounds over a design tree until nothing is assumed |
+| `aw-grill-me` | user only | Entry point for `aw-grilling` |
+| `aw-grill-with-docs` | user only | `aw-grilling` plus `aw-domain-modeling` |
+| `aw-domain-modeling` | user or model | Challenge terms, keep `GLOSSARY.md` and `docs/adr/` current |
+
+The grilling and domain-modeling skills are copied from [mattpocock/skills](https://github.com/mattpocock/skills) (MIT); each keeps its `LICENSE` and a `metadata.source` link to the exact upstream commit.
 
 `aw finish` is deliberately not in `aw-finalize`'s `allowed-tools`: the merge asks for permission.
 
@@ -81,3 +88,7 @@ uv run pytest
 ```
 
 Planned work: [BACKLOG.md](BACKLOG.md).
+
+## License
+
+MIT, see [LICENSE](LICENSE). Skills copied from other projects keep their own `LICENSE` file.

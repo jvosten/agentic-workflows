@@ -29,7 +29,18 @@ Deferred features and open checks. Each entry has enough context to be picked up
 - `aw issue <op>` with a fixed set: `view`, `set-status`, `link-pr`, `create`, `comment`.
 - Adapters: `github` (`gh`), `gitlab` (`glab`), `jira` (Jira CLI or REST; decide).
 - Add `jira` to the `tracker` choices and the `aw init` prompt; detect Jira from the remote or an existing config.
+- Issue ids: Jira keys are `PROJ-123`, not numbers. `aw start-task --issue` accepts digits only, and skills write `#N`. Generalize to an opaque id with a per-tracker format (`#{id}` vs `{id}`).
+- Closing: `pr_close_keyword #N` works for GitHub and GitLab only. Jira links by key in the branch or PR title and closes through a transition (`set-status done`).
+- Parent lookup: `Part of #M` is a convention; Jira has real epic/parent fields. Add `parent` to the operation set.
+- Jira access: a CLI (`acli`, `jira-cli`, or REST with a token) fits `aw issue`. An Atlassian MCP server is only reachable from the agent, so that backend would be instructions in the skill, not code in `aw` (agent-issue-tracker's `backends/*.md` pattern).
+- Skills that call tracker CLIs directly today: `aw-start-task` (view), `aw-plan-story` (list, view, comment), `aw-finalize` (PR close keyword).
 - `on_issue_start` stays as a project hook for extras such as moving an issue on a project board.
+
+### [MEDIUM] Configurable decision records for aw-domain-modeling
+
+**Context:** The copied `aw-domain-modeling` skill writes ADRs to `docs/adr/NNNN-slug.md` and terms to `GLOSSARY.md`. Projects that already keep a decision log elsewhere would get a second, competing record.
+
+**Scope:** keys `decision_dir` (or `decision_log` for a single-file log) and `glossary_file`; the skill reads them from `aw config` before writing. Keep the upstream text otherwise, so updates from mattpocock/skills stay easy to merge.
 
 ### [MEDIUM] Status mapping per tracker
 
