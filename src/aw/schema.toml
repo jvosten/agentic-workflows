@@ -1,0 +1,85 @@
+# Every key a project can set in .agents/aw.toml.
+#
+# type:    str | bool | list | choice
+# ask:     aw init prompts for it (others are set with --set or by editing)
+# detect:  name of a detector in init.py that proposes the default
+# default: fallback when nothing else sets the key
+#
+# Placeholders, expanded when read: {project} {repo_parent} everywhere;
+# {type} {slug} {n} {date} {issue} in branch_name, worktree_name, on_issue_start.
+
+version = 1
+
+[keys.main_branch]
+type = "str"
+ask = true
+detect = "main_branch"
+default = "main"
+help = "Branch that sessions start from and merge into"
+
+[keys.tracker]
+type = "choice"
+choices = ["github", "gitlab", "none"]
+ask = true
+detect = "tracker"
+default = "none"
+help = "Issue tracker"
+
+[keys.instructions_file]
+type = "str"
+ask = true
+detect = "instructions_file"
+default = "AGENTS.md"
+help = "Agent instructions file, relative to the repo root"
+
+[keys.session_log]
+type = "str"
+ask = true
+detect = "session_log"
+default = ""
+help = "Markdown table whose first column is the session number (empty: none)"
+
+[keys.direnv]
+type = "bool"
+ask = true
+detect = "direnv"
+default = false
+help = "Give each worktree an .envrc that delegates to the primary checkout"
+
+[keys.verify_cmd]
+type = "str"
+ask = true
+detect = "verify_cmd"
+default = ""
+help = "Command that validates a change before commit (empty: none)"
+
+[keys.plan_dir]
+type = "str"
+ask = true
+default = ""
+help = "Directory with plan documents, relative to the repo root (empty: none)"
+
+[keys.branch_types]
+type = "list"
+default = ["feat", "fix", "chore", "docs", "refactor"]
+help = "Allowed branch prefixes (conventional commit types)"
+
+[keys.branch_name]
+type = "str"
+default = "{type}/{slug}-{date}"
+help = "Branch name pattern"
+
+[keys.worktree_root]
+type = "str"
+default = "{repo_parent}/{project}.worktrees"
+help = "Directory that holds session worktrees"
+
+[keys.worktree_name]
+type = "str"
+default = "s{n}-{slug}"
+help = "Worktree directory name pattern"
+
+[keys.on_issue_start]
+type = "str"
+default = ""
+help = "Shell command run in the new worktree when a session starts from an issue"
