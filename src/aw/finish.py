@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from aw import forge
+from aw import forge, trackers
 from aw.config import AwError, Config, git
 
 
@@ -49,6 +49,14 @@ def run(cfg: Config, meta: dict[str, Any], pr: str | None) -> list[str]:
             log.append(f"merged {pr}")
         if not forge.is_merged(kind, pr, root):
             raise AwError(f"{pr} is not merged (pending checks or auto-merge?); rerun when it is")
+
+    issue = meta.get("issue")
+    if issue and cfg.get("sync_issue_status"):
+        try:
+            if message := trackers.get(cfg).on_merged(issue):
+                log.append(message)
+        except AwError as e:
+            log.append(f"warning: issue status not updated: {e}")
 
     git("worktree", "remove", str(worktree), cwd=root)
     log.append(f"removed {worktree}")

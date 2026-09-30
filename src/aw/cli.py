@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
+from dataclasses import asdict
 from pathlib import Path
 
-from aw import __version__, doctor, finish, init, install, session, start_task
+from aw import __version__, doctor, finish, init, install, session, start_task, trackers
 from aw.config import AwError, load, toml_value
+from aw.trackers import STATUSES
 
 
 def _config(args: argparse.Namespace) -> None:
@@ -27,6 +30,58 @@ def _config(args: argparse.Namespace) -> None:
 def _start_task(args: argparse.Namespace) -> None:
     for key, value in start_task.run(load(), args.type, args.slug, args.issue, args.number).items():
         print(f"{key}={value}")
+
+
+def _rows(rows: list[trackers.Row], as_json: bool) -> None:
+    if as_json:
+        print(json.dumps([vars(r) for r in rows], indent=2))
+        return
+    print("\n".join(trackers.rows_line(r) for r in rows) or "no issues")
+
+
+def _body(path: str) -> str:
+    return sys.stdin.read() if path == "-" else Path(path).read_text()
+
+
+def _issue(args: argparse.Namespace) -> None:
+    cfg = load()
+    tracker = trackers.get(cfg)
+    op = args.op
+    if op in ("list", "search"):
+        rows = tracker.list_open(args.limit) if op == "list" else tracker.search(args.query, args.limit, args.raw)
+        _rows(rows, args.json)
+        return
+    if op == "create":
+        body = _body(args.body_file)
+        if args.dry_run:
+            print(f"DRY RUN ({tracker.name}): title={args.title!r} parent={args.parent} type={args.type}")
+            print(f"body: {len(body.splitlines())} lines")
+            return
+        new = tracker.create(args.title, body, args.parent, args.type)
+        print(tracker.ref(new))
+        return
+    issue = tracker.normalize(args.id)
+    if op == "view":
+        data = tracker.view(issue)
+        text = json.dumps(asdict(data), indent=2) if args.json else trackers.render(data)
+        if args.out:
+            out = Path(args.out) / f"{issue}.{'json' if args.json else 'md'}"
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(text)
+            print(out)
+        else:
+            print(text, end="")
+    elif op == "children":
+        _rows(tracker.children(issue), args.json)
+    elif op == "comment":
+        tracker.comment(issue, _body(args.body_file))
+        print(f"commented on {tracker.ref(issue)}")
+    elif op == "set-status":
+        print(tracker.set_status(issue, args.status))
+    elif op == "ref":
+        print(tracker.ref(issue))
+    elif op == "pr-text":
+        print(tracker.pr_text(issue))
 
 
 def _session(args: argparse.Namespace) -> None:
@@ -88,6 +143,41 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--issue")
     s.add_argument("--number", type=int, help="session number (default: next in this clone)")
     s.set_defaults(func=_start_task)
+
+    s = sub.add_parser("issue", help="issue tracker operations (tracker from config)")
+    ops = s.add_subparsers(dest="op", required=True)
+    o = ops.add_parser("view", help="issue with parent, children, comments, extra fields")
+    o.add_argument("id")
+    o.add_argument("--json", action="store_true")
+    o.add_argument("--out", metavar="DIR", help="write <id>.md (or .json) into DIR instead of printing")
+    o = ops.add_parser("children", help="child issues / subtasks")
+    o.add_argument("id")
+    o.add_argument("--json", action="store_true")
+    o = ops.add_parser("list", help="open issues (Jira: in jira_project)")
+    o.add_argument("--limit", type=int, default=20)
+    o.add_argument("--json", action="store_true")
+    o = ops.add_parser("search", help="text search; --raw passes a tracker query (JQL, gh search syntax)")
+    o.add_argument("query")
+    o.add_argument("--raw", action="store_true")
+    o.add_argument("--limit", type=int, default=20)
+    o.add_argument("--json", action="store_true")
+    o = ops.add_parser("create", help="create an issue from a Markdown body")
+    o.add_argument("--title", required=True)
+    o.add_argument("--body-file", required=True, help="Markdown file, or - for stdin")
+    o.add_argument("--parent")
+    o.add_argument("--type", help="issue type (Jira), default Task")
+    o.add_argument("--dry-run", action="store_true")
+    o = ops.add_parser("comment", help="add a Markdown comment")
+    o.add_argument("id")
+    o.add_argument("--body-file", required=True, help="Markdown file, or - for stdin")
+    o = ops.add_parser("set-status", help="move to a canonical status (mapped by status_map)")
+    o.add_argument("id")
+    o.add_argument("status", choices=STATUSES)
+    o = ops.add_parser("ref", help="how to reference the issue in text (#12, PROJ-123)")
+    o.add_argument("id")
+    o = ops.add_parser("pr-text", help="line for the PR body that links or closes the issue")
+    o.add_argument("id")
+    s.set_defaults(func=_issue)
 
     s = sub.add_parser("session", help="print the current worktree's session metadata")
     s.set_defaults(func=_session)

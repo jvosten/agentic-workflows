@@ -30,7 +30,7 @@ def test_layers_and_env_override(repo, env, monkeypatch):
 
 def test_invalid_values(repo):
     (repo / ".agents").mkdir()
-    (repo / ".agents/aw.toml").write_text('tracker = "jira"\n')
+    (repo / ".agents/aw.toml").write_text('tracker = "bugzilla"\n')
     with pytest.raises(AwError, match="tracker: expected choice"):
         load()
 

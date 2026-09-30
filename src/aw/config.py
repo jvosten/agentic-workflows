@@ -64,6 +64,7 @@ def coerce(key: str, spec: dict, value: Any) -> Any:
         "choice": isinstance(value, str) and value in spec.get("choices", []),
         "bool": isinstance(value, bool),
         "list": isinstance(value, list) and all(isinstance(v, str) for v in value),
+        "table": isinstance(value, dict) and all(isinstance(v, str) for v in value.values()),
     }[kind]
     if not ok:
         extra = f" (one of {', '.join(spec['choices'])})" if kind == "choice" else ""
@@ -83,6 +84,14 @@ def parse_text(key: str, spec: dict, text: str) -> Any:
         raise AwError(f"{key}: expected true/false, got {text!r}")
     if kind == "list":
         return [v for v in re.split(r"[,\s]+", text.strip()) if v]
+    if kind == "table":
+        table = {}
+        for item in filter(None, (p.strip() for p in text.split(","))):
+            name, sep, value = item.partition("=")
+            if not sep or not name.strip():
+                raise AwError(f"{key}: expected name=value[,name=value...], got {text!r}")
+            table[name.strip()] = value.strip()
+        return table
     return coerce(key, spec, text.strip())
 
 
@@ -110,10 +119,11 @@ class Config:
 
     def get(self, key: str, **placeholders: str) -> Any:
         value = self.values[key]
-        if not isinstance(value, str):
-            return value
+        return self.expand(value, **placeholders) if isinstance(value, str) else value
+
+    def expand(self, template: str, **placeholders: str) -> str:
         base = {"project": self.project, "repo_parent": str(self.root.parent)}
-        return expand(value, base | placeholders)
+        return expand(template, base | placeholders)
 
 
 def read_toml(path: Path) -> dict[str, Any]:
@@ -159,7 +169,13 @@ def load(cwd: Path | str | None = None) -> Config:
     return cfg
 
 
+BARE_KEY = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
 def toml_value(value: Any) -> str:
+    if isinstance(value, dict):
+        items = ", ".join(f"{k if BARE_KEY.match(k) else json.dumps(k)} = {toml_value(v)}" for k, v in value.items())
+        return "{ " + items + " }" if items else "{}"
     if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, list):

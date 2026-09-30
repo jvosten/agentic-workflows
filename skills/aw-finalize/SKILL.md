@@ -2,7 +2,7 @@
 name: aw-finalize
 description: Finish an implementation session - document, verify, commit, open the pull request, add the changelog entry, wait for CI, merge, and clean up the worktree. Use only when the user invokes it.
 disable-model-invocation: true
-allowed-tools: Bash(~/.agents/bin/aw session) Bash(~/.agents/bin/aw config) Bash(~/.agents/bin/aw verify)
+allowed-tools: Bash(~/.agents/bin/aw session) Bash(~/.agents/bin/aw config) Bash(~/.agents/bin/aw verify) Bash(~/.agents/bin/aw issue ref:*) Bash(~/.agents/bin/aw issue pr-text:*)
 metadata:
   package: agentic-workflows
 ---
@@ -42,7 +42,7 @@ Non-zero exit → fix the cause and re-run. Do not continue on a failing check.
 ## 5. Commit and open the pull request
 
 - Commit in logical units, using the project's commit conventions (conventional commits unless `instructions_file` says otherwise). Push with `git -C <worktree> push -u origin <branch>`.
-- Open the PR against `main_branch`. The body summarizes the change and risks; with an issue, it contains `<pr_close_keyword> #<issue>`.
+- Open the PR against `main_branch`. With an issue: put `aw issue ref <issue>` in the title (Jira links PRs by key) and the line from `aw issue pr-text <issue>` in the body. The body summarizes the change and risks.
   - `forge = github`: `gh pr create --base <main_branch> --title ... --body ...`
   - `forge = gitlab`: `glab mr create --target-branch <main_branch> --title ... --description ...`
   - `forge = none`: skip; tell the user to merge by hand.
@@ -64,7 +64,7 @@ If `changelog_file` is set: add one entry for this session, matching the file's 
 ~/.agents/bin/aw finish --pr <pr>      # forge = none: after the manual merge, without --pr
 ```
 
-It merges with `merge_method`, removes the worktree, updates `main_branch` in the primary checkout, and deletes the local and remote branch. It refuses on uncommitted or unpushed work.
+It merges with `merge_method`, moves the issue to done where a closing keyword does not (`sync_issue_status`), removes the worktree, updates `main_branch` in the primary checkout, and deletes the local and remote branch. It refuses on uncommitted or unpushed work.
 
 ## 9. Report
 

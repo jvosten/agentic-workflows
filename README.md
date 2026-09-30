@@ -48,6 +48,24 @@ A session is one worktree on one branch, from `aw start-task` to `aw finish`. It
 
 The committed record of a session is its pull request and its changelog entry. Projects moving from their own numbering start once with `aw start-task ... --number N`; the counter continues from there.
 
+## Issue trackers
+
+Skills never call a tracker directly; they call `aw issue <op>`, and `tracker` in the config picks the adapter.
+
+| Op | github (`gh`) | jira (REST v3) | gitlab (`glab`, untested) |
+|---|---|---|---|
+| `view` (parent, children, comments, extra fields) | ✓ | ✓ | ✓ (no children/comments) |
+| `children` | sub-issues + task-list refs | JQL `parent = KEY` | – |
+| `list`, `search` | ✓ | ✓ (`--raw` = JQL) | ✓ |
+| `create` (with `--parent`, `--dry-run`) | ✓ (as sub-issue) | ✓ (Markdown → ADF) | – |
+| `comment` | ✓ | ✓ | ✓ |
+| `set-status` | open/closed only | workflow transition via `status_map` | open/closed only |
+| `ref` / `pr-text` | `#12` / `Fixes #12` | `PROJ-12` / `PROJ-12` | `#12` / `Fixes #12` |
+
+Statuses are canonical (`backlog`, `ready`, `in_progress`, `in_review`, `done`); `status_map` maps them to the tracker's names, defaulting to title case (`In Progress`). With `sync_issue_status` (default on), `aw start-task --issue` moves the issue to `in_progress` and `aw finish` to `done`, on trackers with workflow states. GitHub and GitLab close through the PR keyword instead.
+
+**Jira setup:** `aw init` asks for `jira_base_url` and `jira_project` when `tracker = jira`. Credentials come from the environment only: `JIRA_USER_EMAIL`, `JIRA_API_TOKEN`, and optionally `JIRA_CLOUD_ID` for scoped tokens (routes through `api.atlassian.com`). Instance-specific fields go into `jira_fields`, e.g. `aw init --set jira_fields=acceptance_criteria=customfield_10000`. `aw doctor` checks that the variables are set, never their values, and calls `/myself`.
+
 ## Commands
 
 | Command | Does |
@@ -59,6 +77,7 @@ The committed record of a session is its pull request and its changelog entry. P
 | `aw session` | Print the current worktree's session metadata |
 | `aw verify` | Run `verify_cmd` in the current checkout (through direnv if enabled) |
 | `aw finish [--pr N]` | Merge with `merge_method`, remove worktree, update main, delete local + remote branch |
+| `aw issue view\|children\|list\|search\|create\|comment\|set-status\|ref\|pr-text` | Tracker operations; see [Issue trackers](#issue-trackers) |
 | `aw doctor` | Check installation, skill frontmatter, project config, tools, tracker auth |
 
 ## Skills

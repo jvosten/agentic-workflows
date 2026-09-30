@@ -16,37 +16,35 @@ Deferred features and open checks. Each entry has enough context to be picked up
 - `disable-model-invocation: true` hides `aw-start-task` from the model while `/aw-start-task` still works.
 - The model continues into implementation in the same turn after the handover.
 - `aw-finalize` end to end on a real PR, including the permission prompt on `aw finish`.
-- `forge = gitlab`: `glab mr view --output json` state values and `glab mr merge` flags are taken from docs, not tested.
+- `forge = gitlab` / `tracker = gitlab`: `glab` JSON fields and flags are taken from docs, not tested.
+- `tracker = jira` against a real instance: `aw doctor`, `aw issue view|children|list|comment|set-status`, status sync on start and finish, and ADF rendering of real descriptions (tested only with recorded responses).
 - Codex finds `~/.agents/skills/aw-start-task` and honours `agents/openai.yaml` (`allow_implicit_invocation: false`).
 
 **Done when:** one real session per agent has run through both skills, and the findings are in the README.
 
-### [HIGH] Tracker operation contract (GitHub, GitLab, Jira)
+### [MEDIUM] Forge operations through aw
 
-**Context:** Borrowed from [agent-issue-tracker](https://github.com/maxdimitrov/agent-issue-tracker): skills name an operation, one adapter per backend implements it. Today `aw-start-task` branches on `tracker` in prose (`gh` vs `glab`).
+**Context:** Skills no longer call trackers directly, but `aw-finalize` still runs `gh pr create`, `gh pr checks`, `glab mr create` itself. Same pattern as the tracker contract, for pull/merge requests.
 
-**Scope:**
-- `aw issue <op>` with a fixed set: `view`, `set-status`, `link-pr`, `create`, `comment`.
-- Adapters: `github` (`gh`), `gitlab` (`glab`), `jira` (Jira CLI or REST; decide).
-- Add `jira` to the `tracker` choices and the `aw init` prompt; detect Jira from the remote or an existing config.
-- Issue ids: Jira keys are `PROJ-123`, not numbers. `aw start-task --issue` accepts digits only, and skills write `#N`. Generalize to an opaque id with a per-tracker format (`#{id}` vs `{id}`).
-- Closing: `pr_close_keyword #N` works for GitHub and GitLab only. Jira links by key in the branch or PR title and closes through a transition (`set-status done`).
-- Parent lookup: `Part of #M` is a convention; Jira has real epic/parent fields. Add `parent` to the operation set.
-- Jira access: a CLI (`acli`, `jira-cli`, or REST with a token) fits `aw issue`. An Atlassian MCP server is only reachable from the agent, so that backend would be instructions in the skill, not code in `aw` (agent-issue-tracker's `backends/*.md` pattern).
-- Skills that call tracker CLIs directly today: `aw-start-task` (view), `aw-plan-story` (list, view, comment), `aw-finalize` (PR close keyword).
-- `on_issue_start` stays as a project hook for extras such as moving an issue on a project board.
+**Scope:** `aw pr create|checks|comments` per forge; `aw-finalize` calls only `aw`.
+
+### [MEDIUM] Fetch linked design docs (Confluence)
+
+**Context:** Jira stories often link a Confluence page with the design decision. `aw-plan-story` reads linked docs, but has no way to fetch a Confluence page.
+
+**Scope:** `aw doc fetch <url|page-id> [--out DIR]` → Markdown (Confluence REST v2 `body-format=atlas_doc_format` through the existing ADF converter), same credentials as Jira.
+
+### [LOW] GitLab tracker parity
+
+**Context:** The GitLab adapter lacks `children` and `create` and is untested.
+
+**Scope:** implement both with `glab`; test against a GitLab instance.
 
 ### [MEDIUM] Configurable decision records for aw-domain-modeling
 
 **Context:** The copied `aw-domain-modeling` skill writes ADRs to `docs/adr/NNNN-slug.md` and terms to `GLOSSARY.md`. Projects that already keep a decision log elsewhere would get a second, competing record.
 
 **Scope:** keys `decision_dir` (or `decision_log` for a single-file log) and `glossary_file`; the skill reads them from `aw config` before writing. Keep the upstream text otherwise, so updates from mattpocock/skills stay easy to merge.
-
-### [MEDIUM] Status mapping per tracker
-
-**Context:** From zaks-io/skills. Skills should speak canonical states (`backlog`, `ready`, `in_progress`, `done`); each project maps them to tracker names (`"In progress"`, Jira transitions). Needed once `set-status` exists.
-
-**Scope:** a `status_map` table key in the schema (needs table support in `config.py` and `dump_toml`).
 
 ### [MEDIUM] Schema migrations
 

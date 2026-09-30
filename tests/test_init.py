@@ -70,3 +70,25 @@ def test_detects_included_make_target_and_ignored_envrc(repo, tmp_path):
     git("worktree", "add", "-q", "--detach", str(wt), cwd=repo)
     schema = {"verify_cmd": {"detect": "verify_cmd"}, "direnv": {"detect": "direnv"}}
     assert init.detect(wt, schema) == {"verify_cmd": "make check", "direnv": True}
+
+
+def test_jira_keys_asked_only_for_jira(repo, monkeypatch):
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    asked = []
+
+    def fake_input(prompt_text):
+        key = prompt_text.rsplit("\n  ", 1)[-1].split(" [")[0]
+        asked.append(key)
+        return {"tracker": "jira", "jira_base_url": "https://x.atlassian.net", "jira_project": "PROJ"}.get(key, "")
+
+    monkeypatch.setattr("builtins.input", fake_input)
+    init.run(False, ["jira_fields=acceptance_criteria=customfield_1, story_points=customfield_2"])
+    data = read(repo)
+    assert asked.index("tracker") < asked.index("jira_base_url") < asked.index("jira_project")
+    assert (data["tracker"], data["jira_project"]) == ("jira", "PROJ")
+    assert data["jira_fields"] == {"acceptance_criteria": "customfield_1", "story_points": "customfield_2"}
+
+    asked.clear()
+    monkeypatch.setattr("builtins.input", lambda p: asked.append(p) or ("none" if "tracker [" in p else ""))
+    init.run(False, [])
+    assert not any("jira_base_url" in p for p in asked)

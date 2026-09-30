@@ -55,7 +55,7 @@ def test_from_inside_worktree(configured, tmp_path, monkeypatch):
 @pytest.mark.parametrize("args, message", [
     (("wip", "x", None), "type 'wip'"),
     (("feat", "Bad_Slug", None), "kebab-case"),
-    (("feat", "x", "abc"), "issue must be a number"),
+    (("feat", "x", "a b"), "invalid none issue id"),
 ])
 def test_rejects_bad_input(configured, args, message):
     with pytest.raises(AwError, match=message):

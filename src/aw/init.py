@@ -132,9 +132,10 @@ def run(assume_yes: bool, sets: list[str]) -> Path:
     interactive = not assume_yes and sys.stdin.isatty()
     values: dict[str, Any] = {"aw_version": full["version"]}
     for key, spec in schema.items():
+        applies = all(values.get(k, existing.get(k)) == v for k, v in spec.get("when", {}).items())
         if key in overrides:
             values[key] = overrides[key]
-        elif spec.get("ask"):
+        elif spec.get("ask") and applies:
             default = existing.get(key, detected.get(key, spec["default"]))
             values[key] = prompt(key, spec, default) if interactive else default
         elif key in existing:

@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
 from pathlib import Path
 
-from aw import install
+from aw import install, trackers
 from aw.config import PROJECT_FILE, AwError, load, load_schema, repo_root
 
 NAME = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
@@ -115,6 +116,27 @@ def check_project() -> list[Result]:
                                     stderr=subprocess.DEVNULL, check=False).returncode == 0
             results.append(("ok", f"{cli} authenticated") if authed
                            else ("fail", f"{cli} not authenticated; run `{cli} auth login`"))
+    if cfg.get("tracker") == "jira":
+        results += check_jira(cfg)
+    return results
+
+
+def check_jira(cfg) -> list[Result]:
+    from aw.trackers.jira import CREDENTIALS
+
+    results: list[Result] = []
+    for var in CREDENTIALS:
+        results.append(("ok", f"{var} is set") if os.environ.get(var) else ("fail", f"{var} is not set"))
+    if not (cfg.get("jira_base_url") or os.environ.get("JIRA_BASE_URL")):
+        results.append(("fail", "jira_base_url is not set"))
+    if not cfg.get("jira_project"):
+        results.append(("warn", "jira_project is not set; aw issue list and create need it"))
+    if all(r[0] != "fail" for r in results):
+        try:
+            trackers.get(cfg).request("GET", "/rest/api/3/myself")
+            results.append(("ok", "jira authenticated"))
+        except Exception as e:  # noqa: BLE001 - any failure is a doctor finding
+            results.append(("fail", f"jira: {e}"))
     return results
 
 

@@ -1,7 +1,8 @@
 # Every key a project can set in .agents/aw.toml.
 #
-# type:    str | bool | list | choice
+# type:    str | bool | list | choice | table (string values)
 # ask:     aw init prompts for it (others are set with --set or by editing)
+# when:    ask only if these keys already have these values
 # detect:  name of a detector in init.py that proposes the default
 # default: fallback when nothing else sets the key
 #
@@ -28,11 +29,40 @@ help = "Where pull/merge requests live (none: merge by hand, aw finish only clea
 
 [keys.tracker]
 type = "choice"
-choices = ["github", "gitlab", "none"]
+choices = ["github", "gitlab", "jira", "none"]
 ask = true
 detect = "forge"
 default = "none"
 help = "Issue tracker"
+
+[keys.jira_base_url]
+type = "str"
+ask = true
+when = { tracker = "jira" }
+default = ""
+help = "Jira site URL, e.g. https://your-org.atlassian.net (credentials: JIRA_USER_EMAIL, JIRA_API_TOKEN, optional JIRA_CLOUD_ID)"
+
+[keys.jira_project]
+type = "str"
+ask = true
+when = { tracker = "jira" }
+default = ""
+help = "Jira project key for new issues and open-issue lists"
+
+[keys.jira_fields]
+type = "table"
+default = {}
+help = "Extra Jira fields shown by aw issue view, name = field id (e.g. acceptance_criteria = \"customfield_10000\")"
+
+[keys.status_map]
+type = "table"
+default = {}
+help = "Canonical status (backlog, ready, in_progress, in_review, done) = tracker status name"
+
+[keys.sync_issue_status]
+type = "bool"
+default = true
+help = "aw start-task moves the issue to in_progress and aw finish to done (trackers with workflow states)"
 
 [keys.instructions_file]
 type = "str"
@@ -74,6 +104,11 @@ type = "str"
 ask = true
 default = ""
 help = "Directory with plan documents, relative to the repo root (empty: none)"
+
+[keys.plan_file]
+type = "str"
+default = "{issue}-{slug}.md"
+help = "Plan file path under plan_dir; placeholders {issue} {slug} {parent} {parent_slug} {date}"
 
 [keys.branch_types]
 type = "list"

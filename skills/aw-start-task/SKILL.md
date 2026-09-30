@@ -2,7 +2,7 @@
 name: aw-start-task
 description: Start an implementation session - create the branch and worktree, load the scope into a task list, and hand over to implementation. Use only when the user invokes it.
 disable-model-invocation: true
-allowed-tools: Bash(~/.agents/bin/aw config) Bash(~/.agents/bin/aw start-task:*)
+allowed-tools: Bash(~/.agents/bin/aw config) Bash(~/.agents/bin/aw start-task:*) Bash(~/.agents/bin/aw issue view:*)
 metadata:
   package: agentic-workflows
 ---
@@ -21,19 +21,17 @@ On error, show it and stop. If `.agents/aw.toml` is missing, tell the user to ru
 
 ## 2. Choose type and slug
 
-- Issue reference (`#N`) in the request and `tracker` is set: read the issue.
-  - `github`: `gh issue view N --json title,body,labels`
-  - `gitlab`: `glab issue view N`
+- Issue reference in the request (`#12`, `PROJ-123`) and `tracker` is not `none`: read it with `~/.agents/bin/aw issue view <id>`.
 - `type`: one of `branch_types`. New feature → `feat`, bug → `fix`, upgrade or maintenance → `chore`, docs only → `docs`.
 - `slug`: 2–5 words, kebab-case, naming the outcome (e.g. `retry-failed-uploads`).
 
 ## 3. Create the worktree
 
 ```bash
-~/.agents/bin/aw start-task <type> <slug> [--issue N]
+~/.agents/bin/aw start-task <type> <slug> [--issue <id>]
 ```
 
-It syncs `main_branch`, picks the session number, creates branch and worktree, sets up direnv, and runs `on_issue_start`. It prints `session`, `branch`, `worktree`, `issue`.
+It syncs `main_branch`, picks the session number, creates branch and worktree, sets up direnv, moves the issue to in progress (trackers with workflow states, `sync_issue_status`), and runs `on_issue_start`. It prints `session`, `branch`, `worktree`, `issue`.
 
 - Do not create branches or worktrees any other way.
 - On a non-zero exit, show stderr and stop.
@@ -41,7 +39,7 @@ It syncs `main_branch`, picks the session number, creates branch and worktree, s
 ## 4. Load scope
 
 - Read `<worktree>/<instructions_file>`.
-- Plan source, first match: a plan path in the request; a file under `plan_dir` that names the issue; the issue body.
+- Plan source, first match: a plan path in the request; a file under `plan_dir` whose name contains the issue id (`plan_file` gives the layout); the issue from `aw issue view`.
 - Create one task per plan step. No plan → plan the approach with the user before any code.
 - State the scope: what this session delivers, what it defers.
 
@@ -53,7 +51,7 @@ Print:
 Session s<session> ready
   worktree: <worktree>
   branch:   <branch>
-  issue:    #<issue> | none
+  issue:    <issue ref> | none
   verify:   <verify_cmd> | none
   scope:    <one line>
 Implementation starts now. All file operations use absolute paths under <worktree>.

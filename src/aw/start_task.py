@@ -8,7 +8,7 @@ import sys
 from datetime import date
 from pathlib import Path
 
-from aw import session
+from aw import session, trackers
 from aw.config import AwError, Config, git
 
 SLUG = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
@@ -45,15 +45,23 @@ def next_session(cfg: Config) -> int:
     return max(numbers) + 1
 
 
+def _fill(cfg: Config, key: str, ph: dict[str, str]) -> str:
+    """Expand a name template; without an issue, drop {issue} and its separator."""
+    template = cfg.values[key]
+    if not ph["issue"]:
+        for part in ("{issue}-", "-{issue}", "{issue}/", "{issue}"):
+            template = template.replace(part, "")
+    return cfg.expand(template, **ph)
+
+
 def run(cfg: Config, kind: str, slug: str, issue: str | None, number: int | None = None) -> dict[str, str]:
-    issue = (issue or "").lstrip("#")
+    tracker = trackers.get(cfg)
+    issue = tracker.normalize(issue) if issue else ""
     types = cfg.get("branch_types")
     if kind not in types:
         raise AwError(f"type {kind!r} not in: {' '.join(types)}")
     if not SLUG.match(slug):
         raise AwError(f"slug must be kebab-case: {slug!r}")
-    if issue and not issue.isdigit():
-        raise AwError(f"issue must be a number: {issue!r}")
 
     root, main = cfg.root, cfg.get("main_branch")
     current = git("branch", "--show-current", cwd=root)
@@ -67,8 +75,8 @@ def run(cfg: Config, kind: str, slug: str, issue: str | None, number: int | None
     n = number or next_session(cfg)
     ph = {"type": kind, "slug": slug, "n": str(n),
           "date": date.today().strftime("%Y%m%d"), "issue": issue}
-    branch = cfg.get("branch_name", **ph)
-    worktree = Path(cfg.get("worktree_root", **ph)) / cfg.get("worktree_name", **ph)
+    branch = _fill(cfg, "branch_name", ph)
+    worktree = Path(cfg.get("worktree_root", **ph)) / _fill(cfg, "worktree_name", ph)
 
     if subprocess.run(["git", "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"],
                       cwd=root, check=False).returncode == 0:
@@ -87,6 +95,13 @@ def run(cfg: Config, kind: str, slug: str, issue: str | None, number: int | None
     if cfg.get("direnv"):
         (worktree / ".envrc").write_text(ENVRC)
         subprocess.run(["direnv", "allow", str(worktree)], check=True, stdout=sys.stderr)
+
+    if issue and cfg.get("sync_issue_status"):
+        try:
+            if message := tracker.on_start(issue):
+                print(message, file=sys.stderr)
+        except AwError as e:
+            print(f"warning: issue status not updated: {e}", file=sys.stderr)
 
     hook = cfg.get("on_issue_start", **ph)
     if issue and hook:
