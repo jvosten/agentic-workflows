@@ -15,19 +15,11 @@ Deferred features and open checks. Each entry has enough context to be picked up
 - Claude Code accepts `~` in `allowed-tools: Bash(~/.agents/bin/aw start-task:*)`. If not, every `aw` call prompts for permission; fallback is a permission rule in `~/.claude/settings.json`.
 - `disable-model-invocation: true` hides `aw-start-task` from the model while `/aw-start-task` still works.
 - The model continues into implementation in the same turn after the handover.
+- `aw-finalize` end to end on a real PR, including the permission prompt on `aw finish`.
+- `forge = gitlab`: `glab mr view --output json` state values and `glab mr merge` flags are taken from docs, not tested.
 - Codex finds `~/.agents/skills/aw-start-task` and honours `agents/openai.yaml` (`allow_implicit_invocation: false`).
 
-**Done when:** one real session per agent has started through the skill, and the findings are in the README.
-
-### [HIGH] aw-finalize skill
-
-**Context:** Second half of the session workflow. A typical project `finalize` skill mixes judgement (docs, changelog text, PR description) with deterministic steps (commit, push, PR, CI wait, merge, worktree removal, branch deletion, prune).
-
-**Scope:**
-- `aw finish` subcommand for the deterministic tail: run `verify_cmd`, merge without `--delete-branch`, remove the worktree, delete the local branch, `git remote prune origin`.
-- Skill keeps: update docs, changelog, and the session log row; write the PR body; review the diff; hand back to the user before merging.
-- New keys, likely: `changelog_file`, `session_log_row` (row template), `pr_close_keyword` (`Fixes`, `Closes`).
-- User-invoked only, like `aw-start-task`.
+**Done when:** one real session per agent has run through both skills, and the findings are in the README.
 
 ### [HIGH] Tracker operation contract (GitHub, GitLab, Jira)
 
@@ -87,11 +79,17 @@ Deferred features and open checks. Each entry has enough context to be picked up
 
 **Scope:** test `uv tool install git+<url>`; check that `npx skills add <repo>` finds the skills (layout is spec-compliant).
 
+### [MEDIUM] Changelog fragments for shared repos
+
+**Context:** Session ids are no longer committed, but every PR still edits the same `CHANGELOG.md`, so parallel PRs conflict. towncrier and changesets solve this with one file per change (`changelog.d/<branch>.md`), compiled at release.
+
+**Scope:** `changelog_mode = file | fragments` plus `changelog_dir`; `aw-finalize` writes a fragment in fragments mode; `aw changelog build` compiles and removes fragments.
+
 ### [LOW] Session number race
 
-**Context:** Two `aw start-task` runs at the same moment compute the same number; the second fails on "path exists" only if the slug matches too. Rare with one user.
+**Context:** Two `aw start-task` runs in the same clone at the same moment compute the same number; the second fails on "path exists" only if the slug matches too.
 
-**Scope:** take a lock file in the git common dir while computing the number and creating the worktree.
+**Scope:** take a lock file next to `aw-last-session` while computing the number and creating the worktree.
 
 ### [LOW] Session title hook
 

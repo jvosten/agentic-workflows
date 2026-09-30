@@ -33,7 +33,7 @@ def repo(tmp_path, monkeypatch):
     sh("git", "init", "-q", "--bare", "-b", "main", str(origin), cwd=tmp_path)
     sh("git", "init", "-q", "-b", "main", str(root), cwd=tmp_path)
     (root / "AGENTS.md").write_text("# agents\n")
-    (root / "SESSIONS.md").write_text("| # | Date |\n|---|---|\n| 1 | a |\n| 12 | b |\n")
+    (root / "CHANGELOG.md").write_text("# Changelog\n")
     (root / "Makefile").write_text("validate:\n\ttrue\n")
     sh("git", "add", ".", cwd=root)
     sh("git", "commit", "-qm", "init", cwd=root)

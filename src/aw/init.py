@@ -30,7 +30,7 @@ def _main_branch(root: Path) -> str | None:
         return git("branch", "--show-current", cwd=root) or None
 
 
-def _tracker(root: Path) -> str | None:
+def _forge(root: Path) -> str | None:
     try:
         url = git("remote", "get-url", "origin", cwd=root)
     except AwError:
@@ -49,8 +49,8 @@ def _instructions_file(root: Path) -> str | None:
     return None
 
 
-def _session_log(root: Path) -> str | None:
-    return "SESSIONS.md" if (root / "SESSIONS.md").is_file() else None
+def _changelog_file(root: Path) -> str | None:
+    return "CHANGELOG.md" if (root / "CHANGELOG.md").is_file() else None
 
 
 def _direnv(root: Path) -> bool:
@@ -81,9 +81,9 @@ def _verify_cmd(root: Path) -> str | None:
 
 DETECTORS: dict[str, Callable[[Path], Any]] = {
     "main_branch": _main_branch,
-    "tracker": _tracker,
+    "forge": _forge,
+    "changelog_file": _changelog_file,
     "instructions_file": _instructions_file,
-    "session_log": _session_log,
     "direnv": _direnv,
     "verify_cmd": _verify_cmd,
 }

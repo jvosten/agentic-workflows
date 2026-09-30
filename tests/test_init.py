@@ -16,11 +16,13 @@ def test_detects_defaults(repo):
     assert data == {
         "aw_version": 1,
         "main_branch": "main",
-        "tracker": "none",  # local bare origin: neither github nor gitlab
+        "forge": "none",  # local bare origin: neither github nor gitlab
+        "tracker": "none",
         "instructions_file": "AGENTS.md",
-        "session_log": "SESSIONS.md",
         "direnv": False,
         "verify_cmd": "make validate",
+        "changelog_file": "CHANGELOG.md",
+        "merge_method": "merge",
         "plan_dir": "",
     }
     assert (repo / ".agents/.gitignore").read_text() == "aw.local.toml\n"
@@ -40,7 +42,7 @@ def test_tracker_detection(repo):
     from aw.config import git
 
     git("remote", "set-url", "origin", "git@github.com:someone/proj.git", cwd=repo)
-    assert init.detect(repo, {"tracker": {"detect": "tracker"}}) == {"tracker": "github"}
+    assert init.detect(repo, {"tracker": {"detect": "forge"}}) == {"tracker": "github"}
 
 
 def test_prompt_reasks_on_invalid(monkeypatch):

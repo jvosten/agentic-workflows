@@ -6,7 +6,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from aw import __version__, doctor, init, install, start_task
+from aw import __version__, doctor, finish, init, install, session, start_task
 from aw.config import AwError, load, toml_value
 
 
@@ -25,8 +25,22 @@ def _config(args: argparse.Namespace) -> None:
 
 
 def _start_task(args: argparse.Namespace) -> None:
-    for key, value in start_task.run(load(), args.type, args.slug, args.issue).items():
+    for key, value in start_task.run(load(), args.type, args.slug, args.issue, args.number).items():
         print(f"{key}={value}")
+
+
+def _session(args: argparse.Namespace) -> None:
+    for key, value in session.read().items():
+        print(f"{key}={value}")
+
+
+def _verify(args: argparse.Namespace) -> int:
+    return finish.verify(load())
+
+
+def _finish(args: argparse.Namespace) -> None:
+    for line in finish.run(load(), session.read(), args.pr):
+        print(line)
 
 
 def _init(args: argparse.Namespace) -> None:
@@ -72,7 +86,18 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("type")
     s.add_argument("slug")
     s.add_argument("--issue")
+    s.add_argument("--number", type=int, help="session number (default: next in this clone)")
     s.set_defaults(func=_start_task)
+
+    s = sub.add_parser("session", help="print the current worktree's session metadata")
+    s.set_defaults(func=_session)
+
+    s = sub.add_parser("verify", help="run verify_cmd in the current checkout")
+    s.set_defaults(func=_verify)
+
+    s = sub.add_parser("finish", help="merge the PR, remove the worktree, update main, delete the branch")
+    s.add_argument("--pr", help="pull/merge request number (required unless forge = none)")
+    s.set_defaults(func=_finish)
 
     s = sub.add_parser("doctor", help="check installation and project configuration")
     s.set_defaults(func=_doctor)

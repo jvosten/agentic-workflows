@@ -7,6 +7,7 @@
 #
 # Placeholders, expanded when read: {project} {repo_parent} everywhere;
 # {type} {slug} {n} {date} {issue} in branch_name, worktree_name, on_issue_start.
+# {n} is the session number, counted per clone and never committed.
 
 version = 1
 
@@ -17,11 +18,19 @@ detect = "main_branch"
 default = "main"
 help = "Branch that sessions start from and merge into"
 
+[keys.forge]
+type = "choice"
+choices = ["github", "gitlab", "none"]
+ask = true
+detect = "forge"
+default = "none"
+help = "Where pull/merge requests live (none: merge by hand, aw finish only cleans up)"
+
 [keys.tracker]
 type = "choice"
 choices = ["github", "gitlab", "none"]
 ask = true
-detect = "tracker"
+detect = "forge"
 default = "none"
 help = "Issue tracker"
 
@@ -31,13 +40,6 @@ ask = true
 detect = "instructions_file"
 default = "AGENTS.md"
 help = "Agent instructions file, relative to the repo root"
-
-[keys.session_log]
-type = "str"
-ask = true
-detect = "session_log"
-default = ""
-help = "Markdown table whose first column is the session number (empty: none)"
 
 [keys.direnv]
 type = "bool"
@@ -52,6 +54,20 @@ ask = true
 detect = "verify_cmd"
 default = ""
 help = "Command that validates a change before commit (empty: none)"
+
+[keys.changelog_file]
+type = "str"
+ask = true
+detect = "changelog_file"
+default = ""
+help = "Changelog that aw-finalize adds an entry to (empty: none)"
+
+[keys.merge_method]
+type = "choice"
+choices = ["merge", "squash", "rebase"]
+ask = true
+default = "merge"
+help = "How aw finish merges the pull/merge request"
 
 [keys.plan_dir]
 type = "str"
@@ -83,3 +99,8 @@ help = "Worktree directory name pattern"
 type = "str"
 default = ""
 help = "Shell command run in the new worktree when a session starts from an issue"
+
+[keys.pr_close_keyword]
+type = "str"
+default = "Fixes"
+help = "Keyword that links a PR to the issue it closes"

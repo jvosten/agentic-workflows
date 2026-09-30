@@ -42,6 +42,12 @@ aw doctor
 
 Later layers win. `aw config --sources` shows which layer set each value. All keys, types and help texts are in [`src/aw/schema.toml`](src/aw/schema.toml).
 
+## Sessions
+
+A session is one worktree on one branch, from `aw start-task` to `aw finish`. Its number is counted per clone (`.git/aw-last-session`) and never committed. It names the worktree and nothing else, so in a shared repo nobody's numbers collide. Session metadata (branch, worktree, issue) lives in the worktree's private git dir and disappears with it.
+
+The committed record of a session is its pull request and its changelog entry. Projects moving from their own numbering start once with `aw start-task ... --number N`; the counter continues from there.
+
 ## Commands
 
 | Command | Does |
@@ -49,7 +55,10 @@ Later layers win. `aw config --sources` shows which layer set each value. All ke
 | `aw install [--agent claude]` | Link skills into `~/.agents/skills` and agent dirs, CLI into `~/.agents/bin/aw` |
 | `aw init [-y] [--set K=V]` | Create or update `.agents/aw.toml` |
 | `aw config [--get KEY] [--sources]` | Print resolved configuration |
-| `aw start-task <type> <slug> [--issue N]` | Sync main, pick session number, create branch + worktree, direnv, issue hook |
+| `aw start-task <type> <slug> [--issue N] [--number N]` | Sync main, pick session number, create branch + worktree, direnv, issue hook |
+| `aw session` | Print the current worktree's session metadata |
+| `aw verify` | Run `verify_cmd` in the current checkout (through direnv if enabled) |
+| `aw finish [--pr N]` | Merge with `merge_method`, remove worktree, update main, delete local + remote branch |
 | `aw doctor` | Check installation, skill frontmatter, project config, tools, tracker auth |
 
 ## Skills
@@ -57,6 +66,9 @@ Later layers win. `aw config --sources` shows which layer set each value. All ke
 | Skill | Invocation | Does |
 |---|---|---|
 | `aw-start-task` | user only | Creates the session worktree via `aw start-task`, loads the plan into a task list, hands over to implementation |
+| `aw-finalize` | user only | Docs, `aw verify`, commit, PR, changelog entry, review + CI, then `aw finish` |
+
+`aw finish` is deliberately not in `aw-finalize`'s `allowed-tools`: the merge asks for permission.
 
 User-only skills set `disable-model-invocation: true` (Claude Code) and `policy.allow_implicit_invocation: false` in `agents/openai.yaml` (Codex).
 

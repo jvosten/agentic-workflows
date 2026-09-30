@@ -99,7 +99,7 @@ def check_project() -> list[Result]:
     results.append(("ok", f"instructions_file {cfg.get('instructions_file')}")
                    if (cfg.checkout / cfg.get("instructions_file")).is_file()
                    else ("fail", f"instructions_file {cfg.get('instructions_file')} not found"))
-    for key in ("session_log", "plan_dir"):
+    for key in ("changelog_file", "plan_dir"):
         value = cfg.get(key)
         if value and not (cfg.checkout / value).exists():
             results.append(("warn", f"{key} {value} not found"))
@@ -107,9 +107,9 @@ def check_project() -> list[Result]:
     results.append(_tool("git", "required"))
     if cfg.get("direnv"):
         results.append(_tool("direnv", "direnv = true"))
-    cli = TRACKER_CLI.get(cfg.get("tracker"))
-    if cli:
-        results.append(_tool(cli, f"tracker = {cfg.get('tracker')}"))
+    clis = {TRACKER_CLI[cfg.get(k)]: k for k in ("forge", "tracker") if cfg.get(k) in TRACKER_CLI}
+    for cli, key in clis.items():
+        results.append(_tool(cli, f"{key} = {cfg.get(key)}"))
         if shutil.which(cli):
             authed = subprocess.run([cli, "auth", "status"], stdout=subprocess.DEVNULL,
                                     stderr=subprocess.DEVNULL, check=False).returncode == 0
