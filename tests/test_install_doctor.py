@@ -66,3 +66,13 @@ def test_skill_frontmatter_check(tmp_path):
     (skill / "SKILL.md").write_text("---\nname: other\ndescription: x\n---\n")
     levels = {level for level, _ in doctor.check_skill(skill)}
     assert levels == {"fail"}
+
+
+def test_menu_lists_skills_before_commands(capsys):
+    from aw import cli
+
+    assert cli.main([]) == 0
+    out = capsys.readouterr().out
+    assert out.index("Skills") < out.index("/aw-start-task") < out.index("Commands") < out.index("aw start-task")
+    assert "/aw-start-task" in out and "Start an implementation session (user only)" in out
+    assert "\033[" not in out  # no colour when not a terminal

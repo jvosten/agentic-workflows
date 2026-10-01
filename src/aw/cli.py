@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import re
+import shutil
 import sys
 from dataclasses import asdict
 from pathlib import Path
@@ -117,6 +120,48 @@ def _doctor(args: argparse.Namespace) -> int:
     return 1 if any(level == "fail" for level, _ in results) else 0
 
 
+def _summary(description: str) -> str:
+    """First clause of a skill description: up to ' - ' or the end of the first sentence."""
+    return re.split(r"\s-\s|(?<=\.)\s", description, maxsplit=1)[0].rstrip(".")
+
+
+def menu(parser: argparse.ArgumentParser) -> str:
+    color = sys.stdout.isatty() and "NO_COLOR" not in os.environ
+
+    def name(text: str) -> str:
+        return f"\033[36m{text}\033[0m" if color else text
+
+    def head(text: str) -> str:
+        return f"\033[1m{text}\033[0m" if color else text
+
+    workflow = ["aw-plan-story", "aw-start-task", "aw-finalize"]
+    order = sorted(install.source_skills(), key=lambda p: (workflow.index(p.name) if p.name in workflow else 99, p.name))
+    skills = []
+    for skill in order:
+        fm = doctor.frontmatter(skill / "SKILL.md")
+        suffix = " (user only)" if fm.get("disable-model-invocation") == "true" else ""
+        skills.append((f"/{fm.get('name', skill.name)}", _summary(fm.get("description", "")) + suffix))
+    sub = next(a for a in parser._actions if isinstance(a, argparse._SubParsersAction))
+    commands = [(f"aw {a.dest}", a.help or "") for a in sub._choices_actions]
+
+    col = max(len(n) for n, _ in skills + commands) + 2
+    width = shutil.get_terminal_size((100, 20)).columns
+    room = max(width - col - 2, 20)
+
+    def rows(items: list[tuple[str, str]]) -> list[str]:
+        out = []
+        for n, text in items:
+            text = text if len(text) <= room else text[: room - 1] + "…"
+            out.append(f"  {name(n.ljust(col))}{text}")
+        return out
+
+    lines = [f"aw {__version__}: standardized agentic workflows", "",
+             head("Skills (run in your agent)"), *rows(skills), "",
+             head("Commands"), *rows(commands), "",
+             "Run `aw <command> -h` for options."]
+    return "\n".join(lines)
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="aw", description="Standardized agentic workflows.")
     p.add_argument("--version", action="version", version=f"aw {__version__}")
@@ -195,7 +240,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    argv = sys.argv[1:] if argv is None else argv
+    if not argv or argv[0] == "help":
+        print(menu(parser))
+        return 0
+    args = parser.parse_args(argv)
     if args.command == "install" and args.agent is None:
         args.agent = ["claude"]
     try:
