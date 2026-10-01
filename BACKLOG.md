@@ -22,6 +22,17 @@ Deferred features and open checks. Each entry has enough context to be picked up
 
 **Done when:** one real session per agent has run through both skills, and the findings are in the README.
 
+### [MEDIUM] Vendor-neutral project memory
+
+**Context:** No standard exists; each agent keeps its own memory (Claude Code: `~/.claude/projects/<repo>/memory/`, machine-local, relocatable only to absolute paths via `autoMemoryDirectory`). The pattern that works across vendors is plain files in the repo plus a pointer in the instruction file (agent-memory / Accenture Mercury; MCP servers over repo files). Projects often keep this by hand already (decision logs, pitfall lists).
+
+**Scope:**
+- Split: personal memory stays in each agent's native store; project memory is committed and reviewed.
+- Format: `.agents/memory/MEMORY.md` index + one Markdown file per fact with `type` frontmatter (Claude's layout). `aw init` adds a pointer to the index in `instructions_file`.
+- `aw memory index` regenerates `MEMORY.md` from the fact files; `.gitattributes` `merge=union` for the index; `aw doctor` checks index freshness and the 200-line load limit.
+- `aw-remember` skill: what qualifies (decisions, pitfalls, references not derivable from code), never personal preferences or secrets; `aw-finalize` flags memory changes in the PR review.
+- Option: `autoMemoryEnabled: false` in project settings so Claude keeps one project memory, not two.
+
 ### [MEDIUM] Forge operations through aw
 
 **Context:** Skills no longer call trackers directly, but `aw-finalize` still runs `gh pr create`, `gh pr checks`, `glab mr create` itself. Same pattern as the tracker contract, for pull/merge requests.
