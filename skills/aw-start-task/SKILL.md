@@ -2,7 +2,7 @@
 name: aw-start-task
 description: Start an implementation session - create the branch and worktree, load the scope into a task list, and hand over to implementation. Use only when the user invokes it.
 disable-model-invocation: true
-allowed-tools: Bash(~/.agents/bin/aw config) Bash(~/.agents/bin/aw start-task:*) Bash(~/.agents/bin/aw issue view:*)
+allowed-tools: Bash(~/.agents/bin/aw config) Bash(~/.agents/bin/aw start-task:*) Bash(~/.agents/bin/aw issue view:*) Bash(~/.agents/bin/aw plan path:*)
 metadata:
   package: agentic-workflows
 ---
@@ -39,7 +39,8 @@ It syncs `main_branch`, picks the session number, creates branch and worktree, s
 ## 4. Load scope
 
 - Read `<worktree>/<instructions_file>`.
-- Plan source, first match: a plan path in the request; a file under `plan_dir` whose name contains the issue id (`plan_file` gives the layout); the issue from `aw issue view`.
+- Plan source, first match: a plan path in the request; `~/.agents/bin/aw plan path <issue>` (for a subtask it resolves the parent story's plan); the issue from `aw issue view`.
+- The issue is a subtask → work only the plan section whose `**Subtask:**` line names it. No match → ask which section applies.
 - Create one task per plan step. No plan → plan the approach with the user before any code.
 - State the scope: what this session delivers, what it defers.
 

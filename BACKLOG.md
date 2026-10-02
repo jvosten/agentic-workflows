@@ -95,6 +95,10 @@ Deferred features and open checks. Each entry has enough context to be picked up
 
 **Scope:** `aw init` offers to create `CLAUDE.md` with `@AGENTS.md` when `instructions_file = "AGENTS.md"` and no `CLAUDE.md` exists.
 
+### MEDIUM finalize refactor
+- finalize should effectively be able to clean up --> allowed tools
+- we need to wire backlog item
+
 ### [LOW] Per-skill model override for Claude Code
 
 **Context:** Frontmatter `model:` is Claude-only and static. With symlinked skills all agents share one `SKILL.md`, so it cannot be set per machine. With the deterministic steps in `aw`, the saving is small.

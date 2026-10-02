@@ -159,7 +159,7 @@ def menu(parser: argparse.ArgumentParser) -> str:
     def head(text: str) -> str:
         return f"\033[1m{text}\033[0m" if color else text
 
-    workflow = ["aw-plan-story", "aw-start-task", "aw-finalize"]
+    workflow = ["aw-plan", "aw-to-story", "aw-plan-story", "aw-to-subtasks", "aw-start-task", "aw-finalize"]
     order = sorted(install.source_skills(), key=lambda p: (workflow.index(p.name) if p.name in workflow else 99, p.name))
     skills = []
     for skill in order:
