@@ -6,17 +6,20 @@ Skills follow the [Agent Skills](https://agentskills.io/specification) format an
 
 ## Install
 
-Requires `git` and [`uv`](https://docs.astral.sh/uv/).
+Requires `git`, `make` and [`uv`](https://docs.astral.sh/uv/).
 
 ```bash
 git clone <this repo> ~/projects/agentic-workflows
 cd ~/projects/agentic-workflows
-uv tool install --editable .     # puts `aw` in ~/.local/bin
-~/.local/bin/aw install          # links skills and ~/.agents/bin/aw
-~/.agents/bin/aw doctor
+make install       # installs the `aw` CLI, links skills and ~/.agents/bin/aw
+make doctor
 ```
 
-The editable install means edits to this repo take effect without reinstalling. Re-run `aw install` after adding or removing a skill.
+`make install` runs two steps: `uv tool install --editable .` puts `aw` on your PATH, and `aw install` links each skill into `~/.agents/skills/` (plus `~/.claude/skills/`) and the CLI to `~/.agents/bin/aw`, the path every skill calls. Without the second step no agent sees the skills.
+
+The editable install means edits to this repo take effect without reinstalling. Re-run `make install` after adding or removing a skill: it also prunes links to skills that are gone.
+
+`make install` installs the tool; `aw init` (below) configures one project.
 
 ## Use the skills
 
@@ -50,6 +53,7 @@ For design work before planning, `/aw-grill-with-docs` interviews you and keeps 
 | `aw-grill-with-docs` | user only | `aw-grilling` plus `aw-domain-modeling` |
 | `aw-domain-modeling` | user or model | Challenge terms, keep `GLOSSARY.md` and `docs/adr/` current |
 | `aw-remember` | user or model | Append one decision or gotcha to the project's memory |
+| `aw-backlog-item` | user or model | Discussion → one backlog item, repo-local, optionally pushed to the tracker |
 
 User-only skills never start by themselves; the model may pick up the others when the task calls for them.
 
@@ -69,6 +73,12 @@ One entry per heading, newest last, each stamped with its date and issue. `aw me
 Writers: `aw-plan-story` after accepted grilling decisions that outlive the story, `aw-finalize` for gotchas the session paid for, `/aw-remember` any time in between. Entries are written in the session worktree, so they are reviewed and merged with the work that taught them. `aw-start-task` reads both files at the start of the next session, and `aw doctor` warns when a file passes 200 lines — the point to retire what no longer holds.
 
 Titles are claims (`boto3 is pinned below 1.36`), because a session loads these files whole and the title carries the point.
+
+## Backlog
+
+Deferred work goes to `backlog_file` (default `BACKLOG.md`) through `/aw-backlog-item`, which `aw-finalize` calls for anything a session chose not to do. `aw backlog add` places the item among the file's existing items and copies their heading level and separators, so a flat `## Item` list and a sectioned `### [PRIO] Item` list both stay intact.
+
+An item can then be pushed to the tracker: `aw issue dupes <backlog_parent> --terms ...` shows candidates under `backlog_parent` two levels deep in any state, you confirm, `aw issue create --parent <backlog_parent> [--type <backlog_type>]` creates it, and `aw backlog pop` removes the local copy so one item does not live in two places. Staying repo-local is a normal outcome, not a failure.
 
 ## Set up a project
 
@@ -108,6 +118,7 @@ Skills never call a tracker directly; they call `aw issue <op>`, and `tracker` i
 |---|---|---|---|
 | `view` (parent, children, comments, extra fields) | ✓ | ✓ | ✓ (no children/comments) |
 | `children` | sub-issues + task-list refs | JQL `parent = KEY` | – |
+| `dupes` (parent, terms, any state) | sub-issue id set ∩ search | one scoped JQL | unscoped search, says so |
 | `list`, `search` | ✓ | ✓ (`--raw` = JQL) | ✓ |
 | `create` (with `--parent`, `--dry-run`) | ✓ (as sub-issue) | ✓ (Markdown → ADF) | – |
 | `update` (title, description; `--dry-run`) | ✓ | ✓ | – |
@@ -136,6 +147,8 @@ Statuses are canonical (`backlog`, `ready`, `in_progress`, `in_review`, `done`);
 | `aw template <story\|subtask\|plan>` | Print a document template, project override from `templates` |
 | `aw memory add <decision\|gotcha> --title T --body-file F [--ref ID]` | Append one entry to the project's memory |
 | `aw memory supersede <decision\|gotcha> --title T --reason R` | Retire an entry, keeping it under `## Superseded` |
+| `aw backlog add --title T --body-file F` | Add an item to `backlog_file`, matching the file's item shape |
+| `aw backlog pop --title T` | Remove an item, once the tracker owns it |
 | `aw doctor` | Check installation, skill frontmatter, project config, tools, tracker auth |
 
 ## Skill internals
@@ -157,6 +170,8 @@ Two skills write a story: `aw-to-story` when the conversation redefined it, `aw-
 ```bash
 uv run pytest
 ```
+
+or `make check`, which `aw init` detects as this repo's `verify_cmd`.
 
 Planned work: [BACKLOG.md](BACKLOG.md).
 

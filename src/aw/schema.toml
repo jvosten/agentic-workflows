@@ -106,6 +106,21 @@ ask = true
 default = "merge"
 help = "How aw finish merges the pull/merge request"
 
+[keys.backlog_file]
+type = "str"
+default = "BACKLOG.md"
+help = "Repo backlog, relative to the repo root (empty: none)"
+
+[keys.backlog_parent]
+type = "str"
+default = ""
+help = "Issue that backlog items pushed to the tracker hang under (empty: ask each time)"
+
+[keys.backlog_type]
+type = "str"
+default = ""
+help = "Issue type for backlog items pushed to the tracker (empty: the tracker default)"
+
 [keys.memory_dir]
 type = "str"
 default = ".agents/memory"

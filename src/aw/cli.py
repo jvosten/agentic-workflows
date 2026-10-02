@@ -11,7 +11,7 @@ import sys
 from dataclasses import asdict
 from pathlib import Path
 
-from aw import __version__, doctor, finish, init, install, memory, plan, session, start_task, templates, trackers
+from aw import __version__, backlog, doctor, finish, init, install, memory, plan, session, start_task, templates, trackers
 from aw.config import AwError, load, toml_value
 from aw.trackers import STATUSES
 
@@ -76,6 +76,11 @@ def _issue(args: argparse.Namespace) -> None:
             print(text, end="")
     elif op == "children":
         _rows(tracker.children(issue), args.json)
+    elif op == "dupes":
+        rows = tracker.dupes(issue, args.terms, args.limit)
+        if not tracker.scoped():
+            print(f"note: {tracker.name} has no parent links; searched the whole project", file=sys.stderr)
+        _rows(rows, args.json)
     elif op == "comment":
         tracker.comment(issue, _body(args.body_file))
         print(f"commented on {tracker.ref(issue)}")
@@ -106,6 +111,14 @@ def _plan(args: argparse.Namespace) -> None:
         return
     _, found = plan.locate(cfg, tracker, args.ref, args.slug)
     print(found)
+
+
+def _backlog(args: argparse.Namespace) -> None:
+    cfg = load()
+    if args.op == "pop":
+        print(f"removed from {backlog.pop(cfg, args.title)}")
+        return
+    print(f"added to {backlog.add(cfg, args.title, _body(args.body_file))}")
 
 
 def _memory(args: argparse.Namespace) -> None:
@@ -231,6 +244,11 @@ def build_parser() -> argparse.ArgumentParser:
     o = ops.add_parser("children", help="child issues / subtasks")
     o.add_argument("id")
     o.add_argument("--json", action="store_true")
+    o = ops.add_parser("dupes", help="candidates under a parent that match the given terms, any state")
+    o.add_argument("id", help="parent issue the candidates hang under")
+    o.add_argument("--terms", nargs="+", required=True)
+    o.add_argument("--limit", type=int, default=20)
+    o.add_argument("--json", action="store_true")
     o = ops.add_parser("list", help="open issues (Jira: in jira_project)")
     o.add_argument("--limit", type=int, default=20)
     o.add_argument("--json", action="store_true")
@@ -270,6 +288,15 @@ def build_parser() -> argparse.ArgumentParser:
     o = plan_ops.add_parser("state", help="what exists for this issue: plan file, subtasks")
     o.add_argument("ref")
     s.set_defaults(func=_plan)
+
+    s = sub.add_parser("backlog", help="add and remove items in the repo backlog file")
+    backlog_ops = s.add_subparsers(dest="op", required=True)
+    o = backlog_ops.add_parser("add", help="add one item")
+    o.add_argument("--title", required=True)
+    o.add_argument("--body-file", required=True, help="Markdown file, or - for stdin")
+    o = backlog_ops.add_parser("pop", help="remove one item, after the tracker took it over")
+    o.add_argument("--title", required=True)
+    s.set_defaults(func=_backlog)
 
     s = sub.add_parser("memory", help="append to the project's decisions and gotchas")
     memory_ops = s.add_subparsers(dest="op", required=True)

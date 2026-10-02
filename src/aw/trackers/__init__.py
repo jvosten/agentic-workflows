@@ -92,6 +92,28 @@ class Tracker:
     def set_status(self, issue: str, status: str) -> str:
         raise self._unsupported("set-status")
 
+    def scoped(self) -> bool:
+        """True when this tracker knows parent-child links, so dupes can be scoped."""
+        return type(self).children is not Tracker.children
+
+    def dupes(self, parent: str, terms: list[str], limit: int) -> list[Row]:
+        """Issues under parent (two levels) that match any term in title or body."""
+        scope: dict[str, Row] = {}
+        if self.scoped():
+            for child in self.children(parent):
+                scope[child.id] = child
+                for grandchild in self.children(child.id):
+                    scope[grandchild.id] = grandchild
+        hits: dict[str, Row] = {}
+        for term in terms:
+            for row in self.search(term, limit, raw=False):
+                if row.id in scope or not scope:
+                    hits[row.id] = row
+        for row in scope.values():
+            if any(term.casefold() in row.title.casefold() for term in terms):
+                hits[row.id] = row
+        return sorted(hits.values(), key=lambda row: row.id)
+
     def on_start(self, issue: str) -> str | None:
         """Status change when a session starts; None when the tracker has no workflow states."""
         return None

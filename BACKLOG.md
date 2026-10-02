@@ -91,9 +91,18 @@ Deferred features and open checks. Each entry has enough context to be picked up
 
 **Scope:** `aw init` offers to create `CLAUDE.md` with `@AGENTS.md` when `instructions_file = "AGENTS.md"` and no `CLAUDE.md` exists.
 
-### MEDIUM finalize refactor
-- finalize should effectively be able to clean up --> allowed tools
-- we need to wire backlog item
+### [MEDIUM] Finalize refactor
+
+**Context:** `aw-finalize` carries steps it cannot run without a permission prompt, and the end of a session regularly produces leftovers that belong in a backlog, not in a comment nobody reads.
+
+**Scope:**
+- Cleanup inside `allowed-tools`: decide which of `aw finish`'s steps may run unprompted (worktree removal, branch deletion) and which keep asking (the merge itself).
+
+### [MEDIUM] Sessions that need several merges
+
+**Context:** A GitOps repo can need more than one merge for one session's work (environment promotion, staged merges with a reconcile gate in between, or a change split across repos). `aw finish` assumes one: it merges the pull request, deletes the branch, removes the worktree and moves the issue to done in a single step, so it cannot survive "merged once, more to go".
+
+**Open first:** which shape the project actually has, and whether the later merges carry the same commits (cherry-pick or merge forward) or new ones (an image tag bump per environment). Design after that is answered; parked until then.
 
 ### [LOW] Per-skill model override for Claude Code
 

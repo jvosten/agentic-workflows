@@ -123,6 +123,11 @@ class Jira(Tracker):
     def children(self, issue: str) -> list[Row]:
         return self._search(f"parent = {issue} ORDER BY created ASC", 100)
 
+    def dupes(self, parent: str, terms: list[str], limit: int) -> list[Row]:
+        scope = ", ".join([parent, *(row.id for row in self.children(parent))])
+        text = " OR ".join(f"text ~ {_jql_str(term)}" for term in terms)
+        return self._search(f"parent in ({scope}) AND ({text}) ORDER BY updated DESC", limit)
+
     def list_open(self, limit: int) -> list[Row]:
         return self._search(f"{self._project_clause()} AND statusCategory != Done ORDER BY updated DESC", limit)
 

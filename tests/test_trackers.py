@@ -158,6 +158,16 @@ def test_jira_create_and_comment(repo, monkeypatch):
     assert fake.calls[1][:2] == ("POST", "/rest/api/3/issue/PROJ-20/comment")
 
 
+def test_jira_dupes_uses_one_scoped_jql(repo, monkeypatch):
+    fake = FakeJira({("GET", "/rest/api/3/search/jql"): CHILDREN})
+    tracker = trackers.get(jira_cfg(repo))
+    monkeypatch.setattr(tracker, "request", fake)
+    tracker.dupes("PROJ-12", ["retry", "backoff"], 20)
+    assert fake.calls[0][2]["jql"] == "parent = PROJ-12 ORDER BY created ASC"
+    assert fake.calls[1][2]["jql"] == (
+        'parent in (PROJ-12, PROJ-13) AND (text ~ "retry" OR text ~ "backoff") ORDER BY updated DESC')
+
+
 def test_jira_update_replaces_summary_and_description(repo, monkeypatch):
     fake = FakeJira({})
     tracker = trackers.get(jira_cfg(repo))
@@ -248,6 +258,27 @@ def test_github_view_children_and_status(repo, monkeypatch):
     assert tracker.on_start("5") is None
 
 
+def test_github_dupes_scopes_by_sub_issues(repo, monkeypatch):
+    (repo / ".agents").mkdir()
+    (repo / ".agents/aw.toml").write_text('tracker = "github"\n')
+    subs = {"7": [{"number": 8, "title": "Retry uploads", "state": "OPEN"}],
+            "8": [{"number": 9, "title": "Backoff", "state": "CLOSED"}]}
+
+    def fake_gh(self, *args, stdin=None):
+        if args[0] == "api":
+            return json.dumps(subs.get(args[1].rsplit("/", 2)[-2], []))
+        if args[:2] == ("issue", "view"):
+            return json.dumps({"number": int(args[2]), "title": "T", "body": "", "state": "OPEN"})
+        if args[:2] == ("issue", "list"):
+            return json.dumps([{"number": 9, "title": "Backoff", "state": "CLOSED"},
+                               {"number": 40, "title": "Unrelated elsewhere", "state": "OPEN"}])
+        return ""
+
+    monkeypatch.setattr(GitHub, "gh", fake_gh)
+    rows = trackers.get(load()).dupes("7", ["backoff"], 20)
+    assert [(r.id, r.status) for r in rows] == [("9", "closed")]
+
+
 def test_github_update_replaces_title_and_body(repo, monkeypatch):
     (repo / ".agents").mkdir()
     (repo / ".agents/aw.toml").write_text('tracker = "github"\n')
@@ -300,6 +331,14 @@ def test_cli_issue_ref_and_view(repo, monkeypatch, capsys):
     out = capsys.readouterr()
     assert out.out.startswith("PROJ-3\n# PROJ-3: T")
     assert "invalid jira issue id" in out.err
+
+
+def test_cli_issue_dupes_marks_closed_candidates(repo, monkeypatch, capsys):
+    jira_cfg(repo)
+    monkeypatch.setattr(Jira, "dupes", lambda self, parent, terms, limit: [
+        trackers.Row("PROJ-20", "Retry uploads", "Done", "Sub-task")])
+    assert cli.main(["issue", "dupes", "proj-12", "--terms", "retry", "upload"]) == 0
+    assert capsys.readouterr().out.strip() == "- [Done] PROJ-20 (Sub-task) Retry uploads"
 
 
 def test_cli_issue_update_dry_run_writes_nothing(repo, tmp_path, monkeypatch, capsys):
