@@ -11,7 +11,7 @@ import sys
 from dataclasses import asdict
 from pathlib import Path
 
-from aw import __version__, doctor, finish, init, install, session, start_task, trackers
+from aw import __version__, doctor, finish, init, install, plan, session, start_task, templates, trackers
 from aw.config import AwError, load, toml_value
 from aw.trackers import STATUSES
 
@@ -79,12 +79,37 @@ def _issue(args: argparse.Namespace) -> None:
     elif op == "comment":
         tracker.comment(issue, _body(args.body_file))
         print(f"commented on {tracker.ref(issue)}")
+    elif op == "update":
+        body = _body(args.body_file) if args.body_file else None
+        if args.title is None and body is None:
+            raise AwError("issue update: pass --title, --body-file, or both")
+        if args.dry_run:
+            print(f"DRY RUN ({tracker.name}): update {tracker.ref(issue)} title={args.title!r}")
+            print(body if body is not None else "body: unchanged", end="" if body else "\n")
+            return
+        tracker.update(issue, args.title, body)
+        print(f"updated {tracker.ref(issue)}")
     elif op == "set-status":
         print(tracker.set_status(issue, args.status))
     elif op == "ref":
         print(tracker.ref(issue))
     elif op == "pr-text":
         print(tracker.pr_text(issue))
+
+
+def _plan(args: argparse.Namespace) -> None:
+    cfg = load()
+    tracker = trackers.get(cfg)
+    if args.op == "state":
+        for key, value in plan.state(cfg, tracker, args.ref).items():
+            print(f"{key}={value}")
+        return
+    _, found = plan.locate(cfg, tracker, args.ref, args.slug)
+    print(found)
+
+
+def _template(args: argparse.Namespace) -> None:
+    print(templates.read(load(), args.name), end="")
 
 
 def _session(args: argparse.Namespace) -> None:
@@ -212,6 +237,11 @@ def build_parser() -> argparse.ArgumentParser:
     o.add_argument("--parent")
     o.add_argument("--type", help="issue type (Jira), default Task")
     o.add_argument("--dry-run", action="store_true")
+    o = ops.add_parser("update", help="replace title and description of an existing issue")
+    o.add_argument("id")
+    o.add_argument("--title")
+    o.add_argument("--body-file", help="Markdown file with the complete new description, or - for stdin")
+    o.add_argument("--dry-run", action="store_true")
     o = ops.add_parser("comment", help="add a Markdown comment")
     o.add_argument("id")
     o.add_argument("--body-file", required=True, help="Markdown file, or - for stdin")
@@ -223,6 +253,19 @@ def build_parser() -> argparse.ArgumentParser:
     o = ops.add_parser("pr-text", help="line for the PR body that links or closes the issue")
     o.add_argument("id")
     s.set_defaults(func=_issue)
+
+    s = sub.add_parser("plan", help="locate the plan document of a story or subtask")
+    plan_ops = s.add_subparsers(dest="op", required=True)
+    o = plan_ops.add_parser("path", help="print the plan file of this issue")
+    o.add_argument("ref")
+    o.add_argument("--slug", help="compose the path to write when no plan exists yet")
+    o = plan_ops.add_parser("state", help="what exists for this issue: plan file, subtasks")
+    o.add_argument("ref")
+    s.set_defaults(func=_plan)
+
+    s = sub.add_parser("template", help="print a document template (project override from templates)")
+    s.add_argument("name", help="template name")
+    s.set_defaults(func=_template)
 
     s = sub.add_parser("session", help="print the current worktree's session metadata")
     s.set_defaults(func=_session)

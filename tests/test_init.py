@@ -85,6 +85,7 @@ def test_jira_keys_asked_only_for_jira(repo, monkeypatch):
     init.run(False, ["jira_fields=acceptance_criteria=customfield_1, story_points=customfield_2"])
     data = read(repo)
     assert asked.index("tracker") < asked.index("jira_base_url") < asked.index("jira_project")
+    assert "subtask_type" in asked
     assert (data["tracker"], data["jira_project"]) == ("jira", "PROJ")
     assert data["jira_fields"] == {"acceptance_criteria": "customfield_1", "story_points": "customfield_2"}
 

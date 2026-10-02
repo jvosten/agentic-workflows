@@ -84,6 +84,14 @@ class GitHub(Tracker):
 
     def comment(self, issue: str, body: str) -> None:
         self.gh("issue", "comment", issue, "--body-file", "-", stdin=body)
+    def update(self, issue: str, title: str | None, body: str | None) -> None:
+        args = ["issue", "edit", issue]
+        if title:
+            args += ["--title", title]
+        if body is None:
+            self.gh(*args)
+            return
+        self.gh(*args, "--body-file", "-", stdin=body)
 
     def set_status(self, issue: str, status: str) -> str:
         if status not in STATUSES:

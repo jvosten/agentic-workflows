@@ -144,6 +144,13 @@ class Jira(Tracker):
 
     def comment(self, issue: str, body: str) -> None:
         self.request("POST", f"/rest/api/3/issue/{issue}/comment", body={"body": adf.from_markdown(body)})
+    def update(self, issue: str, title: str | None, body: str | None) -> None:
+        fields: dict[str, Any] = {}
+        if title:
+            fields["summary"] = title
+        if body is not None:
+            fields["description"] = adf.from_markdown(body)
+        self.request("PUT", f"/rest/api/3/issue/{issue}", body={"fields": fields})
 
     def set_status(self, issue: str, status: str) -> str:
         target = self.target_status(status)

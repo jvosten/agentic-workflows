@@ -54,6 +54,13 @@ type = "table"
 default = {}
 help = "Extra Jira fields shown by aw issue view, name = field id (e.g. acceptance_criteria = \"customfield_10000\")"
 
+[keys.subtask_type]
+type = "str"
+ask = true
+when = { tracker = "jira" }
+default = ""
+help = "Issue type for subtasks created from a plan (empty: the tracker default)"
+
 [keys.status_map]
 type = "table"
 default = {}
@@ -98,6 +105,21 @@ choices = ["merge", "squash", "rebase"]
 ask = true
 default = "merge"
 help = "How aw finish merges the pull/merge request"
+
+[keys.definition_of_done]
+type = "str"
+default = ""
+help = "File with the team's definition of done, cited by plans and subtasks (empty: none)"
+
+[keys.subagent_model]
+type = "str"
+default = ""
+help = "Model that skills name when they delegate mechanical steps to a subagent (empty: none)"
+
+[keys.templates]
+type = "table"
+default = {}
+help = "Document templates that override the bundled ones, name = path from the repo root (story, subtask, plan)"
 
 [keys.plan_dir]
 type = "str"

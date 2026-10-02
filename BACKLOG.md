@@ -28,10 +28,24 @@ Deferred features and open checks. Each entry has enough context to be picked up
 
 **Scope:**
 - Split: personal memory stays in each agent's native store; project memory is committed and reviewed.
-- Format: `.agents/memory/MEMORY.md` index + one Markdown file per fact with `type` frontmatter (Claude's layout). `aw init` adds a pointer to the index in `instructions_file`.
-- `aw memory index` regenerates `MEMORY.md` from the fact files; `.gitattributes` `merge=union` for the index; `aw doctor` checks index freshness and the 200-line load limit.
-- `aw-remember` skill: what qualifies (decisions, pitfalls, references not derivable from code), never personal preferences or secrets; `aw-finalize` flags memory changes in the PR review.
+- Format: `.agents/memory/decisions.md` and `.agents/memory/gotchas.md`, one entry per heading, newest appended; `memory_dir` key; `aw init` adds a pointer in `instructions_file`.
+- `aw memory add --type decision|gotcha --ref <issue> --body-file -` appends; retiring an entry moves it under `## Superseded` with the reason. `.gitattributes` `merge=union`; `aw doctor` warns past 200 lines per file.
+- Writers: `aw-plan-story` after accepted grilling decisions, `aw-finalize` for gotchas that cost time this session, `aw-remember` any time mid-session. Written in the session worktree, merged with the PR.
+- Readers: `aw-start-task` loads both files with the instructions file.
+- Qualifies: decisions, pitfalls, references not derivable from code. Never personal preferences or secrets.
 - Option: `autoMemoryEnabled: false` in project settings so Claude keeps one project memory, not two.
+
+### [MEDIUM] Spec element above the story
+
+**Context:** Requirements that arrive from outside often exceed one story (Jira epic). `aw-plan-story` currently stops and proposes a sibling split instead.
+
+**Scope:** `aw-to-spec` skill (synthesis of a conversation, no interview, after `mattpocock/skills` `to-spec`), a `spec` template, a committed spec document under `spec_dir` that optionally publishes as an epic, and `aw-to-story` deriving stories from it. Decide the home first: repo document with a tracker pointer, as the planning decision records.
+
+### [LOW] Native blocking links between subtasks
+
+**Context:** `aw-to-subtasks` writes blocking edges as a `## Blocked by` section in the body, because Jira link types are per-instance (`Blocks`, `is blocked by`, renamed schemes) and GitHub has no native equivalent.
+
+**Scope:** `aw issue link <id> blocks <other>`, link-type discovery for Jira, text fallback elsewhere, `aw doctor` reporting the available link types.
 
 ### [MEDIUM] Forge operations through aw
 

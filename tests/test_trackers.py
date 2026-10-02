@@ -158,6 +158,17 @@ def test_jira_create_and_comment(repo, monkeypatch):
     assert fake.calls[1][:2] == ("POST", "/rest/api/3/issue/PROJ-20/comment")
 
 
+def test_jira_update_replaces_summary_and_description(repo, monkeypatch):
+    fake = FakeJira({})
+    tracker = trackers.get(jira_cfg(repo))
+    monkeypatch.setattr(tracker, "request", fake)
+    tracker.update("PROJ-12", "New title", "## H\n\ntext")
+    method, path, _, body = fake.calls[0]
+    assert (method, path) == ("PUT", "/rest/api/3/issue/PROJ-12")
+    assert body["fields"]["summary"] == "New title"
+    assert body["fields"]["description"]["content"][0]["type"] == "heading"
+
+
 def test_jira_set_status(repo, monkeypatch):
     tracker = trackers.get(jira_cfg(repo, 'status_map = { in_progress = "Doing" }\n'))
     transitions = {"transitions": [
@@ -237,6 +248,21 @@ def test_github_view_children_and_status(repo, monkeypatch):
     assert tracker.on_start("5") is None
 
 
+def test_github_update_replaces_title_and_body(repo, monkeypatch):
+    (repo / ".agents").mkdir()
+    (repo / ".agents/aw.toml").write_text('tracker = "github"\n')
+    calls = []
+
+    def fake_gh(self, *args, stdin=None):
+        calls.append((args, stdin))
+        return ""
+
+    monkeypatch.setattr(GitHub, "gh", fake_gh)
+    tracker = trackers.get(load())
+    tracker.update("5", "New title", "New body")
+    assert calls == [(("issue", "edit", "5", "--title", "New title", "--body-file", "-"), "New body")]
+
+
 # --- integration --------------------------------------------------------------
 
 def test_start_and_finish_sync_jira_status(repo, tmp_path, monkeypatch):
@@ -274,6 +300,19 @@ def test_cli_issue_ref_and_view(repo, monkeypatch, capsys):
     out = capsys.readouterr()
     assert out.out.startswith("PROJ-3\n# PROJ-3: T")
     assert "invalid jira issue id" in out.err
+
+
+def test_cli_issue_update_dry_run_writes_nothing(repo, tmp_path, monkeypatch, capsys):
+    jira_cfg(repo)
+    calls = []
+    monkeypatch.setattr(Jira, "update", lambda self, i, t, b: calls.append((i, t, b)))
+    body = tmp_path / "body.md"
+    body.write_text("line one\nline two\n")
+    assert cli.main(["issue", "update", "proj-3", "--body-file", str(body), "--dry-run"]) == 0
+    assert calls == []
+    assert "DRY RUN" in capsys.readouterr().out
+    assert cli.main(["issue", "update", "proj-3", "--title", "T", "--body-file", str(body)]) == 0
+    assert calls == [("PROJ-3", "T", "line one\nline two\n")]
 
 
 def test_doctor_jira_reports_missing_env_by_name(repo):

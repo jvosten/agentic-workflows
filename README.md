@@ -2,7 +2,7 @@
 
 Generic agent skills that give every project the same session workflow. Project differences live in a committed config file that the skills read, not in the skills.
 
-Skills follow the [Agent Skills](https://agentskills.io/specification) format and install to `~/.agents/skills/`. Codex, Cursor, Gemini CLI, OpenCode and Copilot read that directory directly. Claude Code does not, so `aw install` links each skill into `~/.claude/skills/` as well.
+Skills follow the [Agent Skills](https://agentskills.io/specification) format and install to `~/.agents/skills/`. Pi, Codex, Cursor, Gemini CLI, OpenCode and Copilot read that directory directly. Claude Code does not, so `aw install` links each skill into `~/.claude/skills/` as well.
 
 ## Install
 
@@ -17,6 +17,35 @@ uv tool install --editable .     # puts `aw` in ~/.local/bin
 ```
 
 The editable install means edits to this repo take effect without reinstalling. Re-run `aw install` after adding or removing a skill.
+
+## Use the skills
+
+This is the point of the package: one session workflow that you drive from your coding agent, in any repo. Set the repo up once with `aw init` (see [Set up a project](#set-up-a-project)), then call the skills.
+
+| Harness | Call a skill | Skills come from |
+|---|---|---|
+| Pi | `/skill:aw-plan-story #12` | `~/.agents/skills/` |
+| Claude Code | `/aw-plan-story #12` | `~/.claude/skills/`, linked by `aw install --agent claude` |
+| Codex, Cursor, Gemini CLI, OpenCode, Copilot | name the skill in your request | `~/.agents/skills/` |
+
+One session, start to finish:
+
+1. `/aw-plan-story #12` — reads the issue, its parent, children and the project docs, drafts a plan, grills it with you, saves it to `plan_dir`.
+2. `/aw-start-task #12` — creates the branch and worktree, loads the plan into a task list, then implements it with you in that worktree.
+3. `/aw-finalize` — docs, `aw verify`, commit, pull request, changelog entry, review and CI. It asks before the merge.
+
+For design work before planning, `/aw-grill-with-docs` interviews you and keeps `GLOSSARY.md` and `docs/adr/` current.
+
+| Skill | Invocation | Does |
+|---|---|---|
+| `aw-start-task` | user only | Creates the session worktree via `aw start-task`, loads the plan into a task list, hands over to implementation |
+| `aw-finalize` | user only | Docs, `aw verify`, commit, PR, changelog entry, review + CI, then `aw finish` |
+| `aw-plan-story` | user or model | Issue + parent + project context → plan, grilled with the user, saved to `plan_dir` |
+| `aw-grilling` | user or model | Interview in rounds over a design tree until nothing is assumed |
+| `aw-grill-with-docs` | user only | `aw-grilling` plus `aw-domain-modeling` |
+| `aw-domain-modeling` | user or model | Challenge terms, keep `GLOSSARY.md` and `docs/adr/` current |
+
+User-only skills never start by themselves; the model may pick up the others when the task calls for them.
 
 ## Set up a project
 
@@ -58,6 +87,7 @@ Skills never call a tracker directly; they call `aw issue <op>`, and `tracker` i
 | `children` | sub-issues + task-list refs | JQL `parent = KEY` | – |
 | `list`, `search` | ✓ | ✓ (`--raw` = JQL) | ✓ |
 | `create` (with `--parent`, `--dry-run`) | ✓ (as sub-issue) | ✓ (Markdown → ADF) | – |
+| `update` (title, description; `--dry-run`) | ✓ | ✓ | – |
 | `comment` | ✓ | ✓ | ✓ |
 | `set-status` | open/closed only | workflow transition via `status_map` | open/closed only |
 | `ref` / `pr-text` | `#12` / `Fixes #12` | `PROJ-12` / `PROJ-12` | `#12` / `Fixes #12` |
@@ -77,20 +107,13 @@ Statuses are canonical (`backlog`, `ready`, `in_progress`, `in_review`, `done`);
 | `aw session` | Print the current worktree's session metadata |
 | `aw verify` | Run `verify_cmd` in the current checkout (through direnv if enabled) |
 | `aw finish [--pr N]` | Merge with `merge_method`, remove worktree, update main, delete local + remote branch |
-| `aw issue view\|children\|list\|search\|create\|comment\|set-status\|ref\|pr-text` | Tracker operations; see [Issue trackers](#issue-trackers) |
+| `aw issue view\|children\|list\|search\|create\|update\|comment\|set-status\|ref\|pr-text` | Tracker operations; see [Issue trackers](#issue-trackers) |
+| `aw plan path <ref> [--slug S]` | Plan file of a story or subtask (subtask: through its parent); `--slug` composes the path to write |
+| `aw plan state <ref>` | What exists for the issue: plan file, subtasks |
+| `aw template <story\|subtask\|plan>` | Print a document template, project override from `templates` |
 | `aw doctor` | Check installation, skill frontmatter, project config, tools, tracker auth |
 
-## Skills
-
-| Skill | Invocation | Does |
-|---|---|---|
-| `aw-start-task` | user only | Creates the session worktree via `aw start-task`, loads the plan into a task list, hands over to implementation |
-| `aw-finalize` | user only | Docs, `aw verify`, commit, PR, changelog entry, review + CI, then `aw finish` |
-| `aw-plan-story` | user or model | Issue + parent + project context → plan, grilled with the user, saved to `plan_dir` |
-| `aw-grilling` | user or model | Interview in rounds over a design tree until nothing is assumed |
-| `aw-grill-me` | user only | Entry point for `aw-grilling` |
-| `aw-grill-with-docs` | user only | `aw-grilling` plus `aw-domain-modeling` |
-| `aw-domain-modeling` | user or model | Challenge terms, keep `GLOSSARY.md` and `docs/adr/` current |
+## Skill internals
 
 The grilling and domain-modeling skills are copied from [mattpocock/skills](https://github.com/mattpocock/skills) (MIT); each keeps its `LICENSE` and a `metadata.source` link to the exact upstream commit.
 

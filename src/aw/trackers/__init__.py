@@ -86,6 +86,9 @@ class Tracker:
     def comment(self, issue: str, body: str) -> None:
         raise self._unsupported("comment")
 
+    def update(self, issue: str, title: str | None, body: str | None) -> None:
+        raise self._unsupported("update")
+
     def set_status(self, issue: str, status: str) -> str:
         raise self._unsupported("set-status")
 
