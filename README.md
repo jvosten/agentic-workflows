@@ -49,10 +49,26 @@ For design work before planning, `/aw-grill-with-docs` interviews you and keeps 
 | `aw-grilling` | user or model | Interview in rounds over a design tree until nothing is assumed |
 | `aw-grill-with-docs` | user only | `aw-grilling` plus `aw-domain-modeling` |
 | `aw-domain-modeling` | user or model | Challenge terms, keep `GLOSSARY.md` and `docs/adr/` current |
+| `aw-remember` | user or model | Append one decision or gotcha to the project's memory |
 
 User-only skills never start by themselves; the model may pick up the others when the task calls for them.
 
 The story, subtask and plan documents follow templates: `aw template <name>` prints the bundled one, and the `templates` key points at your own.
+
+## Project memory
+
+Two committed files under `memory_dir` (default `.agents/memory`) carry what the project learned:
+
+| File | Holds |
+|---|---|
+| `decisions.md` | What the team settled, and why it won |
+| `gotchas.md` | Non-obvious constraints that cost someone time |
+
+One entry per heading, newest last, each stamped with its date and issue. `aw memory add <decision\|gotcha> --title "<claim>" --body-file -` appends; `aw memory supersede <kind> --title "<claim>" --reason "<what changed>"` retires an entry under a `## Superseded` heading instead of deleting it.
+
+Writers: `aw-plan-story` after accepted grilling decisions that outlive the story, `aw-finalize` for gotchas the session paid for, `/aw-remember` any time in between. Entries are written in the session worktree, so they are reviewed and merged with the work that taught them. `aw-start-task` reads both files at the start of the next session, and `aw doctor` warns when a file passes 200 lines — the point to retire what no longer holds.
+
+Titles are claims (`boto3 is pinned below 1.36`), because a session loads these files whole and the title carries the point.
 
 ## Set up a project
 
@@ -118,6 +134,8 @@ Statuses are canonical (`backlog`, `ready`, `in_progress`, `in_review`, `done`);
 | `aw plan path <ref> [--slug S]` | Plan file of a story or subtask (subtask: through its parent); `--slug` composes the path to write |
 | `aw plan state <ref>` | What exists for the issue: plan file, subtasks |
 | `aw template <story\|subtask\|plan>` | Print a document template, project override from `templates` |
+| `aw memory add <decision\|gotcha> --title T --body-file F [--ref ID]` | Append one entry to the project's memory |
+| `aw memory supersede <decision\|gotcha> --title T --reason R` | Retire an entry, keeping it under `## Superseded` |
 | `aw doctor` | Check installation, skill frontmatter, project config, tools, tracker auth |
 
 ## Skill internals

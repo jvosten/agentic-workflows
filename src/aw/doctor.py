@@ -13,6 +13,7 @@ from aw.config import PROJECT_FILE, AwError, load, load_schema, repo_root
 
 NAME = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 TRACKER_CLI = {"github": "gh", "gitlab": "glab"}
+MEMORY_LIMIT = 200
 
 Result = tuple[str, str]  # (ok | warn | fail, message)
 
@@ -104,6 +105,7 @@ def check_project() -> list[Result]:
         value = cfg.get(key)
         if value and not (cfg.checkout / value).exists():
             results.append(("warn", f"{key} {value} not found"))
+    results += check_memory(cfg)
 
     results.append(_tool("git", "required"))
     if cfg.get("direnv"):
@@ -118,6 +120,20 @@ def check_project() -> list[Result]:
                            else ("fail", f"{cli} not authenticated; run `{cli} auth login`"))
     if cfg.get("tracker") == "jira":
         results += check_jira(cfg)
+    return results
+
+
+def check_memory(cfg) -> list[Result]:
+    from aw import memory
+
+    results: list[Result] = []
+    for kind in memory.KINDS:
+        path = memory.file(cfg, kind)
+        if not path.is_file():
+            continue
+        lines = len(path.read_text().splitlines())
+        results.append(("warn", f"{path.name}: {lines} lines, over 200 lines; retire what no longer holds")
+                       if lines > MEMORY_LIMIT else ("ok", f"{path.name}: {lines} lines"))
     return results
 
 

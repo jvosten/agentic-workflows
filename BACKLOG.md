@@ -22,18 +22,14 @@ Deferred features and open checks. Each entry has enough context to be picked up
 
 **Done when:** one real session per agent has run through both skills, and the findings are in the README.
 
-### [MEDIUM] Vendor-neutral project memory
+### [LOW] Project memory follow-ups
 
-**Context:** No standard exists; each agent keeps its own memory (Claude Code: `~/.claude/projects/<repo>/memory/`, machine-local, relocatable only to absolute paths via `autoMemoryDirectory`). The pattern that works across vendors is plain files in the repo plus a pointer in the instruction file (agent-memory / Accenture Mercury; MCP servers over repo files). Projects often keep this by hand already (decision logs, pitfall lists).
+**Context:** `aw memory add|supersede`, the two files under `memory_dir`, the `aw-remember` skill and the `aw-plan-story` / `aw-finalize` / `aw-start-task` hooks are in. What was scoped and not built:
 
-**Scope:**
-- Split: personal memory stays in each agent's native store; project memory is committed and reviewed.
-- Format: `.agents/memory/decisions.md` and `.agents/memory/gotchas.md`, one entry per heading, newest appended; `memory_dir` key; `aw init` adds a pointer in `instructions_file`.
-- `aw memory add --type decision|gotcha --ref <issue> --body-file -` appends; retiring an entry moves it under `## Superseded` with the reason. `.gitattributes` `merge=union`; `aw doctor` warns past 200 lines per file.
-- Writers: `aw-plan-story` after accepted grilling decisions, `aw-finalize` for gotchas that cost time this session, `aw-remember` any time mid-session. Written in the session worktree, merged with the PR.
-- Readers: `aw-start-task` loads both files with the instructions file.
-- Qualifies: decisions, pitfalls, references not derivable from code. Never personal preferences or secrets.
-- Option: `autoMemoryEnabled: false` in project settings so Claude keeps one project memory, not two.
+- `aw init` adds a pointer to `memory_dir` in `instructions_file`, so a model that never loads a skill still finds it.
+- `.gitattributes` `merge=union` for both files, so two sessions appending in parallel merge without a conflict.
+- Option: `autoMemoryEnabled: false` in Claude Code project settings, so Claude keeps one project memory, not two.
+- Personal memory stays in each agent's native store; only project memory is committed. Confirm this split survives contact with a real multi-session week.
 
 ### [MEDIUM] Spec element above the story
 

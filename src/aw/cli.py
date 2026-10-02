@@ -11,7 +11,7 @@ import sys
 from dataclasses import asdict
 from pathlib import Path
 
-from aw import __version__, doctor, finish, init, install, plan, session, start_task, templates, trackers
+from aw import __version__, doctor, finish, init, install, memory, plan, session, start_task, templates, trackers
 from aw.config import AwError, load, toml_value
 from aw.trackers import STATUSES
 
@@ -106,6 +106,14 @@ def _plan(args: argparse.Namespace) -> None:
         return
     _, found = plan.locate(cfg, tracker, args.ref, args.slug)
     print(found)
+
+
+def _memory(args: argparse.Namespace) -> None:
+    cfg = load()
+    if args.op == "supersede":
+        print(f"superseded in {memory.supersede(cfg, args.kind, args.title, args.reason)}")
+        return
+    print(f"appended to {memory.add(cfg, args.kind, args.title, _body(args.body_file), args.ref)}")
 
 
 def _template(args: argparse.Namespace) -> None:
@@ -262,6 +270,19 @@ def build_parser() -> argparse.ArgumentParser:
     o = plan_ops.add_parser("state", help="what exists for this issue: plan file, subtasks")
     o.add_argument("ref")
     s.set_defaults(func=_plan)
+
+    s = sub.add_parser("memory", help="append to the project's decisions and gotchas")
+    memory_ops = s.add_subparsers(dest="op", required=True)
+    o = memory_ops.add_parser("add", help="append one entry")
+    o.add_argument("kind", choices=sorted(memory.KINDS))
+    o.add_argument("--title", required=True, help="the fact, stated as a claim")
+    o.add_argument("--body-file", required=True, help="Markdown file, or - for stdin")
+    o.add_argument("--ref", help="issue the entry came from")
+    o = memory_ops.add_parser("supersede", help="retire an entry, keeping it under Superseded")
+    o.add_argument("kind", choices=sorted(memory.KINDS))
+    o.add_argument("--title", required=True, help="title of the entry to retire")
+    o.add_argument("--reason", required=True, help="why it no longer holds")
+    s.set_defaults(func=_memory)
 
     s = sub.add_parser("template", help="print a document template (project override from templates)")
     s.add_argument("name", help="template name")

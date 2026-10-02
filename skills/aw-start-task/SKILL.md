@@ -38,7 +38,7 @@ It syncs `main_branch`, picks the session number, creates branch and worktree, s
 
 ## 4. Load scope
 
-- Read `<worktree>/<instructions_file>`.
+- Read `<worktree>/<instructions_file>`, and `<worktree>/<memory_dir>/decisions.md` and `gotchas.md` when they exist: they hold what earlier sessions settled and got bitten by.
 - Plan source, first match: a plan path in the request; `~/.agents/bin/aw plan path <issue>` (for a subtask it resolves the parent story's plan); the issue from `aw issue view`.
 - The issue is a subtask → work only the plan section whose `**Subtask:**` line names it. No match → ask which section applies.
 - Create one task per plan step. No plan → plan the approach with the user before any code.

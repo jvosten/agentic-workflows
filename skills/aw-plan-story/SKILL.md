@@ -1,7 +1,7 @@
 ---
 name: aw-plan-story
 description: Plan one story - gather the issue, its parent, children and linked docs, draft an implementation plan in session-sized sections, grill it with the user, and save it for /aw-to-subtasks. Use when the user says "plan story", "plan issue #N", "plan PROJ-123", or wants to turn an issue into a session plan.
-allowed-tools: Bash(~/.agents/bin/aw config) Bash(~/.agents/bin/aw template plan) Bash(~/.agents/bin/aw plan path:*) Bash(~/.agents/bin/aw plan state:*) Bash(~/.agents/bin/aw issue view:*) Bash(~/.agents/bin/aw issue children:*) Bash(~/.agents/bin/aw issue list:*) Bash(~/.agents/bin/aw issue search:*) Bash(~/.agents/bin/aw issue update:*) Bash(~/.agents/bin/aw issue comment:*)
+allowed-tools: Bash(~/.agents/bin/aw config) Bash(~/.agents/bin/aw template plan) Bash(~/.agents/bin/aw plan path:*) Bash(~/.agents/bin/aw plan state:*) Bash(~/.agents/bin/aw issue view:*) Bash(~/.agents/bin/aw issue children:*) Bash(~/.agents/bin/aw issue list:*) Bash(~/.agents/bin/aw issue search:*) Bash(~/.agents/bin/aw issue update:*) Bash(~/.agents/bin/aw issue comment:*) Bash(~/.agents/bin/aw memory add:*)
 metadata:
   package: agentic-workflows
 ---
@@ -82,6 +82,13 @@ The story grew past the size rule in step 3 → go back to that rule instead of 
 ```
 
 - Write the plan to that path, creating directories as needed. An existing plan for the story is updated in place, never duplicated.
+- Decisions from grilling that outlive this story (they bind work beyond it) also go into the project's memory, one entry each:
+
+  ```bash
+  ~/.agents/bin/aw memory add decision --title "<the decision as a claim>" --body-file - --ref <id>
+  ```
+
+  Only after the user accepted them, and only the ones a later session would otherwise reopen.
 - Post a short comment on the issue linking the plan: `~/.agents/bin/aw issue comment <id> --body-file -`.
 - Tell the user the next step is `/aw-to-subtasks <id>`.
 
