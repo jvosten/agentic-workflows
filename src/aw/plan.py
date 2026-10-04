@@ -29,7 +29,7 @@ def owner(cfg: Config, tracker: Tracker, ref: str) -> tuple[str, Path | None]:
     issue = tracker.normalize(ref)
     found = find(cfg, issue)
     if found is None and tracker.name != "none":
-        parent = tracker.view(issue).parent
+        parent = tracker.parent(issue)
         if parent:
             return parent.id, find(cfg, parent.id)
     return issue, found

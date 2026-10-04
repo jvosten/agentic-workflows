@@ -2,7 +2,7 @@
 name: aw-to-subtasks
 description: Cut a plan into subtasks on the tracker - one session-sized slice per subtask, reconciled with the subtasks that already exist, and linked back into the plan. Use only when the user invokes it.
 disable-model-invocation: true
-allowed-tools: Bash(~/.agents/bin/aw config) Bash(~/.agents/bin/aw template subtask) Bash(~/.agents/bin/aw plan path:*) Bash(~/.agents/bin/aw plan state:*) Bash(~/.agents/bin/aw issue view:*) Bash(~/.agents/bin/aw issue children:*) Bash(~/.agents/bin/aw issue create:*) Bash(~/.agents/bin/aw issue update:*) Bash(~/.agents/bin/aw issue comment:*)
+allowed-tools: Bash(~/.agents/bin/aw config) Bash(~/.agents/bin/aw template subtask) Bash(~/.agents/bin/aw plan path:*) Bash(~/.agents/bin/aw plan state:*) Bash(~/.agents/bin/aw issue view:*) Bash(~/.agents/bin/aw issue children:*) Bash(~/.agents/bin/aw issue create:*) Bash(~/.agents/bin/aw issue update:*) Bash(~/.agents/bin/aw issue set-parent:*) Bash(~/.agents/bin/aw issue comment:*)
 metadata:
   package: agentic-workflows
 ---
@@ -29,7 +29,8 @@ Publish one subtask per plan section, and keep plan and tracker in step. Every w
 
 1. A section naming a subtask id owns that subtask.
 2. For the rest, read `aw issue children <id>` and propose a mapping table: section ↔ existing subtask, or *new*, or *no section left* (obsolete).
-3. Show the table and wait for approval. Never guess silently.
+3. A mapped subtask that is not natively under the story — marked `[text link]`, or a section's subtask that `children` does not list — gets a *relink* in the table.
+4. Show the table and wait for approval. Never guess silently.
 
 ## 3. Draft each subtask body
 
@@ -62,6 +63,8 @@ Then publish in dependency order, blockers first:
 
 - `--type` comes from `subtask_type`; leave it out when the key is empty.
 - `update` replaces the whole description. Show the new body before sending it, and keep anything the ticket carries that the plan does not cover.
+- Relinks: `~/.agents/bin/aw issue set-parent <existing> <story> --dry-run`, then without `--dry-run`. A `Part of` line left in its body can go in the same `update`.
+- The parent is set by `--parent` or `set-parent` only. Never write it into a body.
 - Obsolete subtasks: list them and say why they fell out. Close one only when the user says so (`aw issue set-status <id> done`), with a comment naming the replacement.
 
 ## 5. Link back

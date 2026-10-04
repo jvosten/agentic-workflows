@@ -78,7 +78,7 @@ Titles are claims (`boto3 is pinned below 1.36`), because a session loads these 
 
 Deferred work goes to `backlog_file` (default `BACKLOG.md`) through `/aw-backlog-item`, which `aw-finalize` calls for anything a session chose not to do. `aw backlog add` places the item among the file's existing items and copies their heading level and separators, so a flat `## Item` list and a sectioned `### [PRIO] Item` list both stay intact.
 
-An item can then be pushed to the tracker: `aw issue dupes <backlog_parent> --terms ...` shows candidates under `backlog_parent` two levels deep in any state, you confirm, `aw issue create --parent <backlog_parent> [--type <backlog_type>]` creates it, and `aw backlog pop` removes the local copy so one item does not live in two places. Staying repo-local is a normal outcome, not a failure.
+An item can then be pushed to the tracker: `aw issue dupes <backlog_parent> --terms ...` shows candidates under `backlog_parent` two levels deep in any state, you confirm, pick the parent (`backlog_parent` or one of its children and grandchildren, or none), `aw issue create --parent <parent> [--type <backlog_type>]` creates it with the tracker's native parent link, and `aw backlog pop` removes the local copy so one item does not live in two places. Staying repo-local is a normal outcome, not a failure.
 
 ## Set up a project
 
@@ -116,15 +116,18 @@ Skills never call a tracker directly; they call `aw issue <op>`, and `tracker` i
 
 | Op | github (`gh`) | jira (REST v3) | gitlab (`glab`, untested) |
 |---|---|---|---|
-| `view` (parent, children, comments, extra fields) | ✓ | ✓ | ✓ (no children/comments) |
-| `children` | sub-issues + task-list refs | JQL `parent = KEY` | – |
-| `dupes` (parent, terms, any state) | sub-issue id set ∩ search | one scoped JQL | unscoped search, says so |
+| `view` (parent, children, comments, extra fields) | ✓ (parent: sub-issue link, `Part of #N` as fallback) | ✓ | ✓ (no parent/children/comments) |
+| `children` (`--text-only`) | sub-issues + task-list refs, the latter marked `[text link]` | JQL `parent = KEY` | – |
+| `set-parent <id> <parent>\|--none` (`--dry-run`) | sub-issue link, replaces an existing parent | `fields.parent` | – |
+| `dupes` (parent, terms, any state) | native sub-issue tree ∩ search | one scoped JQL | unscoped search, says so |
 | `list`, `search` | ✓ | ✓ (`--raw` = JQL) | ✓ |
-| `create` (with `--parent`, `--dry-run`) | ✓ (as sub-issue) | ✓ (Markdown → ADF) | – |
+| `create` (with `--parent`, `--type`, `--dry-run`) | one GraphQL call, so never left unlinked; `--type` on org-owned repos only | ✓ (Markdown → ADF) | – |
 | `update` (title, description; `--dry-run`) | ✓ | ✓ | – |
 | `comment` | ✓ | ✓ | ✓ |
 | `set-status` | open/closed only | workflow transition via `status_map` | open/closed only |
 | `ref` / `pr-text` | `#12` / `Fixes #12` | `PROJ-12` / `PROJ-12` | `#12` / `Fixes #12` |
+
+**Parent links** are always the tracker's own: GitHub sub-issues, Jira `parent`. Skills never write `Part of #N` or `Epic: KEY` into a body. On GitHub, `view` still reads a `Part of #N` line and `children` a task-list ref, marked `[text link]`, so older projects keep working while they move: `aw issue children <root> --text-only` lists what is linked only by text (task-list refs in the root, `Part of #<root>` lines in other issues), `aw issue set-parent <id> <root>` links each one natively, and an empty `--text-only` confirms none remain. Jira rejects parents that break its hierarchy (a sub-task under an epic, mixed team- and company-managed projects); `set-parent` passes the error through with both issue types.
 
 Statuses are canonical (`backlog`, `ready`, `in_progress`, `in_review`, `done`); `status_map` maps them to the tracker's names, defaulting to title case (`In Progress`). With `sync_issue_status` (default on), `aw start-task --issue` moves the issue to `in_progress` and `aw finish` to `done`, on trackers with workflow states. GitHub and GitLab close through the PR keyword instead.
 
@@ -141,7 +144,7 @@ Statuses are canonical (`backlog`, `ready`, `in_progress`, `in_review`, `done`);
 | `aw session` | Print the current worktree's session metadata |
 | `aw verify` | Run `verify_cmd` in the current checkout (through direnv if enabled) |
 | `aw finish [--pr N]` | Merge with `merge_method`, remove worktree, update main, delete local + remote branch |
-| `aw issue view\|children\|list\|search\|create\|update\|comment\|set-status\|ref\|pr-text` | Tracker operations; see [Issue trackers](#issue-trackers) |
+| `aw issue view\|children\|list\|search\|create\|update\|set-parent\|comment\|set-status\|ref\|pr-text` | Tracker operations; see [Issue trackers](#issue-trackers) |
 | `aw plan path <ref> [--slug S]` | Plan file of a story or subtask (subtask: through its parent); `--slug` composes the path to write |
 | `aw plan state <ref>` | What exists for the issue: plan file, subtasks |
 | `aw template <story\|subtask\|plan>` | Print a document template, project override from `templates` |

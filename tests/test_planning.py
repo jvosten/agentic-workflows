@@ -55,8 +55,7 @@ def test_plan_path_of_a_subtask_resolves_through_its_parent(repo, capsys, monkey
     (repo / "docs/planning").mkdir(parents=True)
     plan = repo / "docs/planning/PROJ-12-retry-failed-runs.md"
     plan.write_text("# plan\n")
-    monkeypatch.setattr(Jira, "view", lambda self, i: trackers.Issue(
-        id=i, ref=i, title="Slice", status="To Do", parent=trackers.Row("PROJ-12")))
+    monkeypatch.setattr(Jira, "parent", lambda self, i: trackers.Row("PROJ-12", link="native"))
     assert cli.main(["plan", "path", "proj-13"]) == 0
     assert capsys.readouterr().out.strip() == str(plan)
 

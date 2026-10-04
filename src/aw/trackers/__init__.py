@@ -18,6 +18,7 @@ class Row:
     title: str = ""
     status: str = ""
     type: str = ""
+    link: str = ""  # how a parent or child is linked: native | text; empty outside parent-child results
 
 
 @dataclass
@@ -71,8 +72,18 @@ class Tracker:
     def view(self, issue: str) -> Issue:
         raise self._unsupported("view")
 
+    def parent(self, issue: str) -> Row | None:
+        return self.view(issue).parent
+
     def children(self, issue: str) -> list[Row]:
         raise self._unsupported("children")
+
+    def text_children(self, issue: str) -> list[Row]:
+        """Children linked to this issue only by text, not by the tracker's own parent link."""
+        return [row for row in self.children(issue) if row.link == "text"]
+
+    def set_parent(self, issue: str, parent: str | None) -> str:
+        raise self._unsupported("set-parent")
 
     def list_open(self, limit: int) -> list[Row]:
         raise self._unsupported("list")
@@ -97,12 +108,12 @@ class Tracker:
         return type(self).children is not Tracker.children
 
     def dupes(self, parent: str, terms: list[str], limit: int) -> list[Row]:
-        """Issues under parent (two levels) that match any term in title or body."""
+        """Issues under parent (two levels of native links) that match any term in title or body."""
         scope: dict[str, Row] = {}
         if self.scoped():
-            for child in self.children(parent):
+            for child in self.native_children(parent):
                 scope[child.id] = child
-                for grandchild in self.children(child.id):
+                for grandchild in self.native_children(child.id):
                     scope[grandchild.id] = grandchild
         hits: dict[str, Row] = {}
         for term in terms:
@@ -113,6 +124,9 @@ class Tracker:
             if any(term.casefold() in row.title.casefold() for term in terms):
                 hits[row.id] = row
         return sorted(hits.values(), key=lambda row: row.id)
+
+    def native_children(self, issue: str) -> list[Row]:
+        return [row for row in self.children(issue) if row.link != "text"]
 
     def on_start(self, issue: str) -> str | None:
         """Status change when a session starts; None when the tracker has no workflow states."""
@@ -137,7 +151,8 @@ def render(issue: Issue) -> str:
     if issue.type:
         meta.append(f"type: {issue.type}")
     if issue.parent:
-        meta.append(f"parent: {issue.parent.id}" + (f" ({issue.parent.title})" if issue.parent.title else ""))
+        title = f" ({issue.parent.title})" if issue.parent.title else ""
+        meta.append(f"parent: {issue.parent.id}{title}" + (" [text link]" if issue.parent.link == "text" else ""))
     if issue.labels:
         meta.append(f"labels: {', '.join(issue.labels)}")
     lines = [f"# {issue.ref}: {issue.title}", "", " · ".join(meta)]
@@ -159,4 +174,5 @@ def render(issue: Issue) -> str:
 def rows_line(row: Row) -> str:
     status = f"[{row.status}] " if row.status else ""
     kind = f" ({row.type})" if row.type else ""
-    return f"- {status}{row.id}{kind} {row.title}".rstrip()
+    link = " [text link]" if row.link == "text" else ""
+    return f"- {status}{row.id}{kind} {row.title}".rstrip() + link

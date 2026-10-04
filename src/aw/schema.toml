@@ -114,7 +114,7 @@ help = "Repo backlog, relative to the repo root (empty: none)"
 [keys.backlog_parent]
 type = "str"
 default = ""
-help = "Issue that backlog items pushed to the tracker hang under (empty: ask each time)"
+help = "Default parent for backlog items pushed to the tracker; the skill offers its children too (empty: ask each time)"
 
 [keys.backlog_type]
 type = "str"
