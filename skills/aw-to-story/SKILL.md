@@ -56,6 +56,8 @@ New story:
 ~/.agents/bin/aw issue create --title "<title>" --body-file - [--parent <id>]
 ```
 
+The parent (epic, parent story) goes in `--parent` only, as the tracker's native link, never into the body.
+
 Existing story — follow the story-write protocol:
 
 1. Re-read the issue (`aw issue view <id>`) immediately before writing; it changed since step 2 → stop and show what moved.

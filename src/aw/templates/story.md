@@ -13,6 +13,5 @@ As a <persona>, I want <capability>, so that <benefit>.
 
 ## Links
 
-- Epic: <id>
 - Decisions: <decision log entry or ADR>
 - Blocked by: <id>

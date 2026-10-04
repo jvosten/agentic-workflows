@@ -15,6 +15,7 @@ import re
 import urllib.error
 import urllib.parse
 import urllib.request
+from dataclasses import replace
 from typing import Any
 
 from aw.config import AwError
@@ -112,7 +113,7 @@ class Jira(Tracker):
             id=data["key"], ref=data["key"], title=f.get("summary", ""),
             status=(f.get("status") or {}).get("name", ""), type=(f.get("issuetype") or {}).get("name", ""),
             url=f"{self.site_url()}/browse/{data['key']}", labels=f.get("labels", []),
-            parent=self._row(parent) if parent else None,
+            parent=replace(self._row(parent), link="native") if parent else None,
             body=adf.to_markdown(f.get("description")),
             sections={name: _field_text(f.get(fid)) for name, fid in extra.items()},
             children=self.children(issue),
@@ -120,8 +121,33 @@ class Jira(Tracker):
                       for c in comments],
         )
 
+    def parent(self, issue: str) -> Row | None:
+        parent = self.request("GET", f"/rest/api/3/issue/{issue}", {"fields": "parent"})["fields"].get("parent")
+        return replace(self._row(parent), link="native") if parent else None
+
     def children(self, issue: str) -> list[Row]:
-        return self._search(f"parent = {issue} ORDER BY created ASC", 100)
+        return [replace(row, link="native") for row in self._search(f"parent = {issue} ORDER BY created ASC", 100)]
+
+    def set_parent(self, issue: str, parent: str | None) -> str:
+        target = self.normalize(parent) if parent else None
+        current = self.parent(issue)
+        if (current.id if current else None) == target:
+            return f"{issue} already under {target}" if target else f"{issue} has no parent"
+        try:
+            self.request("PUT", f"/rest/api/3/issue/{issue}",
+                         body={"fields": {"parent": {"key": target} if target else None}})
+        except AwError as e:
+            # Hierarchy rules (sub-task under epic, team- vs company-managed) only make sense with the types.
+            pair = " under ".join(f"{key} ({self._type(key)})" for key in filter(None, (issue, target)))
+            raise AwError(f"jira refused the parent change for {pair}: {e}") from None
+        return f"{issue} parent {current.id if current else 'none'} -> {target or 'none'}"
+
+    def _type(self, issue: str) -> str:
+        try:
+            data = self.request("GET", f"/rest/api/3/issue/{issue}", {"fields": "issuetype"})
+        except AwError:
+            return "type unknown"
+        return (data["fields"].get("issuetype") or {}).get("name", "type unknown")
 
     def dupes(self, parent: str, terms: list[str], limit: int) -> list[Row]:
         scope = ", ".join([parent, *(row.id for row in self.children(parent))])

@@ -45,6 +45,13 @@ def test_backlog_pop_removes_one_item_only(repo):
     assert text.rstrip().endswith("- Nothing yet.")
 
 
+def test_backlog_add_stays_above_the_rule_that_closes_the_items(repo, tmp_path):
+    (repo / "BACKLOG.md").write_text(ITEMS.replace("\n## Considered", "\n---\n\n## Considered"))
+    assert cli.main(["backlog", "add", "--title", "[LOW] Third item", "--body-file", body(tmp_path, "Context: three.\n")]) == 0
+    text = (repo / "BACKLOG.md").read_text()
+    assert "Context: two.\n\n### [LOW] Third item\n\nContext: three.\n\n---\n\n## Considered" in text
+
+
 FLAT = """# Backlog
 
 ## First item

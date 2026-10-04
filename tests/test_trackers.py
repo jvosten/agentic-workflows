@@ -122,7 +122,8 @@ def test_jira_view_renders_everything(repo, monkeypatch):
     tracker = trackers.get(jira_cfg(repo))
     monkeypatch.setattr(tracker, "request", fake)
     text = trackers.render(tracker.view(tracker.normalize("proj-12")))
-    assert text.startswith("# PROJ-12: Add retries\n\nstatus: To Do · type: Story · parent: PROJ-1 (Epic one)")
+    assert text.startswith("# PROJ-12: Add retries\n\nstatus: To Do · type: Story · parent: PROJ-1 (Epic one) ·")
+    assert "text link" not in text
     assert "https://example.atlassian.net/browse/PROJ-12" in text
     assert "## Acceptance criteria\n\nAC" in text
     assert "- [Done] PROJ-13 (Sub-task) Subtask" in text
@@ -156,6 +157,30 @@ def test_jira_create_and_comment(repo, monkeypatch):
     assert fields["description"]["content"][0]["type"] == "heading"
     tracker.comment("PROJ-20", "hello")
     assert fake.calls[1][:2] == ("POST", "/rest/api/3/issue/PROJ-20/comment")
+
+
+def test_jira_set_parent_moves_clears_and_names_types_on_refusal(repo, monkeypatch):
+    fake = FakeJira({("GET", "/rest/api/3/issue/PROJ-12"): ISSUE})
+    tracker = trackers.get(jira_cfg(repo))
+    monkeypatch.setattr(tracker, "request", fake)
+    assert tracker.parent("PROJ-12") == trackers.Row("PROJ-1", "Epic one", "", "", "native")
+    assert tracker.set_parent("PROJ-12", "proj-2") == "PROJ-12 parent PROJ-1 -> PROJ-2"
+    assert fake.calls[-1] == ("PUT", "/rest/api/3/issue/PROJ-12", None, {"fields": {"parent": {"key": "PROJ-2"}}})
+    assert tracker.set_parent("PROJ-12", None) == "PROJ-12 parent PROJ-1 -> none"
+    assert fake.calls[-1][3] == {"fields": {"parent": None}}
+    assert tracker.set_parent("PROJ-12", "PROJ-1") == "PROJ-12 already under PROJ-1"
+    assert fake.calls[-1][0] == "GET"
+
+    def refuse(method, path, params=None, body=None):
+        if method == "PUT":
+            raise AwError("jira PUT /rest/api/3/issue/PROJ-12: HTTP 400: parent: invalid hierarchy")
+        if params == {"fields": "issuetype"}:
+            return {"fields": {"issuetype": {"name": "Epic" if path.endswith("PROJ-9") else "Story"}}}
+        return ISSUE
+
+    monkeypatch.setattr(tracker, "request", refuse)
+    with pytest.raises(AwError, match=r"PROJ-12 \(Story\) under PROJ-9 \(Epic\): .*invalid hierarchy"):
+        tracker.set_parent("PROJ-12", "PROJ-9")
 
 
 def test_jira_dupes_uses_one_scoped_jql(repo, monkeypatch):
@@ -228,37 +253,174 @@ def test_jira_ids(repo):
 
 # --- GitHub -------------------------------------------------------------------
 
-def test_github_view_children_and_status(repo, monkeypatch):
+def github_cfg(repo):
     (repo / ".agents").mkdir()
     (repo / ".agents/aw.toml").write_text('tracker = "github"\n')
-    calls = []
-    body = "Part of #3\n\n- [ ] #8 later\n- [x] #9"
+    return load()
 
-    def fake_gh(self, *args, stdin=None):
-        calls.append(args)
-        if args[:2] == ("issue", "view") and "state" == args[-1]:
-            return json.dumps({"state": "OPEN"})
-        if args[:2] == ("issue", "view") and args[-1] == "number,title,state":
-            return json.dumps({"number": int(args[2]), "title": f"Task {args[2]}", "state": "OPEN"})
-        if args[:2] == ("issue", "view"):
-            return json.dumps({"number": 5, "title": "T", "body": body, "state": "OPEN", "url": "u",
-                               "labels": [{"name": "bug"}], "comments": [{"author": {"login": "a"}, "body": "c"}]})
+
+class FakeGh:
+    """Records gh calls and serves canned responses: GraphQL by operation name in the query, the rest by args."""
+
+    def __init__(self, graphql=None, issues=None, subs=None):
+        self.graphql, self.issues, self.subs = graphql or {}, issues or {}, subs or {}
+        self.calls = []
+
+    def ops(self):
+        return [op for op, _, _ in self.calls if op]
+
+    def __call__(self, *args, stdin=None):
+        if args[:2] == ("api", "graphql"):
+            pairs = [(flag, *value.split("=", 1)) for flag, value in zip(args[2::2], args[3::2])]
+            query = next(v for _, k, v in pairs if k == "query")
+            fields = {k: (flag, v) for flag, k, v in pairs if k != "query"}
+            op = next(name for name in self.graphql if name in query)
+            self.calls.append((op, fields, stdin))
+            response = self.graphql[op]
+            return json.dumps({"data": response(fields) if callable(response) else response})
+        self.calls.append((None, args, stdin))
         if args[0] == "api":
-            return json.dumps([{"number": 9, "title": "Sub", "state": "CLOSED"}])
+            return json.dumps(self.subs.get(args[1].rsplit("/", 2)[-2], []))
+        if args[:2] == ("issue", "view"):
+            data = self.issues[args[2]]
+            return json.dumps({k: data[k] for k in args[4].split(",") if k in data})
+        if args[:2] == ("issue", "list"):
+            return json.dumps(self.issues.get("list", []))
         return ""
 
-    monkeypatch.setattr(GitHub, "gh", fake_gh)
+
+def gh_issue(number, title="T", body="", state="OPEN"):
+    return {"number": number, "title": title, "body": body, "state": state, "url": "u",
+            "labels": [{"name": "bug"}], "comments": [{"author": {"login": "a"}, "body": "c"}]}
+
+
+def gh_meta(parent=None, body="", issue_type=None):
+    return {"repository": {"issue": {"body": body, "issueType": issue_type and {"name": issue_type},
+                                     "parent": parent}}}
+
+
+def test_github_view_prefers_the_native_parent_and_marks_text_children(repo, monkeypatch):
+    github_cfg(repo)
+    body = "Part of #3\n\n- [ ] #8 later\n- [x] #9"
+    fake = FakeGh(
+        graphql={"body issueType": gh_meta({"number": 4, "title": "Epic", "state": "OPEN"}, body, "Feature")},
+        issues={"5": gh_issue(5, body=body), "8": gh_issue(8, "Task 8")},
+        subs={"5": [{"number": 9, "title": "Sub", "state": "CLOSED"}]})
+    monkeypatch.setattr(GitHub, "gh", fake)
     tracker = trackers.get(load())
     issue = tracker.view(tracker.normalize("#5"))
-    assert (issue.ref, issue.parent.id, [c.id for c in issue.children]) == ("#5", "3", ["9", "8"])
-    assert issue.children[1].title == "Task 8"
+    assert (issue.ref, issue.type, issue.parent.id, issue.parent.link) == ("#5", "Feature", "4", "native")
+    assert [(c.id, c.link) for c in issue.children] == [("9", "native"), ("8", "text")]
+    text = trackers.render(issue)
+    assert "parent: 4 (Epic) ·" in text and "[text link]" not in text.split("\n")[2]
+    assert "- [open] 8 Task 8 [text link]" in text and "- [closed] 9 Sub\n" in text
+    assert fake.calls[1][1]["number"] == ("-F", "5")
+
+
+def test_github_parent_falls_back_to_a_part_of_line(repo, monkeypatch):
+    github_cfg(repo)
+    monkeypatch.setattr(GitHub, "gh", FakeGh(graphql={"body issueType": gh_meta(None, "Part of #3")}))
+    assert trackers.get(load()).parent("5") == trackers.Row("3", link="text")
+
+
+def test_github_set_status(repo, monkeypatch):
+    github_cfg(repo)
+    fake = FakeGh(issues={"5": gh_issue(5)})
+    monkeypatch.setattr(GitHub, "gh", fake)
+    tracker = trackers.get(load())
     assert tracker.pr_text("5") == "Fixes #5"
     assert tracker.set_status("5", "done") == "#5 closed"
-    assert ("issue", "close", "5") in calls
+    assert (None, ("issue", "close", "5"), None) in fake.calls
     assert tracker.on_start("5") is None
 
 
-def test_github_dupes_scopes_by_sub_issues(repo, monkeypatch):
+def test_github_text_only_children_are_what_is_left_to_migrate(repo, monkeypatch, capsys):
+    github_cfg(repo)
+    search = {"search": {"nodes": [
+        {"number": 11, "title": "Says part of", "state": "OPEN", "body": "Part of #5", "parent": None},
+        {"number": 12, "title": "Already native", "state": "OPEN", "body": "Part of #5", "parent": {"number": 5}},
+        {"number": 13, "title": "Other epic", "state": "OPEN", "body": "Part of #50", "parent": None},
+        {"number": 8, "title": "Task 8", "state": "OPEN", "body": "Part of #5", "parent": None},
+    ]}}
+    fake = FakeGh(graphql={"search(": search},
+                  issues={"5": gh_issue(5, body="- [ ] #8\n- [ ] #9"), "8": gh_issue(8, "Task 8")},
+                  subs={"5": [{"number": 9, "title": "Sub", "state": "OPEN"}]})
+    monkeypatch.setattr(GitHub, "gh", fake)
+    assert cli.main(["issue", "children", "5", "--text-only", "--json"]) == 0
+    rows = json.loads(capsys.readouterr().out)
+    assert [(r["id"], r["link"]) for r in rows] == [("8", "text"), ("11", "text")]
+    assert fake.calls[-1][1]["q"] == ("-F", 'repo:{owner}/{repo} is:issue "Part of #5" in:body')
+
+
+def test_github_create_links_and_types_in_one_mutation(repo, monkeypatch):
+    github_cfg(repo)
+    context = {"repository": {"id": "R1", "owner": {"__typename": "Organization"}, "parent": {"id": "I3"},
+                              "issueTypes": {"nodes": [{"id": "T1", "name": "Bug"}, {"id": "T2", "name": "Task"}]}}}
+    fake = FakeGh(graphql={"issueTypes": context, "createIssue": {"createIssue": {"issue": {"number": 21}}}})
+    monkeypatch.setattr(GitHub, "gh", fake)
+    tracker = trackers.get(load())
+    assert tracker.create("42", "## Body", "#3", "task") == "21"
+    assert fake.ops() == ["issueTypes", "createIssue"]
+    assert fake.calls[0][1]["parent"] == ("-F", "3") and fake.calls[0][1]["withParent"] == ("-F", "true")
+    _, fields, stdin = fake.calls[1]
+    assert fields["title"] == ("-f", "42") and fields["body"] == ("-F", "@-") and stdin == "## Body"
+    assert (fields["repoId"], fields["parentId"], fields["typeId"]) == (("-F", "R1"), ("-F", "I3"), ("-F", "T2"))
+
+    with pytest.raises(AwError, match="unknown issue type 'Epic' \\(available: Bug, Task\\)"):
+        tracker.create("T", "", None, "Epic")
+    assert fake.ops().count("createIssue") == 1
+
+
+def test_github_create_warns_that_user_repos_have_no_types(repo, monkeypatch, capsys):
+    github_cfg(repo)
+    context = {"repository": {"id": "R1", "owner": {"__typename": "User"}, "issueTypes": None}}
+    fake = FakeGh(graphql={"issueTypes": context, "createIssue": {"createIssue": {"issue": {"number": 22}}}})
+    monkeypatch.setattr(GitHub, "gh", fake)
+    assert trackers.get(load()).create("T", "", None, "Task") == "22"
+    assert "parentId" not in fake.calls[1][1] and "typeId" not in fake.calls[1][1]
+    assert "--type 'Task' ignored: issue types need an organization-owned repository" in capsys.readouterr().err
+
+
+def test_github_set_parent_links_replaces_and_unlinks(repo, monkeypatch):
+    github_cfg(repo)
+    state = {"parent": {"id": "I2", "number": 2}}
+
+    def context(fields):
+        return {"repository": {"issue": {"id": "I5", "parent": state["parent"]}, "target": {"id": "I3"}}}
+
+    fake = FakeGh(graphql={"target:": context, "addSubIssue": {}, "removeSubIssue": {}})
+    monkeypatch.setattr(GitHub, "gh", fake)
+    tracker = trackers.get(load())
+    assert tracker.set_parent("5", "3") == "#5 parent #2 -> #3"
+    assert fake.calls[-1][1] == {"owner": ("-F", "{owner}"), "repo": ("-F", "{repo}"),
+                                 "parentId": ("-F", "I3"), "childId": ("-F", "I5")}
+    assert tracker.set_parent("5", None) == "#5 parent #2 -> none"
+    assert fake.calls[-1][0] == "removeSubIssue" and fake.calls[-1][1]["parentId"] == ("-F", "I2")
+    state["parent"] = {"id": "I3", "number": 3}
+    assert tracker.set_parent("5", "3") == "#5 already under #3"
+    state["parent"] = None
+    assert tracker.set_parent("5", None) == "#5 has no parent"
+    assert fake.ops() == ["target:", "addSubIssue", "target:", "removeSubIssue", "target:", "target:"]
+
+
+def test_cli_set_parent_dry_run_and_arguments(repo, monkeypatch, capsys):
+    jira_cfg(repo)
+    calls = []
+    monkeypatch.setattr(Jira, "parent", lambda self, i: trackers.Row("PROJ-1", link="native"))
+    monkeypatch.setattr(Jira, "set_parent", lambda self, i, p: calls.append((i, p)) or f"{i} -> {p}")
+    assert cli.main(["issue", "set-parent", "proj-5", "proj-2", "--dry-run"]) == 0
+    assert capsys.readouterr().out == "DRY RUN (jira): PROJ-5 parent PROJ-1 (native link) -> PROJ-2\n"
+    assert calls == []
+    assert cli.main(["issue", "set-parent", "proj-5", "--none"]) == 0
+    assert calls == [("PROJ-5", None)]
+    assert cli.main(["issue", "set-parent", "proj-5"]) == 1
+    assert cli.main(["issue", "set-parent", "proj-5", "proj-2", "--none"]) == 1
+    assert cli.main(["issue", "set-parent", "proj-5", "proj-5"]) == 1
+    assert "cannot be its own parent" in capsys.readouterr().err
+    assert len(calls) == 1
+
+
+def test_github_dupes_scopes_by_native_sub_issues(repo, monkeypatch):
     (repo / ".agents").mkdir()
     (repo / ".agents/aw.toml").write_text('tracker = "github"\n')
     subs = {"7": [{"number": 8, "title": "Retry uploads", "state": "OPEN"}],
@@ -268,10 +430,11 @@ def test_github_dupes_scopes_by_sub_issues(repo, monkeypatch):
         if args[0] == "api":
             return json.dumps(subs.get(args[1].rsplit("/", 2)[-2], []))
         if args[:2] == ("issue", "view"):
-            return json.dumps({"number": int(args[2]), "title": "T", "body": "", "state": "OPEN"})
+            body = "- [ ] #40" if args[2] == "7" else ""
+            return json.dumps({"number": int(args[2]), "title": "T", "body": body, "state": "OPEN"})
         if args[:2] == ("issue", "list"):
             return json.dumps([{"number": 9, "title": "Backoff", "state": "CLOSED"},
-                               {"number": 40, "title": "Unrelated elsewhere", "state": "OPEN"}])
+                               {"number": 40, "title": "Backoff, linked by text only", "state": "OPEN"}])
         return ""
 
     monkeypatch.setattr(GitHub, "gh", fake_gh)

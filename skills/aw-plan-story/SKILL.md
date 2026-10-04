@@ -89,7 +89,7 @@ The story grew past the size rule in step 3 → go back to that rule instead of 
   ```
 
   Only after the user accepted them, and only the ones a later session would otherwise reopen.
-- Post a short comment on the issue linking the plan: `~/.agents/bin/aw issue comment <id> --body-file -`.
+- Post a short comment on the issue linking the plan, by its path relative to the repo root: `~/.agents/bin/aw issue comment <id> --body-file -`. `plan_scope = local` → no path; say only that a plan exists and who holds it.
 - Tell the user the next step is `/aw-to-subtasks <id>`.
 
 ## Rules

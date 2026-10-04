@@ -18,6 +18,7 @@ Deferred features and open checks. Each entry has enough context to be picked up
 - `aw-finalize` end to end on a real PR, including the permission prompt on `aw finish`.
 - `forge = gitlab` / `tracker = gitlab`: `glab` JSON fields and flags are taken from docs, not tested.
 - `tracker = jira` against a real instance: `aw doctor`, `aw issue view|children|list|comment|set-status`, status sync on start and finish, and ADF rendering of real descriptions (tested only with recorded responses).
+- Native parent links, mutations tested only with recorded responses: GitHub `aw issue create --parent --type` (one `createIssue` call with `parentIssueId`, `issueTypeId`) on an org-owned repo, `aw issue set-parent` link, re-parent and `--none` (`addSubIssue` with `replaceParent`, `removeSubIssue`); Jira `aw issue set-parent` including `--none` (`fields.parent = null`) and a refused hierarchy. Then move one text-linked GitHub project (homelab) until `aw issue children <root> --text-only` is empty.
 - Codex finds `~/.agents/skills/aw-start-task` and honours `agents/openai.yaml` (`allow_implicit_invocation: false`).
 
 **Done when:** one real session per agent has run through both skills, and the findings are in the README.
@@ -30,6 +31,39 @@ Deferred features and open checks. Each entry has enough context to be picked up
 - `.gitattributes` `merge=union` for both files, so two sessions appending in parallel merge without a conflict.
 - Option: `autoMemoryEnabled: false` in Claude Code project settings, so Claude keeps one project memory, not two.
 - Personal memory stays in each agent's native store; only project memory is committed. Confirm this split survives contact with a real multi-session week.
+
+### [MEDIUM] Experiment: gotchas retrieved by tag, not preloaded
+
+**Context:** `aw-start-task` reads `<memory_dir>/decisions.md` and `gotchas.md` in full at session start; `aw doctor` warns past 200 lines. The first large adopter (homelab) has 201 gotchas, ~23,500 tokens, in a table grouped by tool, with numbers cited 144 times from code, CI and docs. Loading all of it costs that much every session, whatever the task. A typical session needs a handful of entries; the rest dilute the relevant ones. Context loaded at session start is the first to be compacted away, so a gotcha is often gone by the time the agent edits the file it is about. And the 200-line warning pushes toward deleting knowledge to fit a budget. Pure on-demand lookup has the opposite failure: the agent must suspect there is something to find, and a missed gotcha shows only as a repeated mistake. A design session on 2026-10-04 settled on a middle path, to be tried as an experiment.
+
+**Settled in that discussion:**
+- A gotcha is external tool behavior: symptom, cause, fix. A workflow pitfall that bites regardless of tool becomes a rule in `instructions_file`; `aw-finalize` proposes the rule text, the user decides.
+- One file per gotcha: `<gotchas_dir>/<slug>.md`, and the slug is the permanent id. Frontmatter `tools`, `status` (active | retired), `superseded_by`, `issue`, `date`, and `aliases` for the numbers of imported entries, so existing citations still resolve. Entries are retired, never deleted. Two gotchas get two slugs and never collide; the same slug twice is a real duplicate, and git shows it as a conflict. No new numbers: parallel sessions take the same next free one (the homelab table has 15 such duplicates), and renumbering breaks citations.
+- Decisions use the same layout, one file per decision with a slug id: same code path, and it ends append conflicts on `decisions.md`. Coordinate with [Configurable decision records](#medium-configurable-decision-records-for-aw-domain-modeling).
+- Tags name tools, from a fixed vocabulary; `aw memory add` rejects unknown tags, so a new tag is a deliberate addition. No hierarchy.
+- Session start loads only the tag list with counts (`flux 34 · talos 21 · …`, ~150 tokens): enough to know which tools have known traps, so the agent knows when to look.
+- `aw-plan-story` writes compact lines (`id · claim`) for the entries that match the story's tags into the plan file, with `aw memory show <id>` for the full entry. The plan is on disk and survives compaction, and the CLI picks the entries, not the model. Full entries are not copied: they would go stale in the plan when one is retired.
+- Debugging and unplanned work: two-step search, compact hits (`id · claim`, ~20 tokens each) first, then one full entry.
+- Decisions: the decision index goes into the plan at planning time (`aw-plan-story`, grilling); a session without a plan loads the decision index at start, so unplanned work still sees them. Full records on demand.
+- Prior art: [encephalon](https://github.com/isaachinman/encephalon). Pointer block in `AGENTS.md`, literal AND search, `--compact` then full, append-only with `supersedes`. It preloads no index at all; this design preloads the tag list on purpose, so the agent knows when to search.
+
+**Scope, first cut** (what the experiment needs):
+- Config: `gotchas_dir`; `gotcha_tags` (the vocabulary); `gotchas_load = full | tags` (default `full`).
+- `aw memory add gotcha --tags a,b` writes `<slug>.md`; `aw memory find --tags|--text [--compact]`; `aw memory show <id>` (slug or alias); `aw memory tags` (vocabulary with counts); `aw memory supersede` sets `status` and `superseded_by`. The same commands for decisions.
+- `aw doctor`: unknown tags, `superseded_by` pointing nowhere, an alias claimed by two entries.
+- Skills: `aw-start-task` loads gotchas per `gotchas_load`, and the decision index only when there is no plan; `aw-plan-story` derives tags from the story and the paths the plan touches, and writes the compact gotcha lines and the decision index into the plan; `aw-finalize` and `aw-remember` write files, not appends, and propose rules for workflow pitfalls.
+- `aw-finalize` appends one line per session to a gitignored log (`.agents/gotchas-experiment.log`): tokens loaded at start, entries pulled at plan time, whether the gotcha that mattered was among them, gotchas that bit although an entry existed, tag rejections. Nobody records ten sessions by hand.
+
+**Scope, after the first results:** `tag_map` (path glob → tag), `aw memory import` for an existing table, `gotchas_load = none`, and `aw doctor` suggesting `tags` past a size threshold.
+
+**Experiment:** run it in the homelab for ten sessions and read the log. Hooks that inject entries before an edit (Claude Code only) are the fallback if plan-time pulls miss too often.
+
+**Open:**
+- `tag_map` alone, model-chosen tags alone, or both (current lean: both).
+- Converting an existing table: a one-off in the adopting project, or `aw memory import`. The homelab conversion gives each entry a slug and keeps its number as an alias; a duplicated number stays the alias of the entry its citations mean, and the other entry keeps only its slug.
+- Whether `full` stays the default once `tags` has a track record.
+
+**Done when:** the ten sessions are recorded in the README, and the defaults are set from the result.
 
 ### [MEDIUM] Spec element above the story
 
@@ -91,6 +125,8 @@ Deferred features and open checks. Each entry has enough context to be picked up
 
 **Scope:** `aw init` offers to create `CLAUDE.md` with `@AGENTS.md` when `instructions_file = "AGENTS.md"` and no `CLAUDE.md` exists.
 
+**Alternative to weigh:** [encephalon](https://github.com/isaachinman/encephalon) adds a marked, reversible block to both `AGENTS.md` and `CLAUDE.md` (`init` writes it, `init --remove` takes it out and leaves the rest of the file alone). That also covers projects that already have a `CLAUDE.md` of their own, which the `@AGENTS.md` shim skips.
+
 ### [MEDIUM] Finalize refactor
 
 **Context:** `aw-finalize` carries steps it cannot run without a permission prompt, and the end of a session regularly produces leftovers that belong in a backlog, not in a comment nobody reads.
@@ -137,6 +173,17 @@ Deferred features and open checks. Each entry has enough context to be picked up
 ### [LOW] Session title hook
 
 **Context:** From agent-issue-tracker. Set the agent session title to `s<N> <slug> (#issue)` so parallel sessions are distinguishable. Claude Code hook; other agents vary.
+
+### [LOW] Mark finished plans as history
+
+**Context:** With `plan_scope = repo`, plans stay in `.agents/plans/` after their story is done. A later session that finds one cannot tell a live plan from a finished one, and may read old steps as current requirements. [encephalon](https://github.com/isaachinman/encephalon) keeps its old plans and specs for the record but marks them as history, "not current requirements".
+
+**Scope:**
+- `aw-finalize`, when the merged work closes the last subtask of a story, sets the plan's `**Status:**` line to `done` and adds the merge date, in the same PR.
+- `aw plan state` reports the status; `aw-plan` routes a `done` plan to "nothing pending" instead of offering to cut subtasks.
+- Plans are not moved or deleted; the path that subtasks and comments cite keeps working.
+
+**Done when:** a finished story's plan reads `Status: done` without a manual edit, and `aw-plan` treats it as finished.
 
 ---
 

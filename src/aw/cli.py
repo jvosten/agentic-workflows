@@ -75,7 +75,20 @@ def _issue(args: argparse.Namespace) -> None:
         else:
             print(text, end="")
     elif op == "children":
-        _rows(tracker.children(issue), args.json)
+        _rows(tracker.text_children(issue) if args.text_only else tracker.children(issue), args.json)
+    elif op == "set-parent":
+        if (args.parent is None) == (not args.none):
+            raise AwError("issue set-parent: pass a parent id or --none")
+        parent = None if args.none else tracker.normalize(args.parent)
+        if parent == issue:
+            raise AwError(f"{tracker.ref(issue)} cannot be its own parent")
+        if args.dry_run:
+            current = tracker.parent(issue)
+            was = f"{tracker.ref(current.id)} ({current.link} link)" if current else "none"
+            print(f"DRY RUN ({tracker.name}): {tracker.ref(issue)} parent {was} -> "
+                  f"{tracker.ref(parent) if parent else 'none'}")
+            return
+        print(tracker.set_parent(issue, parent))
     elif op == "dupes":
         rows = tracker.dupes(issue, args.terms, args.limit)
         if not tracker.scoped():
@@ -241,8 +254,10 @@ def build_parser() -> argparse.ArgumentParser:
     o.add_argument("id")
     o.add_argument("--json", action="store_true")
     o.add_argument("--out", metavar="DIR", help="write <id>.md (or .json) into DIR instead of printing")
-    o = ops.add_parser("children", help="child issues / subtasks")
+    o = ops.add_parser("children", help="child issues / subtasks, each marked when linked only by text")
     o.add_argument("id")
+    o.add_argument("--text-only", action="store_true",
+                   help="only children without a native link: what is left to move to set-parent")
     o.add_argument("--json", action="store_true")
     o = ops.add_parser("dupes", help="candidates under a parent that match the given terms, any state")
     o.add_argument("id", help="parent issue the candidates hang under")
@@ -261,8 +276,13 @@ def build_parser() -> argparse.ArgumentParser:
     o.add_argument("--title", required=True)
     o.add_argument("--body-file", required=True, help="Markdown file, or - for stdin")
     o.add_argument("--parent")
-    o.add_argument("--type", help="issue type (Jira), default Task")
+    o.add_argument("--type", help="issue type (Jira default Task; GitHub only on organization-owned repos)")
     o.add_argument("--dry-run", action="store_true")
+    o = ops.add_parser("set-parent", help="link, re-parent or unlink an existing issue with the native parent link")
+    o.add_argument("id")
+    o.add_argument("parent", nargs="?", help="new parent; replaces the current one")
+    o.add_argument("--none", action="store_true", help="remove the parent link")
+    o.add_argument("--dry-run", action="store_true", help="print the current and the new parent, change nothing")
     o = ops.add_parser("update", help="replace title and description of an existing issue")
     o.add_argument("id")
     o.add_argument("--title")

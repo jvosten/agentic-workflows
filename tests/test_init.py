@@ -23,7 +23,6 @@ def test_detects_defaults(repo):
         "verify_cmd": "make validate",
         "changelog_file": "CHANGELOG.md",
         "merge_method": "merge",
-        "plan_dir": "",
     }
     assert (repo / ".agents/.gitignore").read_text() == "aw.local.toml\n"
 
@@ -36,6 +35,12 @@ def test_rerun_keeps_answers_and_set_overrides(repo):
     assert data["on_issue_start"] == "echo {issue}"
     assert data["direnv"] is True
     assert (repo / ".agents/.gitignore").read_text() == "aw.local.toml\n"
+
+
+def test_local_plans_are_gitignored(repo):
+    init.run(True, ["plan_scope=local"])
+    init.run(True, [])
+    assert (repo / ".agents/.gitignore").read_text() == "aw.local.toml\nplans/\n"
 
 
 def test_tracker_detection(repo):
