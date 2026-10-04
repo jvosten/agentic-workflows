@@ -23,7 +23,38 @@ def test_install_links_and_is_idempotent(env, tmp_path):
     assert (env / ".claude/skills" / skill.name).resolve() == skill.resolve()
     assert (env / ".agents/bin/aw").resolve() == exe.resolve()
     again = install.run(["claude"], exe)
-    assert all(line.startswith("unchanged") for line in again)
+    assert {c.action for c in again.changes} == {"unchanged"}
+
+
+def test_install_summary_and_verbose(env, tmp_path, monkeypatch, capsys):
+    from aw import cli
+
+    exe = fake_exe(tmp_path)
+    monkeypatch.setattr("sys.argv", [str(exe)])
+    monkeypatch.setenv("PATH", "/usr/bin")
+    count = len(install.source_skills())
+    assert cli.main(["install"]) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert out[0] == "aw install"
+    assert out[1].split() == ["~/.agents/skills", str(count), "skills", str(count), "new"]
+    assert out[2].split() == ["~/.claude/skills", str(count), "skills", str(count), "new"]
+    assert out[3].split() == ["~/.agents/bin/aw", "CLI", "1", "new"]
+    assert out[4].startswith("! `aw` is not on your PATH") and "uv tool update-shell" in out[5]
+    assert len(out) == 6
+
+    (env / ".claude/skills" / install.source_skills()[0].name).unlink()
+    gone = env / ".agents/skills/aw-retired"
+    gone.symlink_to(install.skills_source() / "aw-retired")
+    assert cli.main(["install"]) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert out[1].endswith("1 removed") and out[2].endswith("1 new")
+    assert out[4:6] == [f"  new:     {install.source_skills()[0].name}", "  removed: aw-retired"]
+
+    assert cli.main(["install"]) == 0
+    assert all(line.endswith("up to date") for line in capsys.readouterr().out.splitlines()[1:4])
+    assert cli.main(["install", "--verbose"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert len([line for line in lines if line.startswith("  unchanged ")]) == 2 * count + 1
 
 
 def test_install_prunes_dangling_links(env, tmp_path):
@@ -76,3 +107,30 @@ def test_menu_lists_skills_before_commands(capsys):
     assert out.index("Skills") < out.index("/aw-start-task") < out.index("Commands") < out.index("aw start-task")
     assert "/aw-start-task" in out and "Start an implementation session (user only)" in out
     assert "\033[" not in out  # no colour when not a terminal
+
+
+def test_doctor_summary_lists_problems_and_verbose_lists_everything(env, repo, tmp_path, monkeypatch, capsys):
+    from aw import cli
+
+    install.run(["claude"], fake_exe(tmp_path))
+    init.run(True, [])
+    monkeypatch.setenv("PATH", f"{env}/.agents/bin:/usr/bin:/bin")
+    count = len(install.source_skills())
+    assert cli.main(["doctor"]) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert out[0] == "aw doctor"
+    assert out[1].split() == ["✓", "CLI", "~/.agents/bin/aw"]
+    assert out[2].split() == ["✓", "Skills", f"({count})", str(3 * count), "checks", "ok"]
+    assert out[-1] == "all good"
+    assert not [line for line in out if line.startswith("      ")]
+
+    (env / ".agents/bin/aw").unlink()
+    assert cli.main(["doctor"]) == 1
+    out = capsys.readouterr().out.splitlines()
+    assert out[1].split()[:4] == ["✗", "CLI", "1", "failure"]
+    assert out[2].strip().startswith("✗ ~/.agents/bin/aw missing")
+    assert out[-1].startswith("1 failure")
+
+    assert cli.main(["doctor", "--verbose"]) == 1
+    detail = [line for line in capsys.readouterr().out.splitlines() if line.startswith("      ✓")]
+    assert len(detail) >= 3 * count

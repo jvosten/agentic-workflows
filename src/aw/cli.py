@@ -4,15 +4,16 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import shutil
 import sys
 from dataclasses import asdict
 from pathlib import Path
 
-from aw import __version__, backlog, doctor, finish, init, install, memory, plan, session, start_task, templates, trackers
-from aw.config import AwError, load, toml_value
+from aw import (
+    __version__, backlog, doctor, finish, init, install, memory, plan, session, start_task, templates, trackers, ui,
+)
+from aw.config import PROJECT_FILE, AwError, load, toml_value
 from aw.trackers import STATUSES
 
 
@@ -161,22 +162,104 @@ def _finish(args: argparse.Namespace) -> None:
 
 
 def _init(args: argparse.Namespace) -> None:
-    path = init.run(args.yes, args.set)
-    print(f"wrote {path}; review and commit it")
+    report = init.run(args.yes, args.set)
+    values, previous = report.values, report.previous
+    name = PROJECT_FILE
+    print(ui.style("aw init", ui.BOLD))
+    if previous is None:
+        origin = [ui.plural(n, src) if src == "default" else f"{n} {src}"
+                  for src in ("detected", "answered", "--set", "default")
+                  if (n := sum(s == src for s in report.sources.values()))]
+        status = ui.style("created", ui.GREEN) + f" · {ui.plural(len(values), 'key')}: {', '.join(origin)}"
+        changed: list[str] = []
+        new: list[str] = []
+    else:
+        changed = [k for k in values if k in previous and previous[k] != values[k]]
+        new = [k for k in values if k not in previous]
+        counts = [f"{len(changed)} changed" if changed else "", f"{len(new)} new" if new else ""]
+        status = (ui.style("updated", ui.GREEN) + " · " + ", ".join(filter(None, counts))
+                  if changed or new else ui.style("up to date", ui.DIM))
+    print(f"  {name:<20}{status}")
+    def show(value: object) -> str:
+        return init.shown(value) or "—"
+
+    if args.verbose:
+        width = max(len(k) for k in values) + 2
+        for key, value in values.items():
+            print(f"    {key:<{width}}{show(value):<28}{ui.style(report.sources.get(key, ''), ui.DIM)}")
+    else:
+        for key in changed:
+            print(f"    {key}  {show(previous[key])} → {ui.style(show(values[key]), ui.GREEN)}")
+        for key in new:
+            print(f"    {key}  {ui.style(show(values[key]), ui.GREEN)} {ui.style('(new)', ui.DIM)}")
+    if report.ignored:
+        print(f"  {'.agents/.gitignore':<20}added {', '.join(report.ignored)}")
+    for warning in report.warnings:
+        ui.warn(warning)
+    if previous is None or changed or new:
+        print(f"next: review and commit {name}, then `aw doctor`")
 
 
 def _install(args: argparse.Namespace) -> None:
     running = Path(sys.argv[0])
     exe = running.absolute() if running.name == "aw" and running.is_file() else None
-    for line in install.run(args.agent, exe):
-        print(line)
+    report = install.run(args.agent, exe)
+    print(ui.style("aw install", "1"))
+    if args.verbose:
+        for change in report.changes:
+            print(f"  {change.action:<10}{ui.home(change.path)}")
+    else:
+        targets: dict[Path, list[install.Change]] = {}
+        for change in report.changes:
+            key = change.path if change.path.name == "aw" and change.path.parent.name == "bin" else change.path.parent
+            targets.setdefault(key, []).append(change)
+        width = max(len(ui.home(t)) for t in targets) + 3
+        for target, changes in targets.items():
+            counts = {a: sum(c.action == a for c in changes) for a in ("new", "updated", "removed")}
+            moved = " · ".join(f"{n} {a}" for a, n in counts.items() if n)
+            kept = [c for c in changes if c.action != "removed"]
+            what = f"{len(kept)} skills" if target.name != "aw" else "CLI"
+            status = ui.style(moved, "32") if moved else ui.style("up to date", "2")
+            print(f"  {ui.home(target):<{width}}{what:<11}{status}")
+        for action in ("new", "updated", "removed"):
+            names = sorted({c.path.name for c in report.changes if c.action == action and c.path.name != "aw"})
+            if names and not (action == "new" and len(names) == len(install.source_skills())):
+                print(f"  {action + ':':<9}{', '.join(names)}")
+    for warning in report.warnings:
+        print(ui.style(f"! {warning}", "33"))
+
+
+DOCTOR_MARKS = {"ok": ("✓", "32"), "warn": ("!", "33"), "fail": ("✗", "31")}
 
 
 def _doctor(args: argparse.Namespace) -> int:
-    results = doctor.run()
-    for level, message in results:
-        print(f"{level:<4}  {message}")
-    return 1 if any(level == "fail" for level, _ in results) else 0
+    groups = doctor.sections()
+    width = max(len(name) for name, _ in groups) + 3
+    home = str(Path.home())
+    print(ui.style("aw doctor", "1"))
+    for name, results in groups:
+        levels = [level for level, _ in results]
+        worst = "fail" if "fail" in levels else "warn" if "warn" in levels else "ok"
+        mark, color = DOCTOR_MARKS[worst]
+        problems = [ui.plural(levels.count(lvl), word) for lvl, word in (("fail", "failure"), ("warn", "warning"))
+                    if lvl in levels]
+        passed = ui.plural(levels.count("ok"), "check") + " ok" if "ok" in levels else ""
+        summary = " · ".join(filter(None, [*problems, passed]))
+        if results == [("ok", results[0][1])]:  # one passing check says more than "1 check ok"
+            summary = results[0][1].replace(home, "~")
+        print(f"  {ui.style(mark, color)} {name:<{width}}{summary}")
+        for level, message in results:
+            if level != "ok" or args.verbose:
+                mark, color = DOCTOR_MARKS[level]
+                print(f"      {ui.style(mark, color)} {message.replace(home, '~')}")
+    levels = [level for _, results in groups for level, _ in results]
+    if "fail" in levels or "warn" in levels:
+        counts = [ui.plural(levels.count(lvl), word) for lvl, word in (("fail", "failure"), ("warn", "warning"))
+                  if lvl in levels]
+        print(", ".join(counts))
+    else:
+        print(ui.style("all good", "32"))
+    return 1 if "fail" in levels else 0
 
 
 def _summary(description: str) -> str:
@@ -185,13 +268,11 @@ def _summary(description: str) -> str:
 
 
 def menu(parser: argparse.ArgumentParser) -> str:
-    color = sys.stdout.isatty() and "NO_COLOR" not in os.environ
-
     def name(text: str) -> str:
-        return f"\033[36m{text}\033[0m" if color else text
+        return ui.style(text, "36")
 
     def head(text: str) -> str:
-        return f"\033[1m{text}\033[0m" if color else text
+        return ui.style(text, "1")
 
     workflow = ["aw-plan", "aw-to-story", "aw-plan-story", "aw-to-subtasks", "aw-start-task", "aw-finalize"]
     order = sorted(install.source_skills(), key=lambda p: (workflow.index(p.name) if p.name in workflow else 99, p.name))
@@ -229,10 +310,12 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("install", help="link skills and the CLI into ~/.agents")
     s.add_argument("--agent", action="append", default=None,
                    help="also link skills for this agent (default: claude)")
+    s.add_argument("-v", "--verbose", action="store_true", help="one line per link instead of a summary")
     s.set_defaults(func=_install)
 
     s = sub.add_parser("init", help="create or update .agents/aw.toml in this repo")
     s.add_argument("-y", "--yes", action="store_true", help="accept detected defaults, no prompts")
+    s.add_argument("-v", "--verbose", action="store_true", help="list every value written and where it came from")
     s.add_argument("--set", action="append", default=[], metavar="KEY=VALUE")
     s.set_defaults(func=_init)
 
@@ -346,6 +429,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.set_defaults(func=_finish)
 
     s = sub.add_parser("doctor", help="check installation and project configuration")
+    s.add_argument("-v", "--verbose", action="store_true", help="list passing checks too, not only problems")
     s.set_defaults(func=_doctor)
     return p
 

@@ -15,9 +15,9 @@ make install       # installs the `aw` CLI, links skills and ~/.agents/bin/aw
 make doctor
 ```
 
-`make install` runs two steps: `uv tool install --editable .` puts `aw` on your PATH, and `aw install` links each skill into `~/.agents/skills/` (plus `~/.claude/skills/`) and the CLI to `~/.agents/bin/aw`, the path every skill calls. Without the second step no agent sees the skills.
+`make install` runs two steps: `uv tool install --editable .` puts `aw` into uv's tool directory (usually `~/.local/bin`), and `aw install` links each skill into `~/.agents/skills/` (plus `~/.claude/skills/`) and the CLI to `~/.agents/bin/aw`, the path every skill calls. Without the second step no agent sees the skills.
 
-The editable install means edits to this repo take effect without reinstalling. Re-run `make install` after adding or removing a skill: it also prunes links to skills that are gone.
+The editable install means edits to this repo take effect without reinstalling. Re-run `make install` after adding or removing a skill: it also prunes links to skills that are gone. It prints one summary line per target; `make install V=1` lists every link. It warns when `aw` is not on your PATH: skills still work, since they call `~/.agents/bin/aw`, and `uv tool update-shell` makes `aw` available in your shell.
 
 `make install` installs the tool; `aw init` (below) configures one project.
 
@@ -150,8 +150,8 @@ Statuses are canonical (`backlog`, `ready`, `in_progress`, `in_review`, `done`);
 
 | Command | Does |
 |---|---|
-| `aw install [--agent claude]` | Link skills into `~/.agents/skills` and agent dirs, CLI into `~/.agents/bin/aw` |
-| `aw init [-y] [--set K=V]` | Create or update `.agents/aw.toml` |
+| `aw install [--agent claude] [-v]` | Link skills into `~/.agents/skills` and agent dirs, CLI into `~/.agents/bin/aw` |
+| `aw init [-y] [--set K=V] [-v]` | Create or update `.agents/aw.toml`; reports what changed, `-v` every value and where it came from |
 | `aw config [--get KEY] [--sources]` | Print resolved configuration |
 | `aw start-task <type> <slug> [--issue N] [--number N]` | Sync main, pick session number, create branch + worktree, direnv, issue hook |
 | `aw session` | Print the current worktree's session metadata |
@@ -165,7 +165,7 @@ Statuses are canonical (`backlog`, `ready`, `in_progress`, `in_review`, `done`);
 | `aw memory supersede <decision\|gotcha> --title T --reason R` | Retire an entry, keeping it under `## Superseded` |
 | `aw backlog add --title T --body-file F` | Add an item to `backlog_file`, matching the file's item shape |
 | `aw backlog pop --title T` | Remove an item, once the tracker owns it |
-| `aw doctor` | Check installation, skill frontmatter, project config, tools, tracker auth |
+| `aw doctor [-v]` | Check installation, skill frontmatter, project config, tools, tracker auth; one line per area plus every problem, `-v` (`make doctor V=1`) lists passing checks too |
 
 ## Skill internals
 

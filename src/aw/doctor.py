@@ -9,7 +9,7 @@ import subprocess
 from pathlib import Path
 
 from aw import install, plan, trackers
-from aw.config import PROJECT_FILE, AwError, load, load_schema, repo_root
+from aw.config import PROJECT_FILE, AwError, Config, load, load_schema, repo_root
 
 NAME = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 TRACKER_CLI = {"github": "gh", "gitlab": "glab"}
@@ -47,12 +47,18 @@ def check_skill(skill: Path) -> list[Result]:
     return [("ok", f"skill {skill.name}: frontmatter valid")]
 
 
-def check_install() -> list[Result]:
+def check_cli() -> list[Result]:
+    bin_link = install.agents_home() / "bin/aw"
+    results: list[Result] = [("ok", f"{bin_link}") if bin_link.exists()
+                             else ("fail", f"{bin_link} missing; run `aw install`")]
+    if not shutil.which("aw"):
+        results.append(("warn", "`aw` is not on your PATH; skills still work. For your shell: `uv tool update-shell`"))
+    return results
+
+
+def check_skills() -> list[Result]:
     results: list[Result] = []
     home = install.agents_home()
-    bin_link = home / "bin/aw"
-    results.append(("ok", f"{bin_link}") if bin_link.exists()
-                   else ("fail", f"{bin_link} missing; run `aw install`"))
     for skill in install.source_skills():
         results += check_skill(skill)
         dest = home / "skills" / skill.name
@@ -73,21 +79,34 @@ def _tool(name: str, why: str) -> Result:
     return ("ok", f"{name} found") if shutil.which(name) else ("fail", f"{name} not found ({why})")
 
 
-def check_project() -> list[Result]:
+def check_install() -> list[Result]:
+    return check_cli() + check_skills()
+
+
+def _project_config() -> tuple[Config | None, list[Result]]:
+    """The project's config, or the result that ends the project checks early."""
     try:
         repo_root()
     except AwError:
-        return [("warn", "not in a git repository; project checks skipped")]
+        return None, [("warn", "not in a git repository; project checks skipped")]
     try:
         cfg = load()
     except AwError as e:
-        return [("fail", str(e))]
-
-    results: list[Result] = []
-    current = load_schema()["version"]
+        return None, [("fail", str(e))]
     path = cfg.checkout / PROJECT_FILE
     if not path.is_file():
-        return [("warn", f"{path} missing; run `aw init`")]
+        return None, [("warn", f"{path} missing; run `aw init`")]
+    return cfg, []
+
+
+def check_project() -> list[Result]:
+    cfg, early = _project_config()
+    return early if cfg is None else check_config(cfg) + check_tools(cfg)
+
+
+def check_config(cfg: Config) -> list[Result]:
+    results: list[Result] = []
+    current = load_schema()["version"]
     if cfg.file_version is None:
         results.append(("fail", f"{PROJECT_FILE}: aw_version missing; run `aw init`"))
     elif cfg.file_version < current:
@@ -107,8 +126,11 @@ def check_project() -> list[Result]:
     if cfg.get("plan_scope") == "local" and not plan.ignored(cfg):
         results.append(("warn", f"plan_scope = local but {plan.directory(cfg)} is not gitignored"))
     results += check_memory(cfg)
+    return results
 
-    results.append(_tool("git", "required"))
+
+def check_tools(cfg: Config) -> list[Result]:
+    results: list[Result] = [_tool("git", "required")]
     if cfg.get("direnv"):
         results.append(_tool("direnv", "direnv = true"))
     clis = {TRACKER_CLI[cfg.get(k)]: k for k in ("forge", "tracker") if cfg.get(k) in TRACKER_CLI}
@@ -157,5 +179,14 @@ def check_jira(cfg) -> list[Result]:
     return results
 
 
+def sections() -> list[tuple[str, list[Result]]]:
+    """Results grouped by what they check, for display."""
+    groups = [("CLI", check_cli()), (f"Skills ({len(install.source_skills())})", check_skills())]
+    cfg, early = _project_config()
+    if cfg is None:
+        return [*groups, ("Project", early)]
+    return [*groups, ("Project", check_config(cfg)), ("Tools", check_tools(cfg))]
+
+
 def run() -> list[Result]:
-    return check_install() + check_project()
+    return [result for _, results in sections() for result in results]

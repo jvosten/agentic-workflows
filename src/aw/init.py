@@ -5,9 +5,11 @@ from __future__ import annotations
 import re
 import sys
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from aw import ui
 from aw.config import (
     LOCAL_FILE,
     PROJECT_FILE,
@@ -98,28 +100,40 @@ def detect(root: Path, schema: dict[str, Any]) -> dict[str, Any]:
     return found
 
 
-def prompt(key: str, spec: dict, default: Any) -> Any:
-    shown = ", ".join(default) if isinstance(default, list) else toml_value(default).strip('"')
-    choices = f" ({'/'.join(spec['choices'])})" if spec["type"] == "choice" else ""
+def shown(value: Any) -> str:
+    return ", ".join(value) if isinstance(value, list) else toml_value(value).strip('"')
+
+
+def prompt(key: str, spec: dict, default: Any, source: str = "default") -> Any:
+    choices = ui.style(f" ({' / '.join(spec['choices'])})", ui.DIM) if spec["type"] == "choice" else ""
+    hint = ui.style(f" {source}", ui.DIM) if source != "default" else ""
     while True:
-        answer = input(f"{spec['help']}{choices}\n  {key} [{shown}]: ")
+        answer = input(f"\n  {ui.style(spec['help'], ui.DIM)}{choices}\n  {key} [{shown(default)}]{hint} › ")
         if not answer.strip():
             return default
         try:
             return parse_text(key, spec, answer)
         except AwError as e:
-            print(f"  {e}", file=sys.stderr)
+            print(ui.style(f"  {e}", ui.RED))
 
 
-def run(assume_yes: bool, sets: list[str]) -> Path:
+@dataclass
+class Report:
+    path: Path
+    values: dict[str, Any]  # what was written, without aw_version
+    previous: dict[str, Any] | None  # the file before, None when it is new
+    sources: dict[str, str]  # --set | answered | kept | detected | default
+    ignored: list[str] = field(default_factory=list)  # entries added to .agents/.gitignore
+    warnings: list[str] = field(default_factory=list)
+
+
+def run(assume_yes: bool, sets: list[str]) -> Report:
     full = load_schema()
     schema = full["keys"]
     root = checkout_root()
     path = root / PROJECT_FILE
     existing = read_toml(path) if path.is_file() else {}
-    for key in existing:
-        if key != "aw_version" and key not in schema:
-            print(f"warning: dropping unknown key {key!r} from {path}", file=sys.stderr)
+    warnings = [f"dropped unknown key {key!r}" for key in existing if key != "aw_version" and key not in schema]
 
     overrides: dict[str, Any] = {}
     for item in sets:
@@ -130,16 +144,24 @@ def run(assume_yes: bool, sets: list[str]) -> Path:
 
     detected = detect(root, schema)
     interactive = not assume_yes and sys.stdin.isatty()
+    if interactive:
+        print(f"{ui.style('aw init', ui.BOLD)} {ui.style(ui.home(root), ui.DIM)}")
+        print(ui.style("  Enter keeps the value in brackets.", ui.DIM))
     values: dict[str, Any] = {"aw_version": full["version"]}
+    sources: dict[str, str] = {}
     for key, spec in schema.items():
         applies = all(values.get(k, existing.get(k)) == v for k, v in spec.get("when", {}).items())
         if key in overrides:
-            values[key] = overrides[key]
+            values[key], sources[key] = overrides[key], "--set"
         elif spec.get("ask") and applies:
+            source = "kept" if key in existing else "detected" if key in detected else "default"
             default = existing.get(key, detected.get(key, spec["default"]))
-            values[key] = prompt(key, spec, default) if interactive else default
+            values[key] = prompt(key, spec, default, source) if interactive else default
+            sources[key] = source if values[key] == default else "answered"
         elif key in existing:
-            values[key] = existing[key]
+            values[key], sources[key] = existing[key], "kept"
+    if interactive:
+        print()
 
     path.parent.mkdir(exist_ok=True)
     path.write_text(dump_toml(values))
@@ -154,4 +176,6 @@ def run(assume_yes: bool, sets: list[str]) -> Path:
     if missing:
         with ignore.open("a") as f:
             f.write("".join(f"{entry}\n" for entry in missing))
-    return path
+    written = {k: v for k, v in values.items() if k != "aw_version"}
+    previous = {k: v for k, v in existing.items() if k != "aw_version"} if existing else None
+    return Report(path, written, previous, sources, missing, warnings)

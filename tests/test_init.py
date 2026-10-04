@@ -98,3 +98,28 @@ def test_jira_keys_asked_only_for_jira(repo, monkeypatch):
     monkeypatch.setattr("builtins.input", lambda p: asked.append(p) or ("none" if "tracker [" in p else ""))
     init.run(False, [])
     assert not any("jira_base_url" in p for p in asked)
+
+
+def test_init_reports_what_it_wrote(repo, capsys):
+    from aw import cli
+
+    assert cli.main(["init", "--yes"]) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert out[0] == "aw init"
+    assert out[1].split()[:3] == [".agents/aw.toml", "created", "·"] and "detected" in out[1]
+    assert out[-1].startswith("next: review and commit .agents/aw.toml")
+
+    assert cli.main(["init", "--yes"]) == 0
+    assert capsys.readouterr().out.splitlines()[1:] == ["  .agents/aw.toml     up to date"]
+
+    assert cli.main(["init", "--yes", "--set", "verify_cmd=make test", "--set", "plan_scope=local"]) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert out[1].split() == [".agents/aw.toml", "updated", "·", "1", "changed,", "1", "new"]
+    assert out[2].split() == ["verify_cmd", "make", "validate", "→", "make", "test"]
+    assert out[3].split() == ["plan_scope", "local", "(new)"]
+    assert out[4].split() == [".agents/.gitignore", "added", "plans/"]
+
+    assert cli.main(["init", "--yes", "-v"]) == 0
+    rows = {line.split()[0]: line.split()[1:] for line in capsys.readouterr().out.splitlines()[2:]}
+    assert rows["verify_cmd"] == ["make", "test", "kept"]
+    assert rows["changelog_file"] == ["CHANGELOG.md", "kept"]

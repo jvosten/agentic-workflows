@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import shutil
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from aw.config import AwError
@@ -32,19 +33,33 @@ def source_skills() -> list[Path]:
     return sorted(p.parent for p in skills_source().glob("*/SKILL.md"))
 
 
-def _link(dest: Path, target: Path) -> str:
+@dataclass
+class Change:
+    action: str  # new | updated | unchanged | removed
+    path: Path
+
+
+@dataclass
+class Report:
+    changes: list[Change] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+
+
+def _link(dest: Path, target: Path) -> Change:
+    action = "new"
     if dest.is_symlink():
         if dest.resolve() == target.resolve():
-            return "unchanged"
+            return Change("unchanged", dest)
         dest.unlink()
+        action = "updated"
     elif dest.exists():
         raise AwError(f"{dest} exists and is not a symlink; remove it first")
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.symlink_to(target)
-    return "linked"
+    return Change(action, dest)
 
 
-def _prune(directory: Path, owned: Path) -> list[str]:
+def _prune(directory: Path, owned: Path) -> list[Change]:
     """Remove dangling symlinks in directory that point into owned."""
     removed = []
     if directory.is_dir():
@@ -55,32 +70,38 @@ def _prune(directory: Path, owned: Path) -> list[str]:
                     target = entry.parent / target
                 if target.parent == owned:
                     entry.unlink()
-                    removed.append(f"removed {entry}")
+                    removed.append(Change("removed", entry))
     return removed
 
 
-def run(agents: list[str], exe: Path | None = None) -> list[str]:
+
+def run(agents: list[str], exe: Path | None = None) -> Report:
     unknown = set(agents) - AGENT_DIRS.keys()
     if unknown:
         raise AwError(f"unknown agent(s): {', '.join(sorted(unknown))} (known: {', '.join(AGENT_DIRS)})")
     home = agents_home()
-    log: list[str] = []
+    report = Report()
 
     skills_dir = home / "skills"
-    log += _prune(skills_dir, skills_source())
+    report.changes += _prune(skills_dir, skills_source())
     for skill in source_skills():
         dest = skills_dir / skill.name
-        log.append(f"{_link(dest, skill)} {dest}")
+        report.changes.append(_link(dest, skill))
         for agent in agents:
-            agent_dest = Path.home() / AGENT_DIRS[agent] / skill.name
-            log.append(f"{_link(agent_dest, dest)} {agent_dest}")
+            report.changes.append(_link(Path.home() / AGENT_DIRS[agent] / skill.name, dest))
     for agent in agents:
-        log += _prune(Path.home() / AGENT_DIRS[agent], skills_dir)
+        report.changes += _prune(Path.home() / AGENT_DIRS[agent], skills_dir)
 
     exe = exe or (Path(p) if (p := shutil.which("aw")) else None)
     bin_link = home / "bin/aw"
     if exe is None:
-        log.append("warning: aw executable not on PATH; run `uv tool install --editable .` first")
-    elif exe.resolve() != bin_link.resolve() or not bin_link.is_symlink():
-        log.append(f"{_link(bin_link, exe.resolve())} {bin_link}")
-    return log
+        report.warnings.append("aw executable not found; run `uv tool install --editable .` first")
+        return report
+    if exe.resolve() == bin_link.resolve() and bin_link.is_symlink():
+        report.changes.append(Change("unchanged", bin_link))
+    else:
+        report.changes.append(_link(bin_link, exe.resolve()))
+    if not shutil.which("aw"):
+        report.warnings.append("`aw` is not on your PATH; skills still work through ~/.agents/bin/aw.\n"
+                               "  For your shell: `uv tool update-shell`, then open a new terminal.")
+    return report
