@@ -89,9 +89,16 @@ Titles are claims (`boto3 is pinned below 1.36`), because a session loads these 
 
 ## Backlog
 
-Deferred work goes to `backlog_file` (default `BACKLOG.md`) through `/aw-backlog-item`, which `aw-finalize` calls for anything a session chose not to do. `aw backlog add` places the item among the file's existing items and copies their heading level and separators, so a flat `## Item` list and a sectioned `### [PRIO] Item` list both stay intact.
+Deferred work is captured with `/aw-backlog-item`, which `aw-finalize` also calls for anything a session chose not to do. `backlog_home` decides where it lives (`aw init` asks when a tracker is set):
 
-An item can then be pushed to the tracker: `aw issue dupes <backlog_parent> --terms ...` shows candidates under `backlog_parent` two levels deep in any state, you confirm, pick the parent (`backlog_parent` or one of its children and grandchildren, or none), `aw issue create --parent <parent> [--type <backlog_type>]` creates it with the tracker's native parent link, and `aw backlog pop` removes the local copy so one item does not live in two places. Staying repo-local is a normal outcome, not a failure.
+| `backlog_home` | `backlog_file` (default `BACKLOG.md`) is | At the end of a session |
+|---|---|---|
+| `tracker` (default with a tracker) | a session inbox: items noted mid-session, without a tracker round trip | `aw-finalize` asks per item: send it to the tracker, or discard it. The emptied file is deleted, and `aw finish` refuses while it holds items. Outside a session, items go straight to the tracker. |
+| `file` (always without a tracker) | the backlog itself, committed | items stay; any of them can be pushed to the tracker on request |
+
+`aw backlog add` places an item among the file's existing items and copies their heading level and separators, so a flat `## Item` list and a sectioned `### [PRIO] Item` list both stay intact. `aw backlog list` prints the titles, `aw backlog pop` removes one.
+
+Pushing an item to the tracker: `aw issue dupes <backlog_parent> --terms ...` shows candidates under `backlog_parent` two levels deep in any state, you confirm, pick the parent (`backlog_parent` or one of its children and grandchildren, or none), `aw issue create --parent <parent> [--type <backlog_type>] [--label ...]` creates it with the tracker's native parent link, `aw issue set-status <id> backlog` files it (and runs `on_issue_status`), and `aw backlog pop` removes the local copy so one item does not live in two places.
 
 ## Set up a project
 
@@ -134,7 +141,7 @@ Skills never call a tracker directly; they call `aw issue <op>`, and `tracker` i
 | `set-parent <id> <parent>\|--none` (`--dry-run`) | sub-issue link, replaces an existing parent | `fields.parent` | – |
 | `dupes` (parent, terms, any state) | native sub-issue tree ∩ search | one scoped JQL | unscoped search, says so |
 | `list`, `search` | ✓ | ✓ (`--raw` = JQL) | ✓ |
-| `create` (with `--parent`, `--type`, `--dry-run`) | one GraphQL call, so never left unlinked; `--type` on org-owned repos only | ✓ (Markdown → ADF) | – |
+| `create` (with `--parent`, `--type`, `--label`, `--dry-run`) | one GraphQL call, so never left unlinked; `--type` on org-owned repos only | ✓ (Markdown → ADF) | – |
 | `update` (title, description; `--dry-run`) | ✓ | ✓ | – |
 | `comment` | ✓ | ✓ | ✓ |
 | `set-status` | open/closed only | workflow transition via `status_map` | open/closed only |
@@ -143,6 +150,8 @@ Skills never call a tracker directly; they call `aw issue <op>`, and `tracker` i
 **Parent links** are always the tracker's own: GitHub sub-issues, Jira `parent`. Skills never write `Part of #N` or `Epic: KEY` into a body. On GitHub, `view` still reads a `Part of #N` line and `children` a task-list ref, marked `[text link]`, so older projects keep working while they move: `aw issue children <root> --text-only` lists what is linked only by text (task-list refs in the root, `Part of #<root>` lines in other issues), `aw issue set-parent <id> <root>` links each one natively, and an empty `--text-only` confirms none remain. Jira rejects parents that break its hierarchy (a sub-task under an epic, mixed team- and company-managed projects); `set-parent` passes the error through with both issue types.
 
 Statuses are canonical (`backlog`, `ready`, `in_progress`, `in_review`, `done`); `status_map` maps them to the tracker's names, defaulting to title case (`In Progress`). With `sync_issue_status` (default on), `aw start-task --issue` moves the issue to `in_progress` and `aw finish` to `done`, on trackers with workflow states. GitHub and GitLab close through the PR keyword instead.
+
+**Boards:** `on_issue_status` runs after every status change (`aw issue set-status`, session start, `aw finish`) with `{issue}`, `{status}` (canonical) and `{status_name}` (from `status_map`). On GitHub, where issues have no states, it is the place for a project board: `on_issue_status = "scripts/project/board-sync.sh {issue} {status_name}"` with `status_map = { backlog = "Backlog", in_progress = "In Progress", done = "Done" }`. A failing hook makes `set-status` exit non-zero; at session start and finish it is a warning.
 
 **Jira setup:** `aw init` asks for `jira_base_url` and `jira_project` when `tracker = jira`. Credentials come from the environment only: `JIRA_USER_EMAIL`, `JIRA_API_TOKEN`, and optionally `JIRA_CLOUD_ID` for scoped tokens (routes through `api.atlassian.com`). Instance-specific fields go into `jira_fields`, e.g. `aw init --set jira_fields=acceptance_criteria=customfield_10000`. `aw doctor` checks that the variables are set, never their values, and calls `/myself`.
 
@@ -164,7 +173,7 @@ Statuses are canonical (`backlog`, `ready`, `in_progress`, `in_review`, `done`);
 | `aw memory add <decision\|gotcha> --title T --body-file F [--ref ID]` | Append one entry to the project's memory |
 | `aw memory supersede <decision\|gotcha> --title T --reason R` | Retire an entry, keeping it under `## Superseded` |
 | `aw backlog add --title T --body-file F` | Add an item to `backlog_file`, matching the file's item shape |
-| `aw backlog pop --title T` | Remove an item, once the tracker owns it |
+| `aw backlog list` / `aw backlog pop --title T` | Item titles; remove one (sent or discarded). An emptied inbox is deleted |
 | `aw doctor [-v]` | Check installation, skill frontmatter, project config, tools, tracker auth; one line per area plus every problem, `-v` (`make doctor V=1`) lists passing checks too |
 
 ## Skill internals

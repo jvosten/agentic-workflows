@@ -90,6 +90,7 @@ def test_jira_keys_asked_only_for_jira(repo, monkeypatch):
     init.run(False, ["jira_fields=acceptance_criteria=customfield_1, story_points=customfield_2"])
     data = read(repo)
     assert asked.index("tracker") < asked.index("jira_base_url") < asked.index("jira_project")
+    assert asked.index("tracker") < asked.index("backlog_home")
     assert "subtask_type" in asked
     assert (data["tracker"], data["jira_project"]) == ("jira", "PROJ")
     assert data["jira_fields"] == {"acceptance_criteria": "customfield_1", "story_points": "customfield_2"}
@@ -98,6 +99,7 @@ def test_jira_keys_asked_only_for_jira(repo, monkeypatch):
     monkeypatch.setattr("builtins.input", lambda p: asked.append(p) or ("none" if "tracker [" in p else ""))
     init.run(False, [])
     assert not any("jira_base_url" in p for p in asked)
+    assert not any("backlog_home" in p for p in asked)
 
 
 def test_init_reports_what_it_wrote(repo, capsys):

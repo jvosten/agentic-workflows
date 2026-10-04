@@ -19,10 +19,11 @@ PART_OF_SEARCH = """query($q:String!){search(query:$q,type:ISSUE,first:100){
   nodes{... on Issue{number title state body parent{number}}}}}"""
 CREATE_CONTEXT = """query($owner:String!,$repo:String!,$parent:Int!,$withParent:Boolean!){
   repository(owner:$owner,name:$repo){id owner{__typename} issueTypes(first:50){nodes{id name}}
+  labels(first:100){nodes{id name}}
   parent: issue(number:$parent) @include(if:$withParent){id}}}"""
-CREATE = """mutation($repoId:ID!,$title:String!,$body:String!,$parentId:ID,$typeId:ID){
-  createIssue(input:{repositoryId:$repoId,title:$title,body:$body,parentIssueId:$parentId,issueTypeId:$typeId}){
-  issue{number}}}"""
+CREATE = """mutation($repoId:ID!,$title:String!,$body:String!,$parentId:ID,$typeId:ID,$labelIds:[ID!]){
+  createIssue(input:{repositoryId:$repoId,title:$title,body:$body,parentIssueId:$parentId,issueTypeId:$typeId,
+  labelIds:$labelIds}){issue{number}}}"""
 LINK_CONTEXT = """query($owner:String!,$repo:String!,$number:Int!,$parent:Int!,$withParent:Boolean!){
   repository(owner:$owner,name:$repo){issue(number:$number){id parent{id number}}
   target: issue(number:$parent) @include(if:$withParent){id}}}"""
@@ -49,12 +50,15 @@ class GitHub(Tracker):
         return json.loads(self.gh(*args, stdin=stdin) or "null")
 
     def graphql(self, query: str, stdin: str | None = None, raw: dict[str, str] | None = None,
-                **typed: str | int | bool) -> dict:
-        """GraphQL request. `typed` goes through -F (numbers, booleans, ids, `{owner}` placeholders, `@-` for stdin);
-        `raw` through -f, for user text that -F would misread (a title like `42` or `@team`)."""
+                **typed: str | int | bool | list[str]) -> dict:
+        """GraphQL request. `typed` goes through -F (numbers, booleans, ids, `{owner}` placeholders, `@-` for stdin,
+        lists as `key[]=` per item); `raw` through -f, for user text that -F would misread (a title like `42`)."""
         args = ["api", "graphql", "-f", f"query={query}", "-F", "owner={owner}", "-F", "repo={repo}"]
         for key, value in typed.items():
-            args += ["-F", f"{key}={str(value).lower() if isinstance(value, bool) else value}"]
+            if isinstance(value, list):
+                args += [arg for item in value for arg in ("-F", f"{key}[]={item}")]
+            else:
+                args += ["-F", f"{key}={str(value).lower() if isinstance(value, bool) else value}"]
         for key, value in (raw or {}).items():
             args += ["-f", f"{key}={value}"]
         return (self.gh_json(*args, stdin=stdin) or {}).get("data") or {}
@@ -128,8 +132,9 @@ class GitHub(Tracker):
                             "--json", "number,title,state")
         return [self._row(d) for d in data]
 
-    def create(self, title: str, body: str, parent: str | None, issue_type: str | None) -> str:
-        """One createIssue mutation, so the issue never exists without its parent link."""
+    def create(self, title: str, body: str, parent: str | None, issue_type: str | None,
+               labels: list[str] | None = None) -> str:
+        """One createIssue mutation, so the issue never exists without its parent link or labels."""
         target = self.normalize(parent) if parent else None
         repo = self.graphql(CREATE_CONTEXT, parent=int(target or 0), withParent=bool(target))["repository"]
         ids = {"repoId": repo["id"]}
@@ -146,7 +151,15 @@ class GitHub(Tracker):
                 if not match:
                     raise AwError(f"unknown issue type {issue_type!r} (available: {', '.join(t['name'] for t in types)})")
                 ids["typeId"] = match[0]
-        data = self.graphql(CREATE, stdin=body, raw={"title": title}, body="@-", **ids)
+        label_ids: list[str] = []
+        if labels:
+            known = {node["name"].casefold(): node["id"] for node in (repo.get("labels") or {}).get("nodes") or []}
+            unknown = [name for name in labels if name.casefold() not in known]
+            if unknown:
+                raise AwError(f"unknown label(s): {', '.join(unknown)}; create them first (gh label create)")
+            label_ids = [known[name.casefold()] for name in labels]
+        data = self.graphql(CREATE, stdin=body, raw={"title": title}, body="@-", **ids,
+                            **({"labelIds": label_ids} if label_ids else {}))
         return str(data["createIssue"]["issue"]["number"])
 
     def set_parent(self, issue: str, parent: str | None) -> str:
@@ -187,5 +200,5 @@ class GitHub(Tracker):
             return f"#{issue} closed"
         if state == "closed":
             self.gh("issue", "reopen", issue)
-            return f"#{issue} reopened (GitHub issues have no {status} state; use a board hook for that)"
-        return f"#{issue} open (GitHub issues have no {status} state; use a board hook for that)"
+            return f"#{issue} reopened"
+        return f"#{issue} open"

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -91,7 +92,8 @@ class Tracker:
     def search(self, query: str, limit: int, raw: bool) -> list[Row]:
         raise self._unsupported("search")
 
-    def create(self, title: str, body: str, parent: str | None, issue_type: str | None) -> str:
+    def create(self, title: str, body: str, parent: str | None, issue_type: str | None,
+               labels: list[str] | None = None) -> str:
         raise self._unsupported("create")
 
     def comment(self, issue: str, body: str) -> None:
@@ -135,6 +137,24 @@ class Tracker:
     def on_merged(self, issue: str) -> str | None:
         """Status change after the merge; None when a PR closing keyword handles it."""
         return None
+
+
+def status_name(cfg: Config, status: str) -> str:
+    """The tracker's (or board's) name for a canonical status: status_map, else title case."""
+    if status not in STATUSES:
+        raise AwError(f"status must be one of {', '.join(STATUSES)}")
+    return cfg.get("status_map").get(status) or status.replace("_", " ").title()
+
+
+def status_hook(cfg: Config, issue: str, status: str) -> str | None:
+    """Run on_issue_status after a status change, e.g. to move the issue on a project board."""
+    if not cfg.values["on_issue_status"]:
+        return None
+    cmd = cfg.get("on_issue_status", issue=issue, status=status, status_name=status_name(cfg, status))
+    r = subprocess.run(cmd, shell=True, cwd=cfg.checkout, stdout=sys.stderr, check=False)
+    if r.returncode:
+        raise AwError(f"on_issue_status exited {r.returncode}: {cmd}")
+    return f"on_issue_status: {cmd}"
 
 
 def get(cfg: Config) -> Tracker:

@@ -19,7 +19,7 @@ from dataclasses import replace
 from typing import Any
 
 from aw.config import AwError
-from aw.trackers import STATUSES, Issue, Row, Tracker, adf
+from aw.trackers import Issue, Row, Tracker, adf, status_name
 
 CREDENTIALS = ("JIRA_USER_EMAIL", "JIRA_API_TOKEN")
 TIMEOUT = 20
@@ -96,9 +96,7 @@ class Jira(Tracker):
         return f"project = {_jql_str(project)}" if project else "assignee = currentUser()"
 
     def target_status(self, status: str) -> str:
-        if status not in STATUSES:
-            raise AwError(f"status must be one of {', '.join(STATUSES)}")
-        return self.cfg.get("status_map").get(status) or status.replace("_", " ").title()
+        return status_name(self.cfg, status)
 
     # --- contract ---
 
@@ -161,7 +159,8 @@ class Jira(Tracker):
         jql = query if raw else f"{self._project_clause()} AND text ~ {_jql_str(query)} ORDER BY updated DESC"
         return self._search(jql, limit)
 
-    def create(self, title: str, body: str, parent: str | None, issue_type: str | None) -> str:
+    def create(self, title: str, body: str, parent: str | None, issue_type: str | None,
+               labels: list[str] | None = None) -> str:
         project = self.cfg.get("jira_project")
         if not project:
             raise AwError("jira_project is not set")
@@ -171,6 +170,8 @@ class Jira(Tracker):
         }
         if parent:
             fields["parent"] = {"key": self.normalize(parent)}
+        if labels:
+            fields["labels"] = labels
         return self.request("POST", "/rest/api/3/issue", body={"fields": fields})["key"]
 
     def comment(self, issue: str, body: str) -> None:

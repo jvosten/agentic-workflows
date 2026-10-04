@@ -7,7 +7,8 @@
 # default: fallback when nothing else sets the key
 #
 # Placeholders, expanded when read: {project} {repo_parent} everywhere;
-# {type} {slug} {n} {date} {issue} in branch_name, worktree_name, on_issue_start.
+# {type} {slug} {n} {date} {issue} in branch_name, worktree_name, on_issue_start;
+# {issue} {status} {status_name} in on_issue_status.
 # {n} is the session number, counted per clone and never committed.
 
 version = 1
@@ -64,7 +65,7 @@ help = "Issue type for subtasks created from a plan (empty: the tracker default)
 [keys.status_map]
 type = "table"
 default = {}
-help = "Canonical status (backlog, ready, in_progress, in_review, done) = tracker status name"
+help = "Canonical status (backlog, ready, in_progress, in_review, done) = tracker or board status name"
 
 [keys.sync_issue_status]
 type = "bool"
@@ -106,10 +107,18 @@ ask = true
 default = "merge"
 help = "How aw finish merges the pull/merge request"
 
+[keys.backlog_home]
+type = "choice"
+choices = ["tracker", "file"]
+ask = true
+when = { tracker = "!none" }
+default = "tracker"
+help = "Where deferred work lives: tracker (backlog_file is a session inbox, emptied by aw-finalize) or file (backlog_file is the backlog)"
+
 [keys.backlog_file]
 type = "str"
 default = "BACKLOG.md"
-help = "Repo backlog, relative to the repo root (empty: none)"
+help = "Backlog file, relative to the repo root: the backlog itself, or the session inbox when backlog_home = tracker"
 
 [keys.backlog_parent]
 type = "str"
@@ -181,6 +190,11 @@ help = "Worktree directory name pattern"
 type = "str"
 default = ""
 help = "Shell command run in the new worktree when a session starts from an issue"
+
+[keys.on_issue_status]
+type = "str"
+default = ""
+help = "Shell command run after an issue changes status (aw issue set-status, start-task, finish), e.g. a board move: scripts/board-sync.sh {issue} {status_name}"
 
 [keys.pr_close_keyword]
 type = "str"

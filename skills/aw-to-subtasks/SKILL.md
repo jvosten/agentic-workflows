@@ -65,6 +65,7 @@ Then publish in dependency order, blockers first:
 - `update` replaces the whole description. Show the new body before sending it, and keep anything the ticket carries that the plan does not cover.
 - Relinks: `~/.agents/bin/aw issue set-parent <existing> <story> --dry-run`, then without `--dry-run`. A `Part of` line left in its body can go in the same `update`.
 - The parent is set by `--parent` or `set-parent` only. Never write it into a body.
+- Labels the project requires on new issues (`instructions_file`) → `--label` on each create.
 - Obsolete subtasks: list them and say why they fell out. Close one only when the user says so (`aw issue set-status <id> done`), with a comment naming the replacement.
 
 ## 5. Link back

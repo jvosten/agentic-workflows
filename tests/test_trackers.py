@@ -154,9 +154,12 @@ def test_jira_create_and_comment(repo, monkeypatch):
     assert tracker.create("Title", "## H\n\ntext", "proj-1", "Sub-task") == "PROJ-20"
     fields = fake.calls[0][3]["fields"]
     assert fields["parent"] == {"key": "PROJ-1"} and fields["issuetype"] == {"name": "Sub-task"}
+    assert "labels" not in fields
+    tracker.create("Title", "", None, None, ["backend", "debt"])
+    assert fake.calls[-1][3]["fields"]["labels"] == ["backend", "debt"]
     assert fields["description"]["content"][0]["type"] == "heading"
     tracker.comment("PROJ-20", "hello")
-    assert fake.calls[1][:2] == ("POST", "/rest/api/3/issue/PROJ-20/comment")
+    assert fake.calls[-1][:2] == ("POST", "/rest/api/3/issue/PROJ-20/comment")
 
 
 def test_jira_set_parent_moves_clears_and_names_types_on_refusal(repo, monkeypatch):
@@ -273,7 +276,12 @@ class FakeGh:
         if args[:2] == ("api", "graphql"):
             pairs = [(flag, *value.split("=", 1)) for flag, value in zip(args[2::2], args[3::2])]
             query = next(v for _, k, v in pairs if k == "query")
-            fields = {k: (flag, v) for flag, k, v in pairs if k != "query"}
+            fields = {}
+            for flag, k, v in pairs:
+                if k.endswith("[]"):
+                    fields.setdefault(k, (flag, []))[1].append(v)
+                elif k != "query":
+                    fields[k] = (flag, v)
             op = next(name for name in self.graphql if name in query)
             self.calls.append((op, fields, stdin))
             response = self.graphql[op]
@@ -371,6 +379,20 @@ def test_github_create_links_and_types_in_one_mutation(repo, monkeypatch):
     assert fake.ops().count("createIssue") == 1
 
 
+def test_github_create_sets_labels_in_the_same_mutation(repo, monkeypatch):
+    github_cfg(repo)
+    context = {"repository": {"id": "R1", "owner": {"__typename": "User"}, "issueTypes": None,
+                              "labels": {"nodes": [{"id": "L1", "name": "infra"}, {"id": "L2", "name": "Tech debt"}]}}}
+    fake = FakeGh(graphql={"issueTypes": context, "createIssue": {"createIssue": {"issue": {"number": 23}}}})
+    monkeypatch.setattr(GitHub, "gh", fake)
+    tracker = trackers.get(load())
+    assert tracker.create("T", "", None, None, ["infra", "tech debt"]) == "23"
+    assert fake.calls[1][1]["labelIds[]"] == ("-F", ["L1", "L2"])
+    with pytest.raises(AwError, match="unknown label\\(s\\): bug"):
+        tracker.create("T", "", None, None, ["infra", "bug"])
+    assert fake.ops().count("createIssue") == 1
+
+
 def test_github_create_warns_that_user_repos_have_no_types(repo, monkeypatch, capsys):
     github_cfg(repo)
     context = {"repository": {"id": "R1", "owner": {"__typename": "User"}, "issueTypes": None}}
@@ -460,7 +482,9 @@ def test_github_update_replaces_title_and_body(repo, monkeypatch):
 # --- integration --------------------------------------------------------------
 
 def test_start_and_finish_sync_jira_status(repo, tmp_path, monkeypatch):
-    jira_cfg(repo, f'worktree_root = "{tmp_path}/wt"\nbranch_name = "{{type}}/{{issue}}-{{slug}}"\n')
+    jira_cfg(repo, f'worktree_root = "{tmp_path}/wt"\nbranch_name = "{{type}}/{{issue}}-{{slug}}"\n'
+                   f'on_issue_status = "echo {{issue}} {{status}} {{status_name}} >> {tmp_path}/board.log"\n'
+                   'status_map = { done = "Shipped" }\n')
     git("add", ".", cwd=repo)
     git("commit", "-qm", "cfg", cwd=repo)
     git("push", "-q", "origin", "main", cwd=repo)
@@ -483,6 +507,7 @@ def test_start_and_finish_sync_jira_status(repo, tmp_path, monkeypatch):
     log = finish.run(load(), session.read(), None)
     assert moves == [("PROJ-12", "in_progress"), ("PROJ-12", "done")]
     assert "PROJ-12 -> done" in log
+    assert (tmp_path / "board.log").read_text() == "PROJ-12 in_progress In Progress\nPROJ-12 done Shipped\n"
 
 
 def test_cli_issue_ref_and_view(repo, monkeypatch, capsys):
@@ -494,6 +519,21 @@ def test_cli_issue_ref_and_view(repo, monkeypatch, capsys):
     out = capsys.readouterr()
     assert out.out.startswith("PROJ-3\n# PROJ-3: T")
     assert "invalid jira issue id" in out.err
+
+
+def test_cli_set_status_runs_the_status_hook(repo, tmp_path, monkeypatch, capfd):
+    github_cfg(repo)
+    (repo / ".agents/aw.toml").write_text(
+        'tracker = "github"\nstatus_map = { backlog = "Inbox" }\n'
+        f'on_issue_status = "echo {{issue}}={{status_name}} > {tmp_path}/hook"\n')
+    monkeypatch.setattr(GitHub, "set_status", lambda self, i, s: f"#{i} open")
+    assert cli.main(["issue", "set-status", "7", "backlog"]) == 0
+    assert (tmp_path / "hook").read_text() == "7=Inbox\n"
+    assert capfd.readouterr().out.splitlines()[0] == "#7 open"
+
+    (repo / ".agents/aw.toml").write_text('tracker = "github"\non_issue_status = "exit 3"\n')
+    assert cli.main(["issue", "set-status", "7", "ready"]) == 1
+    assert "on_issue_status exited 3" in capfd.readouterr().err
 
 
 def test_cli_issue_dupes_marks_closed_candidates(repo, monkeypatch, capsys):

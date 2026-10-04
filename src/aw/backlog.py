@@ -1,4 +1,9 @@
-"""Repo backlog file: add an item, pop it once the tracker has one."""
+"""Backlog file: the backlog itself, or a session inbox that aw-finalize empties into the tracker.
+
+backlog_home = file     the file is the backlog; items may also be pushed to the tracker
+backlog_home = tracker  the file collects items during a session; each one goes to the tracker or is
+                        discarded before the merge, and the emptied file is deleted
+"""
 
 from __future__ import annotations
 
@@ -11,11 +16,16 @@ HEADING = re.compile(r"^(#{2,6})\s+(.*\S)\s*$")
 RULE = "---"
 
 
-def file(cfg: Config) -> Path:
+def file(cfg: Config, checkout: Path | None = None) -> Path:
     name = cfg.get("backlog_file")
     if not name:
         raise AwError("backlog_file is not set")
-    return cfg.checkout / name
+    return (checkout or cfg.checkout) / name
+
+
+def home(cfg: Config) -> str:
+    """tracker or file; without a tracker the file is the only home."""
+    return "file" if cfg.get("tracker") == "none" else cfg.get("backlog_home")
 
 
 def _headings(lines: list[str]) -> list[tuple[int, int, str]]:
@@ -41,6 +51,18 @@ def _join(*blocks: str) -> str:
     """One blank line between every non-empty block, one newline at the end."""
     kept = [block.strip("\n").rstrip() for block in blocks if block.strip()]
     return "\n\n".join(kept) + "\n"
+
+
+def titles(cfg: Config, checkout: Path | None = None) -> list[str]:
+    """Item headings in the backlog file, in file order."""
+    path = file(cfg, checkout)
+    if not path.is_file():
+        return []
+    headings = _headings(path.read_text().splitlines(keepends=True))
+    if not headings:
+        return []
+    level = _item_level(headings)
+    return [title for _, lvl, title in headings if lvl == level]
 
 
 def add(cfg: Config, title: str, text: str) -> Path:
@@ -80,4 +102,6 @@ def pop(cfg: Config, title: str) -> Path:
     while before.endswith(RULE):
         before = before[: -len(RULE)].rstrip()
     path.write_text(_join(before, "".join(lines[end:])))
+    if home(cfg) == "tracker" and not titles(cfg):
+        path.unlink()  # an empty inbox is not committed
     return path

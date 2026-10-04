@@ -58,10 +58,11 @@ def _issue(args: argparse.Namespace) -> None:
     if op == "create":
         body = _body(args.body_file)
         if args.dry_run:
-            print(f"DRY RUN ({tracker.name}): title={args.title!r} parent={args.parent} type={args.type}")
+            print(f"DRY RUN ({tracker.name}): title={args.title!r} parent={args.parent} type={args.type} "
+                  f"labels={','.join(args.label) or None}")
             print(f"body: {len(body.splitlines())} lines")
             return
-        new = tracker.create(args.title, body, args.parent, args.type)
+        new = tracker.create(args.title, body, args.parent, args.type, args.label)
         print(tracker.ref(new))
         return
     issue = tracker.normalize(args.id)
@@ -110,6 +111,8 @@ def _issue(args: argparse.Namespace) -> None:
         print(f"updated {tracker.ref(issue)}")
     elif op == "set-status":
         print(tracker.set_status(issue, args.status))
+        if message := trackers.status_hook(cfg, issue, args.status):
+            print(message)
     elif op == "ref":
         print(tracker.ref(issue))
     elif op == "pr-text":
@@ -129,8 +132,12 @@ def _plan(args: argparse.Namespace) -> None:
 
 def _backlog(args: argparse.Namespace) -> None:
     cfg = load()
+    if args.op == "list":
+        print("\n".join(backlog.titles(cfg)) or "no items")
+        return
     if args.op == "pop":
-        print(f"removed from {backlog.pop(cfg, args.title)}")
+        path = backlog.pop(cfg, args.title)
+        print(f"removed from {path}" + ("; no items left, file deleted" if not path.exists() else ""))
         return
     print(f"added to {backlog.add(cfg, args.title, _body(args.body_file))}")
 
@@ -360,6 +367,7 @@ def build_parser() -> argparse.ArgumentParser:
     o.add_argument("--body-file", required=True, help="Markdown file, or - for stdin")
     o.add_argument("--parent")
     o.add_argument("--type", help="issue type (Jira default Task; GitHub only on organization-owned repos)")
+    o.add_argument("--label", action="append", default=[], help="label to set; repeat for several")
     o.add_argument("--dry-run", action="store_true")
     o = ops.add_parser("set-parent", help="link, re-parent or unlink an existing issue with the native parent link")
     o.add_argument("id")
@@ -374,7 +382,7 @@ def build_parser() -> argparse.ArgumentParser:
     o = ops.add_parser("comment", help="add a Markdown comment")
     o.add_argument("id")
     o.add_argument("--body-file", required=True, help="Markdown file, or - for stdin")
-    o = ops.add_parser("set-status", help="move to a canonical status (mapped by status_map)")
+    o = ops.add_parser("set-status", help="move to a canonical status (mapped by status_map), then run on_issue_status")
     o.add_argument("id")
     o.add_argument("status", choices=STATUSES)
     o = ops.add_parser("ref", help="how to reference the issue in text (#12, PROJ-123)")
@@ -397,8 +405,9 @@ def build_parser() -> argparse.ArgumentParser:
     o = backlog_ops.add_parser("add", help="add one item")
     o.add_argument("--title", required=True)
     o.add_argument("--body-file", required=True, help="Markdown file, or - for stdin")
-    o = backlog_ops.add_parser("pop", help="remove one item, after the tracker took it over")
+    o = backlog_ops.add_parser("pop", help="remove one item: sent to the tracker, or discarded")
     o.add_argument("--title", required=True)
+    o = backlog_ops.add_parser("list", help="item titles in backlog_file, one per line")
     s.set_defaults(func=_backlog)
 
     s = sub.add_parser("memory", help="append to the project's decisions and gotchas")

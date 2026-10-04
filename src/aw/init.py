@@ -100,6 +100,11 @@ def detect(root: Path, schema: dict[str, Any]) -> dict[str, Any]:
     return found
 
 
+def _matches(value: Any, condition: str) -> bool:
+    """`when` condition: a value, or `!value` for anything else."""
+    return value != condition[1:] if condition.startswith("!") else value == condition
+
+
 def shown(value: Any) -> str:
     return ", ".join(value) if isinstance(value, list) else toml_value(value).strip('"')
 
@@ -150,7 +155,7 @@ def run(assume_yes: bool, sets: list[str]) -> Report:
     values: dict[str, Any] = {"aw_version": full["version"]}
     sources: dict[str, str] = {}
     for key, spec in schema.items():
-        applies = all(values.get(k, existing.get(k)) == v for k, v in spec.get("when", {}).items())
+        applies = all(_matches(values.get(k, existing.get(k)), v) for k, v in spec.get("when", {}).items())
         if key in overrides:
             values[key], sources[key] = overrides[key], "--set"
         elif spec.get("ask") and applies:

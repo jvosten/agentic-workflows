@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from aw import forge, trackers
+from aw import backlog, forge, trackers
 from aw.config import AwError, Config, git
 
 
@@ -27,6 +27,9 @@ def run(cfg: Config, meta: dict[str, Any], pr: str | None) -> list[str]:
     kind = cfg.get("forge")
     log: list[str] = []
 
+    if backlog.home(cfg) == "tracker" and cfg.get("backlog_file") and (left := backlog.titles(cfg, worktree)):
+        raise AwError(f"{cfg.get('backlog_file')} still holds {len(left)} item(s): {'; '.join(left)}. "
+                      "Send each to the tracker or discard it (aw-finalize step 5), then commit")
     if git("status", "--porcelain", cwd=worktree):
         raise AwError(f"{worktree} has uncommitted changes")
     try:
@@ -53,8 +56,9 @@ def run(cfg: Config, meta: dict[str, Any], pr: str | None) -> list[str]:
     issue = meta.get("issue")
     if issue and cfg.get("sync_issue_status"):
         try:
-            if message := trackers.get(cfg).on_merged(issue):
-                log.append(message)
+            for message in (trackers.get(cfg).on_merged(issue), trackers.status_hook(cfg, issue, "done")):
+                if message:
+                    log.append(message)
         except AwError as e:
             log.append(f"warning: issue status not updated: {e}")
 

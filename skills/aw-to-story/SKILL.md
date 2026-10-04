@@ -57,6 +57,7 @@ New story:
 ```
 
 The parent (epic, parent story) goes in `--parent` only, as the tracker's native link, never into the body.
+Labels the project requires on new issues (`instructions_file`) → `--label` on the create.
 
 Existing story — follow the story-write protocol:
 

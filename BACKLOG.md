@@ -65,6 +65,20 @@ Deferred features and open checks. Each entry has enough context to be picked up
 
 **Done when:** the ten sessions are recorded in the README, and the defaults are set from the result.
 
+### [MEDIUM] GitHub Projects status as the GitHub backend of set-status
+
+**Context:** `sync_issue_status` moves an issue to in progress on `aw start-task` and to done on `aw finish`, through `status_map` — on Jira, the issue's workflow state. A GitHub issue is only open or closed, so projects script the board themselves (homelab: `scripts/project/board-sync.sh`, wired through `on_issue_start`; since then `on_issue_status` runs a command after every status change). The Projects board's single-select **Status** field is GitHub's equivalent of a Jira workflow state. Board workflows (added → Backlog, closed → Done, auto-add) cover part of it, but they can be enabled only in the UI — the API has `deleteProjectV2Workflow`, no enable or update — and many boards run without them. Homelab live test (2026-10-04): only "Auto-add sub-issues" was on; new sub-issues landed with no status, and 3 closed issues sat outside Done.
+
+**Scope:**
+- Opt-in config: `github_project` (`owner/number`, user- or organization-owned, found through one `repositoryOwner` lookup), `status_field` (default `Status`). Empty → today's behavior; aw never touches a board it was not pointed at.
+- `set-status` on GitHub opens or closes the issue as today and writes the board field through `status_map` (canonical state → option name), resolving field and option ids at run time. Option names match case-insensitively, so the default title case finds "In progress". A missing option fails loudly with the available ones.
+- Guarded automatic moves, on every tracker: start moves to `in_progress` only from none, `backlog` or `ready`; finish moves to `done` from anything. The current state is mapped back to a canonical one through `status_map` (Jira today moves an issue in review back to in progress). An explicit `aw issue set-status` is never guarded. Writing `backlog` over a card someone moved forward is the failure mode the homelab script documents.
+- `aw issue create` adds the new issue to the configured board with status `backlog` (covers boards without auto-add). Created but not on the board → report the new id, exit non-zero, and name the repair (`aw issue set-status <id> backlog`); never create again.
+- `aw doctor`: the token has the `project` scope (the default `gh` login does not; `gh auth refresh -s project`), the project and `status_field` exist, every `status_map` target is an option. It reads the board's workflows (readable through GraphQL) and advises only: e.g. "Item closed is off: closed issues stay out of Done unless `aw finish` sets it". It never changes board settings.
+- Coexists with enabled board workflows: both set the same target. `on_issue_status` stays for anything else.
+
+**Done when:** a homelab session moves its card Backlog → In progress → Done through `aw` alone, `board-sync.sh` and its hook entry are deleted there, and recorded-response tests cover a board with and without workflows. Add the live check to [Verify v1 in live agent sessions](#high-verify-v1-in-live-agent-sessions).
+
 ### [MEDIUM] Spec element above the story
 
 **Context:** Requirements that arrive from outside often exceed one story (Jira epic). `aw-plan-story` currently stops and proposes a sibling split instead.
@@ -134,11 +148,41 @@ Deferred features and open checks. Each entry has enough context to be picked up
 **Scope:**
 - Cleanup inside `allowed-tools`: decide which of `aw finish`'s steps may run unprompted (worktree removal, branch deletion) and which keep asking (the merge itself).
 
+### [HIGH] Duplicate check beyond the parent's tree
+
+**Context:** `aw issue dupes <parent>` searches the tracker for each term, then keeps only hits inside the parent's tree (two levels of native links); a match anywhere else is dropped without a trace. Found in the homelab live test (2026-10-04): the project's own skill searched the whole repo, `aw-backlog-item` would not show #172, a related NetworkPolicy audit under another parent. Projects mid-migration from text links, unparented issues, and items filed under the wrong parent are exactly where duplicates hide.
+
+**Scope:**
+- `dupes` returns in-tree hits and out-of-tree hits, marked (`[elsewhere: parent #N | no parent]`), in-tree first. No hit dropped silently.
+- `--tree-only` keeps today's behavior for trackers where a full search is noisy.
+- `aw-backlog-item` shows both groups; the duplicate rule (same subject and same outcome) applies to both.
+- Jira: same JQL without the `parent in (...)` clause, limited to `jira_project`.
+
+**Done when:** a matching issue under another parent and an unparented one both appear in `aw-backlog-item`'s candidate list, with recorded-response tests for GitHub and Jira.
+
+### [MEDIUM] Post-merge hook in aw finish
+
+**Context:** `on_issue_start` runs a project command when a session starts; nothing runs after the merge. GitOps projects need one: the homelab rule GO-2 requires `flux reconcile source git flux-system` after every merge, and neither the old project skill nor `aw-finalize` runs it. Other uses: deploy triggers, a board status move, a notification.
+
+**Scope:** config `on_merged` (shell command, placeholders as in `on_issue_start`: `{issue}`, `{n}`, `{slug}`, `{type}`, `{date}`), run by `aw finish` in the primary checkout after `main_branch` is updated. Non-zero exit → warning, not failure: the merge already happened. `aw doctor` lists the configured hooks.
+
+### [HIGH] Stop at a green PR by default
+
+**Context:** `aw-finalize` merges once CI is green unless a reviewer raised a point. The only human gate is the permission prompt on `aw finish`, which a broad allowlist removes silently, and [Finalize refactor](#medium-finalize-refactor) may narrow it further. In the homelab a merge to `main` is a deploy through Flux, and merging requires explicit approval of the green PR. That is the safe default for most repos; agent-driven repos with strong CI may want the opposite.
+
+**Scope:**
+- Config `merge_gate = approve | auto`, default `approve`.
+- `approve`: `aw-finalize` stops after CI and review, prints the PR link, CI state, unresolved comments and the diff summary, and waits for an explicit go before `aw finish`.
+- `auto`: today's behavior.
+- The gate lives in the skill; `aw finish` stays usable by hand.
+
 ### [MEDIUM] Sessions that need several merges
 
 **Context:** A GitOps repo can need more than one merge for one session's work (environment promotion, staged merges with a reconcile gate in between, or a change split across repos). `aw finish` assumes one: it merges the pull request, deletes the branch, removes the worktree and moves the issue to done in a single step, so it cannot survive "merged once, more to go".
 
 **Open first:** which shape the project actually has, and whether the later merges carry the same commits (cherry-pick or merge forward) or new ones (an image tag bump per environment). Design after that is answered; parked until then.
+
+**One answer (homelab, 2026-10-04):** a single environment; intermediate merges exist to let Flux reconcile so the change can be checked on the live cluster. Same branch throughout, new commits after each merge: commit, push, PR, CI, merge **without** deleting the branch, pull `main`, rebase the worktree on it, verify live, continue. The last merge is a normal `aw finish`. The project skill does this by hand today.
 
 ### [LOW] Per-skill model override for Claude Code
 
