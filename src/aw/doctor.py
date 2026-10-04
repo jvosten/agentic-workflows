@@ -8,7 +8,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from aw import install, trackers
+from aw import install, plan, trackers
 from aw.config import PROJECT_FILE, AwError, load, load_schema, repo_root
 
 NAME = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
@@ -101,10 +101,11 @@ def check_project() -> list[Result]:
     results.append(("ok", f"instructions_file {cfg.get('instructions_file')}")
                    if (cfg.checkout / cfg.get("instructions_file")).is_file()
                    else ("fail", f"instructions_file {cfg.get('instructions_file')} not found"))
-    for key in ("changelog_file", "plan_dir"):
-        value = cfg.get(key)
-        if value and not (cfg.checkout / value).exists():
-            results.append(("warn", f"{key} {value} not found"))
+    value = cfg.get("changelog_file")
+    if value and not (cfg.checkout / value).exists():
+        results.append(("warn", f"changelog_file {value} not found"))
+    if cfg.get("plan_scope") == "local" and not plan.ignored(cfg):
+        results.append(("warn", f"plan_scope = local but {plan.directory(cfg)} is not gitignored"))
     results += check_memory(cfg)
 
     results.append(_tool("git", "required"))

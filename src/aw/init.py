@@ -144,8 +144,14 @@ def run(assume_yes: bool, sets: list[str]) -> Path:
     path.parent.mkdir(exist_ok=True)
     path.write_text(dump_toml(values))
     ignore = path.parent / ".gitignore"
-    local_name = Path(LOCAL_FILE).name
-    if not ignore.is_file() or local_name not in ignore.read_text().split():
+    entries = [Path(LOCAL_FILE).name]
+    merged = {key: spec["default"] for key, spec in schema.items()} | values
+    plans = Path(merged["plan_dir"] or schema["plan_dir"]["default"])
+    if merged["plan_scope"] == "local" and plans.parts[:1] == (path.parent.name,):
+        entries.append(plans.relative_to(path.parent.name).as_posix() + "/")
+    present = ignore.read_text().split() if ignore.is_file() else []
+    missing = [entry for entry in entries if entry not in present]
+    if missing:
         with ignore.open("a") as f:
-            f.write(f"{local_name}\n")
+            f.write("".join(f"{entry}\n" for entry in missing))
     return path

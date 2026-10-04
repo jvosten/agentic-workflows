@@ -143,14 +143,19 @@ help = "Document templates that override the bundled ones, name = path from the 
 
 [keys.plan_dir]
 type = "str"
-ask = true
-default = ""
-help = "Directory with plan documents, relative to the repo root (empty: none)"
+default = ".agents/plans"
+help = "Directory with plan documents, relative to the repo root"
+
+[keys.plan_scope]
+type = "choice"
+choices = ["repo", "local"]
+default = "repo"
+help = "repo: plans are committed with the work; local: gitignored, kept in the primary checkout for this clone only"
 
 [keys.plan_file]
 type = "str"
-default = "{issue}-{slug}.md"
-help = "Plan file path under plan_dir; placeholders {issue} {slug} {parent} {parent_slug} {date}"
+default = "{area}/{issue}-{slug}-{date}.md"
+help = "Plan file path under plan_dir; placeholders {issue} {slug} {date} {parent} {parent_slug} {area} ({parent}-{parent_slug}; empty without a parent, and the folder drops out)"
 
 [keys.branch_types]
 type = "list"

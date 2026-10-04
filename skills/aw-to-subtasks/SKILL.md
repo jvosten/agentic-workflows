@@ -44,7 +44,7 @@ From the template:
 - **What to build**: the end-to-end behaviour, from the user's view. No file paths, no code, no step lists — they live in the plan and go stale in tickets.
 - **Acceptance criteria**: testable conditions from the section.
 - **Blocked by**: the slices that gate this one, by subtask id once created, otherwise by section id. None → "None (can start immediately)".
-- **Plan**: plan path and section id, e.g. `docs/planning/PROJ-12-retries.md#s2`.
+- **Plan**: plan path (relative to the repo root) and section id, e.g. `.agents/plans/PROJ-1-uploads/PROJ-12-retries-2026-10-04.md#s2`. `plan_scope = local` → the section id only: the plan is not in the repo, and a path would point nowhere for anyone else.
 
 Rendering one body per section is mechanical: delegate it to a cheap subagent per section when the harness has one (`subagent_model`). Keep the mapping and the writes yourself.
 

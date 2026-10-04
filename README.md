@@ -34,7 +34,7 @@ This is the point of the package: one session workflow that you drive from your 
 One session, start to finish:
 
 1. `/aw-plan #12` — routes: no story yet → writes one, story without plan → plans it, plan without subtasks → cuts them. One step per call.
-2. `/aw-plan-story #12` — reads the issue, its parent, children and the project docs, drafts a plan in session-sized sections, grills it with you, saves it under `plan_dir`.
+2. `/aw-plan-story #12` — reads the issue, its parent, children and the project docs, drafts a plan in session-sized sections, grills it with you, saves it under `.agents/plans/` (see [Plans](#plans)).
 3. `/aw-to-subtasks #12` — one subtask per plan section, reconciled with the subtasks that exist, published after your approval, linked back into the plan.
 4. `/aw-start-task PROJ-13` — creates the branch and worktree, loads that subtask's plan section as a task list, then implements it with you.
 5. `/aw-finalize` — docs, `aw verify`, commit, pull request, changelog entry, review and CI. It asks before the merge.
@@ -58,6 +58,19 @@ For design work before planning, `/aw-grill-with-docs` interviews you and keeps 
 User-only skills never start by themselves; the model may pick up the others when the task calls for them.
 
 The story, subtask and plan documents follow templates: `aw template <name>` prints the bundled one, and the `templates` key points at your own.
+
+## Plans
+
+A plan lives at `plan_dir/plan_file`, by default `.agents/plans/<area>/<issue>-<slug>-<date>.md`. The area is the parent issue (`PROJ-1-upload-retries`), so the plans of one epic share a folder; an issue without a parent puts its plan directly under `.agents/plans/`. `aw plan path <id> --slug <slug>` composes the path; `aw plan path <id>` finds an existing plan by the issue id in its file name, and a subtask finds its story's plan through the parent link.
+
+`plan_scope` decides who sees plans:
+
+| `plan_scope` | Where | For |
+|---|---|---|
+| `repo` (default) | committed, in the current checkout or worktree | teams; subtasks link to plan sections that anyone can open, and the plan stays as history |
+| `local` | gitignored, always in the primary checkout, so every session worktree of this clone sees it | personal plans; the tracker subtasks and the project memory carry what others need |
+
+`aw init --set plan_scope=local` adds `plans/` to `.agents/.gitignore`; `aw doctor` warns when a local plan directory is not ignored.
 
 ## Project memory
 

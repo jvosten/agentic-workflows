@@ -15,4 +15,4 @@
 
 ## Plan
 
-<Plan file path and section id, e.g. docs/planning/PROJ-12-retries.md#s2>
+<Plan file path and section id, e.g. .agents/plans/PROJ-1-uploads/PROJ-12-retries-2026-10-04.md#s2; with plan_scope = local the section id only>
