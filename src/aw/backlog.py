@@ -58,6 +58,8 @@ def add(cfg: Config, title: str, text: str) -> Path:
     items = [i for i, lvl, _ in headings if lvl == level]
     after = [i for i, lvl, _ in headings if items and i > items[-1] and lvl <= level]
     at = after[0] if after else len(lines)
+    while at > 0 and lines[at - 1].strip() in ("", RULE):  # a rule closing the item list stays after the new item
+        at -= 1
     path.write_text(_join("".join(lines[:at]), entry, "".join(lines[at:])))
     return path
 
