@@ -8,7 +8,7 @@
 #
 # Placeholders, expanded when read: {project} {repo_parent} everywhere;
 # {type} {slug} {n} {date} {issue} in branch_name, worktree_name, on_issue_start;
-# {issue} {status} {status_name} in on_issue_status; {pr} {final} in on_merge.
+# {issue} {status} {status_name} in on_issue_status; {pr} {final} {issue} {slug} {type} {date} in on_merge.
 # {n} is the session number, counted per clone and never committed.
 
 version = 1
@@ -223,7 +223,7 @@ help = "Shell command run in the new worktree when a session starts from an issu
 [keys.on_merge]
 type = "str"
 default = ""
-help = "Shell command run in the primary checkout after every merge (aw merge and aw finish), e.g. flux reconcile source git flux-system; {pr}, {final} = true on the last one"
+help = "Shell command run in the primary checkout after every merge (aw merge and aw finish), e.g. flux reconcile source git flux-system; {pr} {issue} {slug} {type} {date}, {final} = true on the last one"
 
 [keys.on_issue_status]
 type = "str"

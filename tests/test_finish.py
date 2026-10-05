@@ -101,7 +101,7 @@ def test_merge_by_hand_keeps_the_session_going_until_finish(started, repo, tmp_p
     wt = Path(started["worktree"])
     monkeypatch.chdir(wt)
     hook_log = tmp_path / "merges.log"
-    monkeypatch.setenv("AW_ON_MERGE", f"echo {{pr}}:{{final}} >> {hook_log}")
+    monkeypatch.setenv("AW_ON_MERGE", f"echo {{pr}}:{{final}}:{{slug}}:{{type}} >> {hook_log}")
     (wt / "BACKLOG.md").write_text("# Backlog\n\n## Later\n\nx\n")  # inbox noted mid-session
     monkeypatch.setenv("AW_TRACKER", "github")
     monkeypatch.setenv("AW_BACKLOG_HOME", "tracker")
@@ -114,7 +114,7 @@ def test_merge_by_hand_keeps_the_session_going_until_finish(started, repo, tmp_p
     assert f"{started['branch']} is at main's tip; the session goes on" in log
     assert git("rev-parse", "HEAD", cwd=wt) == git("rev-parse", "origin/main", cwd=repo)
     assert (wt / "BACKLOG.md").is_file() and (repo / "new.txt").is_file()
-    assert hook_log.read_text() == ":false\n"
+    assert hook_log.read_text() == ":false:thing:feat\n"
 
     (wt / "BACKLOG.md").unlink()
     commit(wt, "second.txt")  # a fast-forward push: the branch descends from what it pushed before
@@ -124,7 +124,7 @@ def test_merge_by_hand_keeps_the_session_going_until_finish(started, repo, tmp_p
     assert log[0] == f"nothing left to merge: {started['branch']} has no changes against main"
     assert str(wt) not in git("worktree", "list", cwd=repo)
     assert (repo / "second.txt").is_file()
-    assert hook_log.read_text() == ":false\n:false\n"  # nothing merged at finish, so no third run
+    assert hook_log.read_text() == ":false:thing:feat\n" * 2  # nothing merged at finish, so no third run
 
 
 def test_merge_refuses_commits_the_merge_request_does_not_contain(started, repo, monkeypatch):
@@ -162,3 +162,10 @@ def test_merge_after_a_squash_moves_the_branch_to_main_and_deletes_the_remote(st
     assert f"deleted origin/{branch}; the next `git push -u` recreates it" in log
     assert git("rev-parse", "HEAD", cwd=wt) == git("rev-parse", "origin/main", cwd=repo)
     assert not git("ls-remote", "--heads", "origin", branch, cwd=repo)
+
+
+def test_start_task_warns_when_the_config_is_not_committed(repo, tmp_path, capsys):
+    (repo / ".agents").mkdir()
+    (repo / ".agents/aw.toml").write_text(f'worktree_root = "{tmp_path}/wt"\n')
+    start_task.run(load(), "feat", "uncommitted", None)
+    assert "warning: .agents/aw.toml is not committed on main" in capsys.readouterr().err

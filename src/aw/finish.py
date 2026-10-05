@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -80,10 +81,11 @@ def _update_main(root: Path, main: str, log: list[str]) -> None:
         log.append(f"warning: {root} is not on {main}; not pulled")
 
 
-def _on_merge(cfg: Config, pr: str, final: bool, log: list[str]) -> None:
+def _on_merge(cfg: Config, meta: dict[str, Any], pr: str, final: bool, log: list[str]) -> None:
     if not cfg.values["on_merge"]:
         return
-    cmd = cfg.get("on_merge", pr=pr, final=str(final).lower())
+    cmd = cfg.get("on_merge", pr=pr, final=str(final).lower(), issue=meta.get("issue") or "",
+                  slug=meta.get("slug", ""), type=meta.get("type", ""), date=date.today().strftime("%Y%m%d"))
     r = subprocess.run(cmd, shell=True, cwd=cfg.root, stdout=sys.stderr, check=False)
     log.append(f"on_merge: {cmd}" if r.returncode == 0 else f"warning: on_merge exited {r.returncode}: {cmd}")
 
@@ -128,7 +130,7 @@ def merge(cfg: Config, meta: dict[str, Any], pr: str | None) -> list[str]:
             log.append(f"commented on {tracker.ref(issue)}: {what}")
         except AwError as e:
             log.append(f"warning: issue not commented: {e}")
-    _on_merge(cfg, pr, False, log)
+    _on_merge(cfg, meta, pr, False, log)
     return log
 
 
@@ -168,7 +170,7 @@ def run(cfg: Config, meta: dict[str, Any], pr: str | None) -> list[str]:
     log.append(f"removed {worktree}")
     _update_main(root, main, log)
     if not nothing_left:
-        _on_merge(cfg, pr or "", True, log)
+        _on_merge(cfg, meta, pr or "", True, log)
     # Squash and rebase merges leave the branch unmerged in git's view; the forge confirmed it.
     git("branch", "-D", branch, cwd=root)
     log.append(f"deleted branch {branch}")

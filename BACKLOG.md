@@ -134,12 +134,6 @@ Deferred features and open checks. Each entry has enough context to be picked up
 
 - Cleanup inside `allowed-tools`: decide which of `aw finish`'s steps may run unprompted (worktree removal, branch deletion) and which keep asking (the merge itself).
 
-### [MEDIUM] Post-merge hook in aw finish
-
-**Context:** `on_issue_start` runs a project command when a session starts; nothing runs after the merge. GitOps projects need one: the homelab rule GO-2 requires `flux reconcile source git flux-system` after every merge, and neither the old project skill nor `aw-finalize` runs it. Other uses: deploy triggers, a board status move, a notification.
-
-**Scope:** config `on_merged` (shell command, placeholders as in `on_issue_start`: `{issue}`, `{n}`, `{slug}`, `{type}`, `{date}`), run by `aw finish` in the primary checkout after `main_branch` is updated. Non-zero exit → warning, not failure: the merge already happened. `aw doctor` lists the configured hooks.
-
 ### [LOW] Per-skill model override for Claude Code
 
 **Context:** Frontmatter `model:` is Claude-only and static. With symlinked skills all agents share one `SKILL.md`, so it cannot be set per machine. With the deterministic steps in `aw`, the saving is small.

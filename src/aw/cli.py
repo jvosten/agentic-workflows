@@ -73,10 +73,10 @@ def _issue(args: argparse.Namespace) -> None:
         body = _body(args.body_file)
         if args.dry_run:
             print(f"DRY RUN ({tracker.name}): title={args.title!r} parent={args.parent} type={args.type} "
-                  f"labels={','.join(args.label) or None}")
+                  f"labels={','.join(args.label) or None} status={args.status or 'default'}")
             print(f"body: {len(body.splitlines())} lines")
             return
-        new = tracker.create(args.title, body, args.parent, args.type, args.label)
+        new = tracker.create(args.title, body, args.parent, args.type, args.label, args.status)
         print(tracker.ref(new))
         return
     if op == "dupes" and args.id is None:
@@ -342,8 +342,8 @@ def _init(args: argparse.Namespace) -> None:
         print(f"  {'.agents/.gitignore':<20}added {', '.join(report.ignored)}")
     for warning in report.warnings:
         ui.warn(warning)
-    if previous is None or changed or new:
-        print(f"next: review and commit {name}, then `aw doctor`")
+    if previous is None or changed or new or report.ignored:
+        print(f"next: review and commit {name} and .agents/.gitignore, then `aw doctor`")
 
 
 def _install(args: argparse.Namespace) -> None:
@@ -511,6 +511,9 @@ def build_parser() -> argparse.ArgumentParser:
     o.add_argument("--parent")
     o.add_argument("--type", help="issue type (Jira default Task; GitHub only on organization-owned repos)")
     o.add_argument("--label", action="append", default=[], help="label to set; repeat for several")
+    o.add_argument("--status", choices=[*STATUSES, "none"],
+                   help="state of the new issue (default: backlog on a GitHub board, the workflow's first on Jira); "
+                        "none: on the board without a column, e.g. an epic")
     o.add_argument("--dry-run", action="store_true")
     o = ops.add_parser("set-parent", help="link, re-parent or unlink an existing issue with the native parent link")
     o.add_argument("id")

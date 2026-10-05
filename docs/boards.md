@@ -29,7 +29,7 @@ status_map = { backlog = "To Do", in_review = "Code Review" }
 | `aw issue set-status <id> <status>` | any | no: someone chose that state |
 | `aw start-task … --issue <id>` | `in_progress` | yes |
 | `aw finish` | `done` | no: merged work is done, from any state |
-| `aw issue create` | `backlog` | GitHub with a board only; elsewhere the tracker's own default applies |
+| `aw issue create` | `backlog`, or `--status` | GitHub with a board: the column (`--status none`: on the board without one, e.g. an epic). Jira: transitions right after the create when `--status` is given. Elsewhere the tracker's own default applies |
 
 `/aw-backlog-item` runs `aw issue set-status <id> backlog` after each create. `sync_issue_status = false` turns off the moves at session start and finish; explicit `set-status` still works.
 
@@ -37,7 +37,7 @@ status_map = { backlog = "To Do", in_review = "Code Review" }
 
 A session start moves the issue to `in_progress` only when its current state is `backlog`, `ready`, or nothing at all. Anything else stays where it is, and `aw start-task` says so (`PROJ-12 stays at Code Review: a session start moves only from backlog or ready`).
 
-The current state is read from the tracker and mapped back through `status_map`. A name that maps to no canonical status counts as nothing, so an unmapped "To Do" does not block the move. This is why a card someone moved to review or done is never dragged back by a session that picks the issue up again.
+The current state is read from the tracker and mapped back through `status_map`. A state that maps to no canonical status (a "Blocked" or "On hold" column) stays too, because it may be ahead of in progress; the message names the `status_map` entry that would allow the move. One exception: on Jira an unmapped status in the *to do* category (e.g. "To Do", "Open") moves, since Jira itself says it is not started. This is why a card someone moved to review, done or blocked is never dragged back by a session that picks the issue up again.
 
 ### Trackers with and without states
 
@@ -92,7 +92,7 @@ status_field = "Status"          # the default
 | `set-status <status>` | opens or closes the issue as above, and sets the card's column; a card not yet on the board is added first |
 | session start | card to `in_progress`, guarded |
 | `aw finish` | issue closed if it is not, card to `done` |
-| create | the new issue goes on the board as `backlog` |
+| create | the new issue goes on the board as `backlog`; `--status` picks another column, `--status none` adds it without a column (epics) |
 
 Details:
 
@@ -127,7 +127,7 @@ Jira has states natively: a Jira board is a view of the workflow's statuses, so 
 | `set-status <status>` | runs the transition whose target status (or transition name) matches the `status_map` name; already there → nothing |
 | session start | `in_progress`, guarded |
 | `aw finish` | `done` |
-| create | the issue starts in the workflow's initial status; `aw` does not change it |
+| create | the issue starts in the workflow's initial status; with `--status`, `aw` transitions it right after |
 
 - A status the workflow cannot reach from the current one fails with the transitions that are available: `no transition to 'Backlog' (available: In Progress, Done); set status_map.backlog`.
 - Map to your workflow's names. A new issue often starts in "To Do", and `/aw-backlog-item` then sets `backlog`; without `status_map = { backlog = "To Do" }` that looks for a status called "Backlog".

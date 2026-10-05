@@ -9,7 +9,7 @@ from datetime import date
 from pathlib import Path
 
 from aw import session, trackers
-from aw.config import AwError, Config, git
+from aw.config import PROJECT_FILE, AwError, Config, git
 
 SLUG = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 
@@ -86,6 +86,9 @@ def run(cfg: Config, kind: str, slug: str, issue: str | None, number: int | None
 
     worktree.parent.mkdir(parents=True, exist_ok=True)
     git("worktree", "add", "--quiet", "-b", branch, str(worktree), main, cwd=root)
+    if not (worktree / PROJECT_FILE).is_file():
+        print(f"warning: {PROJECT_FILE} is not committed on {main}, so this worktree has none and aw runs here "
+              "with defaults (no tracker, no hooks); commit .agents/ on main", file=sys.stderr)
     counter = counter_file(cfg)
     previous = int(counter.read_text()) if counter.is_file() else 0
     counter.write_text(f"{max(n, previous)}\n")

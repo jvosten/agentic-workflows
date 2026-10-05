@@ -153,14 +153,18 @@ class GitHub(Tracker):
         return [self._row(node) for node in data["search"]["nodes"] if node]
 
     def create(self, title: str, body: str, parent: str | None, issue_type: str | None,
-               labels: list[str] | None = None) -> str:
+               labels: list[str] | None = None, status: str | None = None) -> str:
         """One createIssue mutation, so the issue never exists without its parent link or labels.
 
-        With github_project, the new issue then goes on the board as backlog; the column is resolved
-        first, so a board that cannot take it fails before anything is created.
+        With github_project, the new issue then goes on the board in the column for status (default backlog;
+        "none": on the board without a column, e.g. an epic). The column is resolved first, so a board that
+        cannot take it fails before anything is created. Without a board, status other than none needs one.
         """
-        if self.has_states():
-            self.option("backlog")
+        status = status or "backlog"
+        if self.has_states() and status != "none":
+            self.option(status)
+        elif not self.has_states() and status not in ("backlog", "none"):
+            raise AwError(f"--status {status} needs a board (github_project); a new GitHub issue is just open")
         target = self.normalize(parent) if parent else None
         repo = self.graphql(CREATE_CONTEXT, parent=int(target or 0), withParent=bool(target))["repository"]
         ids = {"repoId": repo["id"]}
@@ -189,10 +193,14 @@ class GitHub(Tracker):
         number = str(data["createIssue"]["issue"]["number"])
         if self.has_states():
             try:
-                self.set_status(number, "backlog")
+                if status == "none":
+                    self._add_card(number)
+                else:
+                    self.set_status(number, status)
             except AwError as e:
+                repair = f"aw issue set-status {number} {'backlog' if status == 'none' else status}"
                 raise AwError(f"created #{number}, but it is not on the board: {e}. "
-                              f"Run `aw issue set-status {number} backlog`; do not create it again") from None
+                              f"Run `{repair}`; do not create it again") from None
         return number
 
     def set_parent(self, issue: str, parent: str | None) -> str:
@@ -266,6 +274,12 @@ class GitHub(Tracker):
             return None
         _, item = self._card(issue)
         return ((item or {}).get("fieldValueByName") or {}).get("name")
+
+    def _add_card(self, issue: str) -> dict:
+        node_id, item = self._card(issue)
+        if item is None:  # addProjectV2ItemById is idempotent, but only an absent card needs it
+            item = self.graphql(ADD_CARD, projectId=self.board["id"], contentId=node_id)["addProjectV2ItemById"]["item"]
+        return item
 
     def _move_card(self, issue: str, option: dict) -> str:
         node_id, item = self._card(issue)

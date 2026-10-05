@@ -120,6 +120,16 @@ def check_config(cfg: Config) -> list[Result]:
     else:
         results.append(("ok", f"{PROJECT_FILE}: aw_version {current}"))
     results += [("warn", f"{layer}: unknown key {key!r}") for layer, key in cfg.unknown]
+    untracked = [name for name in (PROJECT_FILE, ".agents/.gitignore") if (cfg.checkout / name).is_file()
+                 and subprocess.run(["git", "ls-files", "--error-unmatch", name], cwd=cfg.checkout,
+                                    capture_output=True, check=False).returncode]
+    if untracked:
+        results.append(("warn", (f"{', '.join(untracked)} not committed: session worktrees start from "
+                                 f"{cfg.get('main_branch')} and run aw there with defaults; "
+                                 "git add .agents && git commit")))
+    for hook in ("on_issue_start", "on_issue_status", "on_merge"):
+        if cfg.values[hook]:
+            results.append(("ok", f"hook {hook}: {cfg.values[hook]}"))
 
     results.append(("ok", f"instructions_file {cfg.get('instructions_file')}")
                    if (cfg.checkout / cfg.get("instructions_file")).is_file()

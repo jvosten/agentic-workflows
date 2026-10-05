@@ -175,7 +175,7 @@ Skills never call a tracker directly; they call `aw issue <op>`, and `tracker` i
 | `set-parent <id> <parent>\|--none` (`--dry-run`) | sub-issue link, replaces an existing parent | `fields.parent` | – |
 | `dupes` (parent, terms, any state; `--tree-only`) | hits in the native sub-issue tree first, then the rest of the repo marked `[elsewhere: …]`, ranked by terms matched | one JQL over `jira_project`, tree first | unscoped search, says so |
 | `list`, `search` | ✓ | ✓ (`--raw` = JQL) | ✓ |
-| `create` (with `--parent`, `--type`, `--label`, `--dry-run`) | one GraphQL call, so never left unlinked; `--type` on org-owned repos only | ✓ (Markdown → ADF) | – |
+| `create` (with `--parent`, `--type`, `--label`, `--status`, `--dry-run`) | one GraphQL call, so never left unlinked; `--type` on org-owned repos only | ✓ (Markdown → ADF) | – |
 | `update` (title, description; `--dry-run`) | ✓ | ✓ | – |
 | `comment` | ✓ | ✓ | ✓ |
 | `set-status` | open/closed, plus the board column with `github_project` | workflow transition via `status_map` | open/closed only |

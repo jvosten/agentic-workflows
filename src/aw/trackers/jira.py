@@ -168,7 +168,7 @@ class Jira(Tracker):
         return self._search(jql, limit)
 
     def create(self, title: str, body: str, parent: str | None, issue_type: str | None,
-               labels: list[str] | None = None) -> str:
+               labels: list[str] | None = None, status: str | None = None) -> str:
         project = self.cfg.get("jira_project")
         if not project:
             raise AwError("jira_project is not set")
@@ -180,7 +180,14 @@ class Jira(Tracker):
             fields["parent"] = {"key": self.normalize(parent)}
         if labels:
             fields["labels"] = labels
-        return self.request("POST", "/rest/api/3/issue", body={"fields": fields})["key"]
+        key = self.request("POST", "/rest/api/3/issue", body={"fields": fields})["key"]
+        if status and status != "none":  # Jira has no way to create in a given status: transition right after
+            try:
+                self.set_status(key, status)
+            except AwError as e:
+                raise AwError(f"created {key}, but not moved to {status}: {e}. "
+                              f"Run `aw issue set-status {key} {status}`; do not create it again") from None
+        return key
 
     def comment(self, issue: str, body: str) -> None:
         self.request("POST", f"/rest/api/3/issue/{issue}/comment", body={"body": adf.from_markdown(body)})
@@ -209,5 +216,11 @@ class Jira(Tracker):
         return True
 
     def current_status(self, issue: str) -> str | None:
-        data = self.request("GET", f"/rest/api/3/issue/{issue}", {"fields": "status"})
-        return (data["fields"].get("status") or {}).get("name")
+        status = self.request("GET", f"/rest/api/3/issue/{issue}", {"fields": "status"})["fields"].get("status") or {}
+        self._categories = {**getattr(self, "_categories", {}), issue: (status.get("statusCategory") or {}).get("key")}
+        return status.get("name")
+
+    def status_category(self, issue: str) -> str | None:
+        if issue not in getattr(self, "_categories", {}):
+            self.current_status(issue)
+        return getattr(self, "_categories", {}).get(issue)

@@ -546,6 +546,7 @@ def test_start_and_finish_sync_jira_status(repo, tmp_path, monkeypatch):
     moves = []
     monkeypatch.setattr(Jira, "set_status", lambda self, i, s: moves.append((i, s)) or f"{i} -> {s}")
     monkeypatch.setattr(Jira, "current_status", lambda self, i: "To Do")
+    monkeypatch.setattr(Jira, "status_category", lambda self, i: "new")  # unmapped, but Jira's to-do category
 
     out = start_task.run(load(), "feat", "retries", "proj-12")
     assert out["branch"] == "feat/PROJ-12-retries" and out["issue"] == "PROJ-12"
@@ -759,3 +760,60 @@ def test_doctor_checks_scope_columns_and_advises_on_workflows(repo, monkeypatch)
 
     board_cfg(repo)
     assert doctor.check_board(load())[1] == ("ok", "board columns for backlog, in_progress, done")
+
+
+def test_session_start_leaves_unmapped_columns_alone_except_jira_to_do(repo, monkeypatch):
+    board_cfg(repo)
+    fake = board_gh("Blocked")
+    monkeypatch.setattr(GitHub, "gh", fake)
+    messages = trackers.get(load()).advance("5", "in_progress")
+    assert messages[0].startswith("#5 stays at Blocked: a session start moves only from backlog or ready; ")
+    assert "status_map.backlog or status_map.ready" in messages[0]
+    assert "updateProjectV2ItemFieldValue" not in fake.ops()
+
+    tracker = trackers.get(jira_cfg(repo))
+    for category, moves in (("new", True), ("indeterminate", False)):
+        issue = {"fields": {"status": {"name": "Selected", "statusCategory": {"key": category}}}}
+        moved = []
+        monkeypatch.setattr(tracker, "request", FakeJira({("GET", "/rest/api/3/issue/PROJ-12"): issue}))
+        monkeypatch.setattr(Jira, "set_status", lambda self, i, s, moved=moved: moved.append(s) or f"{i} -> {s}")
+        tracker._categories = {}
+        tracker.advance("PROJ-12", "in_progress")
+        assert bool(moved) is moves, category
+
+
+def test_create_status_puts_the_card_in_a_column_or_none(repo, monkeypatch):
+    board_cfg(repo)
+    context = {"repository": {"id": "R1", "owner": {"__typename": "User"}, "issueTypes": None}}
+    fake = board_gh(False, issueTypes=context, createIssue={"createIssue": {"issue": {"number": 5}}})
+    monkeypatch.setattr(GitHub, "gh", fake)
+    trackers.get(load()).create("Epic", "", None, None, status="none")
+    assert fake.ops()[-1] == "addProjectV2ItemById"  # on the board, no column
+
+    fake = board_gh(False, issueTypes=context, createIssue={"createIssue": {"issue": {"number": 5}}})
+    monkeypatch.setattr(GitHub, "gh", fake)
+    trackers.get(load()).create("Slice", "", None, None, status="ready")
+    assert fake.calls[-1][1]["optionId"] == ("-f", "o-ready")
+
+    github_cfg_path = repo / ".agents/aw.toml"
+    github_cfg_path.write_text('tracker = "github"\n')
+    with pytest.raises(AwError, match="--status ready needs a board"):
+        trackers.get(load()).create("T", "", None, None, status="ready")
+
+
+def test_jira_create_moves_to_the_requested_status(repo, monkeypatch):
+    fake = FakeJira({("POST", "/rest/api/3/issue"): {"key": "PROJ-20"}})
+    tracker = trackers.get(jira_cfg(repo))
+    monkeypatch.setattr(tracker, "request", fake)
+    moves = []
+    monkeypatch.setattr(Jira, "set_status", lambda self, i, s: moves.append((i, s)))
+    assert tracker.create("T", "", None, None, status="ready") == "PROJ-20"
+    assert tracker.create("T", "", None, None, status="none") == "PROJ-20"
+    assert moves == [("PROJ-20", "ready")]
+
+    def refuse(self, i, s):
+        raise AwError("no transition to 'Ready'")
+
+    monkeypatch.setattr(Jira, "set_status", refuse)
+    with pytest.raises(AwError, match="created PROJ-20, but not moved to ready: .*aw issue set-status PROJ-20 ready"):
+        tracker.create("T", "", None, None, status="ready")

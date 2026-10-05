@@ -4,7 +4,7 @@ import stat
 import pytest
 
 from aw import doctor, init, install
-from aw.config import AwError
+from aw.config import AwError, git
 
 
 def fake_exe(tmp_path):
@@ -115,6 +115,9 @@ def test_doctor_summary_lists_problems_and_verbose_lists_everything(env, repo, t
     install.run(["claude"], fake_exe(tmp_path))
     init.run(True, [])
     monkeypatch.setenv("PATH", f"{env}/.agents/bin:/usr/bin:/bin")
+    assert any("not committed: session worktrees start from main" in m for _, m in doctor.check_project())
+    git("add", ".agents", cwd=repo)
+    git("commit", "-qm", "aw config", cwd=repo)
     count = len(install.source_skills())
     assert cli.main(["doctor"]) == 0
     out = capsys.readouterr().out.splitlines()
@@ -134,3 +137,9 @@ def test_doctor_summary_lists_problems_and_verbose_lists_everything(env, repo, t
     assert cli.main(["doctor", "--verbose"]) == 1
     detail = [line for line in capsys.readouterr().out.splitlines() if line.startswith("      ✓")]
     assert len(detail) >= 3 * count
+
+
+def test_doctor_lists_hooks(repo):
+    (repo / ".agents").mkdir()
+    (repo / ".agents/aw.toml").write_text('on_merge = "flux reconcile source git flux-system"\n')
+    assert ("ok", "hook on_merge: flux reconcile source git flux-system") in doctor.check_project()

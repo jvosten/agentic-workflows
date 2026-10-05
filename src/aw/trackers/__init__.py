@@ -95,7 +95,8 @@ class Tracker:
         raise self._unsupported("search")
 
     def create(self, title: str, body: str, parent: str | None, issue_type: str | None,
-               labels: list[str] | None = None) -> str:
+               labels: list[str] | None = None, status: str | None = None) -> str:
+        """status: None keeps the tracker's default for new issues; "none" means no state where that is optional."""
         raise self._unsupported("create")
 
     def comment(self, issue: str, body: str) -> None:
@@ -154,14 +155,22 @@ class Tracker:
         """The tracker's name for the issue's current state; None when unknown or stateless."""
         return None
 
+    def status_category(self, issue: str) -> str | None:
+        """The tracker's own category of the current state (Jira: new, indeterminate, done); None without one."""
+        return None
+
     def advance(self, issue: str, target: str) -> list[str]:
         """Automatic move at session start (in_progress) or after the merge (done); never backwards.
 
         An explicit `aw issue set-status` is not guarded: someone chose that state.
         """
-        if target == "in_progress":
-            current = self.current_status(issue)
-            if current and canonical(self.cfg, current) not in (None, "backlog", "ready"):
+        if target == "in_progress" and (current := self.current_status(issue)):
+            known = canonical(self.cfg, current)
+            if known is None and self.status_category(issue) != "new":
+                # an unmapped state (Blocked, On hold) may be ahead of in progress; only Jira's to-do category is safe
+                return [(f"{self.ref(issue)} stays at {current}: a session start moves only from backlog or ready; "
+                         f"if {current!r} is one of those, map it (status_map.backlog or status_map.ready)")]
+            if known not in (None, "backlog", "ready"):
                 return [f"{self.ref(issue)} stays at {current}: a session start moves only from backlog or ready"]
         messages = [self.set_status(issue, target)] if self.has_states() else []
         if hook := status_hook(self.cfg, issue, target):
