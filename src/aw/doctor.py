@@ -15,7 +15,11 @@ NAME = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 TRACKER_CLI = {"github": "gh", "gitlab": "glab"}
 MEMORY_LIMIT = 200
 
-Result = tuple[str, str]  # (ok | warn | fail, message)
+Result = tuple[str, str]  # (ok | info | warn | fail, message); info is advice, not a problem
+WORKFLOW_ADVICE = {
+    "Item closed": "issues closed outside aw finish stay out of Done",
+    "Item added to project": "cards added by hand get no status; aw issue create sets Backlog itself",
+}
 
 
 def frontmatter(skill_md: Path) -> dict[str, str]:
@@ -143,6 +147,43 @@ def check_tools(cfg: Config) -> list[Result]:
                            else ("fail", f"{cli} not authenticated; run `{cli} auth login`"))
     if cfg.get("tracker") == "jira":
         results += check_jira(cfg)
+    if cfg.get("tracker") == "github" and cfg.get("github_project"):
+        results += check_board(cfg)
+    return results
+
+
+def _gh_scopes() -> list[str] | None:
+    """Scopes of the gh token, None when gh does not list them (e.g. a fine-grained GH_TOKEN)."""
+    r = subprocess.run(["gh", "auth", "status"], capture_output=True, text=True, check=False)
+    m = re.search(r"Token scopes: (.*)", r.stdout + r.stderr)
+    return re.findall(r"'([^']+)'", m.group(1)) if m else None
+
+
+def check_board(cfg) -> list[Result]:
+    from aw import trackers
+
+    spec, field = cfg.get("github_project"), cfg.get("status_field")
+    results: list[Result] = []
+    scopes = _gh_scopes()
+    if scopes is not None and "project" not in scopes:
+        return [("fail", "gh token lacks the project scope; run `gh auth refresh -s project`")]
+    try:
+        board = trackers.get(cfg).board
+    except AwError as e:
+        return [("fail", str(e))]
+    results.append(("ok", f"board {spec} ({board['title']}), field {field}"))
+    columns = {o["name"].casefold() for o in board["field"]["options"]}
+    used = [s for s in trackers.STATUSES if s in ("backlog", "in_progress", "done") or s in cfg.get("status_map")]
+    missing = [f"{s} → {trackers.status_name(cfg, s)}" for s in used
+               if trackers.status_name(cfg, s).casefold() not in columns]
+    if missing:
+        available = ", ".join(o["name"] for o in board["field"]["options"])
+        results.append(("fail", f"board has no column for {', '.join(missing)} (columns: {available}); set status_map"))
+    else:
+        results.append(("ok", f"board columns for {', '.join(used)}"))
+    for workflow in board.get("workflows", {}).get("nodes", []):
+        if workflow["name"] in WORKFLOW_ADVICE and not workflow["enabled"]:
+            results.append(("info", f"board workflow '{workflow['name']}' is off: {WORKFLOW_ADVICE[workflow['name']]}"))
     return results
 
 

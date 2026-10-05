@@ -130,13 +130,27 @@ class Tracker:
     def native_children(self, issue: str) -> list[Row]:
         return [row for row in self.children(issue) if row.link != "text"]
 
-    def on_start(self, issue: str) -> str | None:
-        """Status change when a session starts; None when the tracker has no workflow states."""
+    def has_states(self) -> bool:
+        """True when set_status moves the issue through workflow states (Jira, a GitHub board)."""
+        return False
+
+    def current_status(self, issue: str) -> str | None:
+        """The tracker's name for the issue's current state; None when unknown or stateless."""
         return None
 
-    def on_merged(self, issue: str) -> str | None:
-        """Status change after the merge; None when a PR closing keyword handles it."""
-        return None
+    def advance(self, issue: str, target: str) -> list[str]:
+        """Automatic move at session start (in_progress) or after the merge (done); never backwards.
+
+        An explicit `aw issue set-status` is not guarded: someone chose that state.
+        """
+        if target == "in_progress":
+            current = self.current_status(issue)
+            if current and canonical(self.cfg, current) not in (None, "backlog", "ready"):
+                return [f"{self.ref(issue)} stays at {current}: a session start moves only from backlog or ready"]
+        messages = [self.set_status(issue, target)] if self.has_states() else []
+        if hook := status_hook(self.cfg, issue, target):
+            messages.append(hook)
+        return messages
 
 
 def status_name(cfg: Config, status: str) -> str:
@@ -144,6 +158,11 @@ def status_name(cfg: Config, status: str) -> str:
     if status not in STATUSES:
         raise AwError(f"status must be one of {', '.join(STATUSES)}")
     return cfg.get("status_map").get(status) or status.replace("_", " ").title()
+
+
+def canonical(cfg: Config, name: str) -> str | None:
+    """The canonical status a tracker or board name stands for, through status_map; None when unmapped."""
+    return next((s for s in STATUSES if status_name(cfg, s).casefold() == name.casefold()), None)
 
 
 def status_hook(cfg: Config, issue: str, status: str) -> str | None:

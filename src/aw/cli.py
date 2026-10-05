@@ -236,7 +236,7 @@ def _install(args: argparse.Namespace) -> None:
         print(ui.style(f"! {warning}", "33"))
 
 
-DOCTOR_MARKS = {"ok": ("✓", "32"), "warn": ("!", "33"), "fail": ("✗", "31")}
+DOCTOR_MARKS = {"ok": ("✓", "32"), "info": ("·", "2"), "warn": ("!", "33"), "fail": ("✗", "31")}
 
 
 def _doctor(args: argparse.Namespace) -> int:
@@ -251,6 +251,8 @@ def _doctor(args: argparse.Namespace) -> int:
         problems = [ui.plural(levels.count(lvl), word) for lvl, word in (("fail", "failure"), ("warn", "warning"))
                     if lvl in levels]
         passed = ui.plural(levels.count("ok"), "check") + " ok" if "ok" in levels else ""
+        if "info" in levels:
+            passed = " · ".join(filter(None, [passed, ui.plural(levels.count("info"), "note")]))
         summary = " · ".join(filter(None, [*problems, passed]))
         if results == [("ok", results[0][1])]:  # one passing check says more than "1 check ok"
             summary = results[0][1].replace(home, "~")

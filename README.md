@@ -144,14 +144,24 @@ Skills never call a tracker directly; they call `aw issue <op>`, and `tracker` i
 | `create` (with `--parent`, `--type`, `--label`, `--dry-run`) | one GraphQL call, so never left unlinked; `--type` on org-owned repos only | ✓ (Markdown → ADF) | – |
 | `update` (title, description; `--dry-run`) | ✓ | ✓ | – |
 | `comment` | ✓ | ✓ | ✓ |
-| `set-status` | open/closed only | workflow transition via `status_map` | open/closed only |
+| `set-status` | open/closed, plus the board column with `github_project` | workflow transition via `status_map` | open/closed only |
 | `ref` / `pr-text` | `#12` / `Fixes #12` | `PROJ-12` / `PROJ-12` | `#12` / `Fixes #12` |
 
 **Parent links** are always the tracker's own: GitHub sub-issues, Jira `parent`. Skills never write `Part of #N` or `Epic: KEY` into a body. On GitHub, `view` still reads a `Part of #N` line and `children` a task-list ref, marked `[text link]`, so older projects keep working while they move: `aw issue children <root> --text-only` lists what is linked only by text (task-list refs in the root, `Part of #<root>` lines in other issues), `aw issue set-parent <id> <root>` links each one natively, and an empty `--text-only` confirms none remain. Jira rejects parents that break its hierarchy (a sub-task under an epic, mixed team- and company-managed projects); `set-parent` passes the error through with both issue types.
 
-Statuses are canonical (`backlog`, `ready`, `in_progress`, `in_review`, `done`); `status_map` maps them to the tracker's names, defaulting to title case (`In Progress`). With `sync_issue_status` (default on), `aw start-task --issue` moves the issue to `in_progress` and `aw finish` to `done`, on trackers with workflow states. GitHub and GitLab close through the PR keyword instead.
+Statuses are canonical (`backlog`, `ready`, `in_progress`, `in_review`, `done`); `status_map` maps them to the tracker's names, defaulting to title case (`In Progress`). With `sync_issue_status` (default on), `aw start-task --issue` moves the issue to `in_progress` and `aw finish` to `done`, on trackers with workflow states. These automatic moves never go backwards: a session start moves only from backlog or ready (or no status), so an issue in review stays there. An explicit `aw issue set-status` is never guarded. Without workflow states, GitHub and GitLab close through the PR keyword.
 
-**Boards:** `on_issue_status` runs after every status change (`aw issue set-status`, session start, `aw finish`) with `{issue}`, `{status}` (canonical) and `{status_name}` (from `status_map`). On GitHub, where issues have no states, it is the place for a project board: `on_issue_status = "scripts/project/board-sync.sh {issue} {status_name}"` with `status_map = { backlog = "Backlog", in_progress = "In Progress", done = "Done" }`. A failing hook makes `set-status` exit non-zero; at session start and finish it is a warning.
+How states, boards and the hook fit together on each tracker: [docs/boards.md](docs/boards.md).
+
+**GitHub Projects board:** a GitHub issue is only open or closed; the board's single-select Status field is its workflow state. `github_project = "owner/number"` (user or organization board; `aw init` asks when `tracker = github`) makes it the backend of `set-status`:
+
+- `set-status` opens or closes the issue and sets the column named by `status_map`, matched case-insensitively, so the default title case finds `In progress`. Field and column ids are resolved at run time; a missing column fails before anything changes.
+- `aw issue create` puts the new issue on the board as `backlog`, also on boards without auto-add. If that step fails, it names the new issue and the repair (`aw issue set-status <id> backlog`).
+- Session start and `aw finish` move the card, under the guard above.
+- `aw doctor` checks the token's `project` scope (`gh auth refresh -s project`), the board, the field and the columns, and notes board workflows that are off. It never changes board settings; board workflows can only be switched on in the GitHub UI.
+- `status_field` names the field when it is not `Status`. Nothing touches a board without `github_project`.
+
+**Hook:** `on_issue_status` runs after every status change (`aw issue set-status`, session start, `aw finish`) with `{issue}`, `{status}` (canonical) and `{status_name}` (from `status_map`), for anything beyond the board: a notification, a board on another system. A failing hook makes `set-status` exit non-zero; at session start and finish it is a warning.
 
 **Jira setup:** `aw init` asks for `jira_base_url` and `jira_project` when `tracker = jira`. Credentials come from the environment only: `JIRA_USER_EMAIL`, `JIRA_API_TOKEN`, and optionally `JIRA_CLOUD_ID` for scoped tokens (routes through `api.atlassian.com`). Instance-specific fields go into `jira_fields`, e.g. `aw init --set jira_fields=acceptance_criteria=customfield_10000`. `aw doctor` checks that the variables are set, never their values, and calls `/myself`.
 

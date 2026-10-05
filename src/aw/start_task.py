@@ -98,9 +98,8 @@ def run(cfg: Config, kind: str, slug: str, issue: str | None, number: int | None
 
     if issue and cfg.get("sync_issue_status"):
         try:
-            for message in (tracker.on_start(issue), trackers.status_hook(cfg, issue, "in_progress")):
-                if message:
-                    print(message, file=sys.stderr)
+            for message in tracker.advance(issue, "in_progress"):
+                print(message, file=sys.stderr)
         except AwError as e:
             print(f"warning: issue status not updated: {e}", file=sys.stderr)
 

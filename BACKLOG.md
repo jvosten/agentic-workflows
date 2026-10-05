@@ -19,6 +19,7 @@ Deferred features and open checks. Each entry has enough context to be picked up
 - `forge = gitlab` / `tracker = gitlab`: `glab` JSON fields and flags are taken from docs, not tested.
 - `tracker = jira` against a real instance: `aw doctor`, `aw issue view|children|list|comment|set-status`, status sync on start and finish, and ADF rendering of real descriptions (tested only with recorded responses).
 - Native parent links, mutations tested only with recorded responses: GitHub `aw issue create --parent --type` (one `createIssue` call with `parentIssueId`, `issueTypeId`) on an org-owned repo, `aw issue set-parent` link, re-parent and `--none` (`addSubIssue` with `replaceParent`, `removeSubIssue`); Jira `aw issue set-parent` including `--none` (`fields.parent = null`) and a refused hierarchy. Then move one text-linked GitHub project (homelab) until `aw issue children <root> --text-only` is empty.
+- GitHub Projects board (`github_project`), tested with recorded responses and read-only against the homelab board: a homelab session moves its card Backlog → In progress → Done through `aw` alone (create, `start-task`, `finish`), then `scripts/project/board-sync.sh` and its hook entry are deleted there. Also an organization-owned board.
 - Codex finds `~/.agents/skills/aw-start-task` and honours `agents/openai.yaml` (`allow_implicit_invocation: false`).
 
 **Done when:** one real session per agent has run through both skills, and the findings are in the README.
@@ -37,6 +38,7 @@ Deferred features and open checks. Each entry has enough context to be picked up
 **Context:** `aw-start-task` reads `<memory_dir>/decisions.md` and `gotchas.md` in full at session start; `aw doctor` warns past 200 lines. The first large adopter (homelab) has 201 gotchas, ~23,500 tokens, in a table grouped by tool, with numbers cited 144 times from code, CI and docs. Loading all of it costs that much every session, whatever the task. A typical session needs a handful of entries; the rest dilute the relevant ones. Context loaded at session start is the first to be compacted away, so a gotcha is often gone by the time the agent edits the file it is about. And the 200-line warning pushes toward deleting knowledge to fit a budget. Pure on-demand lookup has the opposite failure: the agent must suspect there is something to find, and a missed gotcha shows only as a repeated mistake. A design session on 2026-10-04 settled on a middle path, to be tried as an experiment.
 
 **Settled in that discussion:**
+
 - A gotcha is external tool behavior: symptom, cause, fix. A workflow pitfall that bites regardless of tool becomes a rule in `instructions_file`; `aw-finalize` proposes the rule text, the user decides.
 - One file per gotcha: `<gotchas_dir>/<slug>.md`, and the slug is the permanent id. Frontmatter `tools`, `status` (active | retired), `superseded_by`, `issue`, `date`, and `aliases` for the numbers of imported entries, so existing citations still resolve. Entries are retired, never deleted. Two gotchas get two slugs and never collide; the same slug twice is a real duplicate, and git shows it as a conflict. No new numbers: parallel sessions take the same next free one (the homelab table has 15 such duplicates), and renumbering breaks citations.
 - Decisions use the same layout, one file per decision with a slug id: same code path, and it ends append conflicts on `decisions.md`. Coordinate with [Configurable decision records](#medium-configurable-decision-records-for-aw-domain-modeling).
@@ -48,6 +50,7 @@ Deferred features and open checks. Each entry has enough context to be picked up
 - Prior art: [encephalon](https://github.com/isaachinman/encephalon). Pointer block in `AGENTS.md`, literal AND search, `--compact` then full, append-only with `supersedes`. It preloads no index at all; this design preloads the tag list on purpose, so the agent knows when to search.
 
 **Scope, first cut** (what the experiment needs):
+
 - Config: `gotchas_dir`; `gotcha_tags` (the vocabulary); `gotchas_load = full | tags` (default `full`).
 - `aw memory add gotcha --tags a,b` writes `<slug>.md`; `aw memory find --tags|--text [--compact]`; `aw memory show <id>` (slug or alias); `aw memory tags` (vocabulary with counts); `aw memory supersede` sets `status` and `superseded_by`. The same commands for decisions.
 - `aw doctor`: unknown tags, `superseded_by` pointing nowhere, an alias claimed by two entries.
@@ -59,25 +62,12 @@ Deferred features and open checks. Each entry has enough context to be picked up
 **Experiment:** run it in the homelab for ten sessions and read the log. Hooks that inject entries before an edit (Claude Code only) are the fallback if plan-time pulls miss too often.
 
 **Open:**
+
 - `tag_map` alone, model-chosen tags alone, or both (current lean: both).
 - Converting an existing table: a one-off in the adopting project, or `aw memory import`. The homelab conversion gives each entry a slug and keeps its number as an alias; a duplicated number stays the alias of the entry its citations mean, and the other entry keeps only its slug.
 - Whether `full` stays the default once `tags` has a track record.
 
 **Done when:** the ten sessions are recorded in the README, and the defaults are set from the result.
-
-### [MEDIUM] GitHub Projects status as the GitHub backend of set-status
-
-**Context:** `sync_issue_status` moves an issue to in progress on `aw start-task` and to done on `aw finish`, through `status_map` — on Jira, the issue's workflow state. A GitHub issue is only open or closed, so projects script the board themselves (homelab: `scripts/project/board-sync.sh`, wired through `on_issue_start`; since then `on_issue_status` runs a command after every status change). The Projects board's single-select **Status** field is GitHub's equivalent of a Jira workflow state. Board workflows (added → Backlog, closed → Done, auto-add) cover part of it, but they can be enabled only in the UI — the API has `deleteProjectV2Workflow`, no enable or update — and many boards run without them. Homelab live test (2026-10-04): only "Auto-add sub-issues" was on; new sub-issues landed with no status, and 3 closed issues sat outside Done.
-
-**Scope:**
-- Opt-in config: `github_project` (`owner/number`, user- or organization-owned, found through one `repositoryOwner` lookup), `status_field` (default `Status`). Empty → today's behavior; aw never touches a board it was not pointed at.
-- `set-status` on GitHub opens or closes the issue as today and writes the board field through `status_map` (canonical state → option name), resolving field and option ids at run time. Option names match case-insensitively, so the default title case finds "In progress". A missing option fails loudly with the available ones.
-- Guarded automatic moves, on every tracker: start moves to `in_progress` only from none, `backlog` or `ready`; finish moves to `done` from anything. The current state is mapped back to a canonical one through `status_map` (Jira today moves an issue in review back to in progress). An explicit `aw issue set-status` is never guarded. Writing `backlog` over a card someone moved forward is the failure mode the homelab script documents.
-- `aw issue create` adds the new issue to the configured board with status `backlog` (covers boards without auto-add). Created but not on the board → report the new id, exit non-zero, and name the repair (`aw issue set-status <id> backlog`); never create again.
-- `aw doctor`: the token has the `project` scope (the default `gh` login does not; `gh auth refresh -s project`), the project and `status_field` exist, every `status_map` target is an option. It reads the board's workflows (readable through GraphQL) and advises only: e.g. "Item closed is off: closed issues stay out of Done unless `aw finish` sets it". It never changes board settings.
-- Coexists with enabled board workflows: both set the same target. `on_issue_status` stays for anything else.
-
-**Done when:** a homelab session moves its card Backlog → In progress → Done through `aw` alone, `board-sync.sh` and its hook entry are deleted there, and recorded-response tests cover a board with and without workflows. Add the live check to [Verify v1 in live agent sessions](#high-verify-v1-in-live-agent-sessions).
 
 ### [MEDIUM] Spec element above the story
 
@@ -146,6 +136,7 @@ Deferred features and open checks. Each entry has enough context to be picked up
 **Context:** `aw-finalize` carries steps it cannot run without a permission prompt, and the end of a session regularly produces leftovers that belong in a backlog, not in a comment nobody reads.
 
 **Scope:**
+
 - Cleanup inside `allowed-tools`: decide which of `aw finish`'s steps may run unprompted (worktree removal, branch deletion) and which keep asking (the merge itself).
 
 ### [HIGH] Duplicate check beyond the parent's tree
@@ -153,6 +144,7 @@ Deferred features and open checks. Each entry has enough context to be picked up
 **Context:** `aw issue dupes <parent>` searches the tracker for each term, then keeps only hits inside the parent's tree (two levels of native links); a match anywhere else is dropped without a trace. Found in the homelab live test (2026-10-04): the project's own skill searched the whole repo, `aw-backlog-item` would not show #172, a related NetworkPolicy audit under another parent. Projects mid-migration from text links, unparented issues, and items filed under the wrong parent are exactly where duplicates hide.
 
 **Scope:**
+
 - `dupes` returns in-tree hits and out-of-tree hits, marked (`[elsewhere: parent #N | no parent]`), in-tree first. No hit dropped silently.
 - `--tree-only` keeps today's behavior for trackers where a full search is noisy.
 - `aw-backlog-item` shows both groups; the duplicate rule (same subject and same outcome) applies to both.
@@ -171,6 +163,7 @@ Deferred features and open checks. Each entry has enough context to be picked up
 **Context:** `aw-finalize` merges once CI is green unless a reviewer raised a point. The only human gate is the permission prompt on `aw finish`, which a broad allowlist removes silently, and [Finalize refactor](#medium-finalize-refactor) may narrow it further. In the homelab a merge to `main` is a deploy through Flux, and merging requires explicit approval of the green PR. That is the safe default for most repos; agent-driven repos with strong CI may want the opposite.
 
 **Scope:**
+
 - Config `merge_gate = approve | auto`, default `approve`.
 - `approve`: `aw-finalize` stops after CI and review, prints the PR link, CI state, unresolved comments and the diff summary, and waits for an explicit go before `aw finish`.
 - `auto`: today's behavior.
@@ -223,6 +216,7 @@ Deferred features and open checks. Each entry has enough context to be picked up
 **Context:** With `plan_scope = repo`, plans stay in `.agents/plans/` after their story is done. A later session that finds one cannot tell a live plan from a finished one, and may read old steps as current requirements. [encephalon](https://github.com/isaachinman/encephalon) keeps its old plans and specs for the record but marks them as history, "not current requirements".
 
 **Scope:**
+
 - `aw-finalize`, when the merged work closes the last subtask of a story, sets the plan's `**Status:**` line to `done` and adds the merge date, in the same PR.
 - `aw plan state` reports the status; `aw-plan` routes a `done` plan to "nothing pending" instead of offering to cut subtasks.
 - Plans are not moved or deleted; the path that subtasks and comments cite keeps working.
@@ -274,6 +268,24 @@ Deferred features and open checks. Each entry has enough context to be picked up
 **Done when:** a fresh clone shows only the personal identity in `git log --all`, and the GitHub repo has no pull request that references the old commits.
 
 ---
+
+### [MEDIUM] Add a MR request skill
+
+- should be used in finalize
+- handles MR settings, is feed via CONTRIBUTING.md (which also holds commit style)
+
+---
+
+### [MEDIUM] Jira status checks in aw doctor
+
+**Context:** On GitHub with `github_project`, `aw doctor` checks that every board column `aw` uses exists. On Jira it checks only credentials, the `/myself` login and `jira_project`. A `status_map` entry that names no status in the project's workflow surfaces only when it is used: `set-status` fails with "no transition to 'Backlog' (available: …)". The likely first hit: a new Jira issue starts in the workflow's initial status (often "To Do"), and `aw-backlog-item` then runs `aw issue set-status <id> backlog`, which looks for a status named "Backlog". Settle the details once Jira is tested live (see [Verify v1 in live agent sessions](#high-verify-v1-in-live-agent-sessions)).
+
+**Scope:**
+- `aw doctor` reads the project's statuses (`GET /rest/api/3/project/<key>/statuses`, per issue type) and checks the statuses `aw` uses (`backlog`, `in_progress`, `done`, plus every key in `status_map`), matched case-insensitively like the transitions.
+- A missing one fails and lists the statuses that exist, with the `status_map` key to set (e.g. `status_map.backlog = "To Do"`).
+- Decide from the live test: whether `backlog` should default to the workflow's initial status on Jira, and whether a status that exists but has no direct transition from the usual starting points deserves a warning.
+
+**Done when:** `aw doctor` on a Jira project with a wrong `status_map` names the missing status and the fix, covered by recorded-response tests.
 
 ## Considered and not planned
 

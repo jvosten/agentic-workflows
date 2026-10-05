@@ -56,9 +56,7 @@ def run(cfg: Config, meta: dict[str, Any], pr: str | None) -> list[str]:
     issue = meta.get("issue")
     if issue and cfg.get("sync_issue_status"):
         try:
-            for message in (trackers.get(cfg).on_merged(issue), trackers.status_hook(cfg, issue, "done")):
-                if message:
-                    log.append(message)
+            log += trackers.get(cfg).advance(issue, "done")
         except AwError as e:
             log.append(f"warning: issue status not updated: {e}")
 

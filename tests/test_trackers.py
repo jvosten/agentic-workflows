@@ -339,7 +339,7 @@ def test_github_set_status(repo, monkeypatch):
     assert tracker.pr_text("5") == "Fixes #5"
     assert tracker.set_status("5", "done") == "#5 closed"
     assert (None, ("issue", "close", "5"), None) in fake.calls
-    assert tracker.on_start("5") is None
+    assert tracker.advance("5", "in_progress") == []  # no board, no hook: nothing to move
 
 
 def test_github_text_only_children_are_what_is_left_to_migrate(repo, monkeypatch, capsys):
@@ -490,6 +490,7 @@ def test_start_and_finish_sync_jira_status(repo, tmp_path, monkeypatch):
     git("push", "-q", "origin", "main", cwd=repo)
     moves = []
     monkeypatch.setattr(Jira, "set_status", lambda self, i, s: moves.append((i, s)) or f"{i} -> {s}")
+    monkeypatch.setattr(Jira, "current_status", lambda self, i: "To Do")
 
     out = start_task.run(load(), "feat", "retries", "proj-12")
     assert out["branch"] == "feat/PROJ-12-retries" and out["issue"] == "PROJ-12"
@@ -563,3 +564,143 @@ def test_doctor_jira_reports_missing_env_by_name(repo):
     jira_cfg(repo)
     results = {m: lvl for lvl, m in doctor.check_jira(load())}
     assert results == {"JIRA_USER_EMAIL is not set": "fail", "JIRA_API_TOKEN is not set": "fail"}
+
+
+# --- GitHub Projects board -------------------------------------------------------
+
+BOARD = {"repositoryOwner": {"projectV2": {
+    "id": "P1", "title": "Homelab",
+    "field": {"id": "F1", "name": "Status", "options": [
+        {"id": "o-backlog", "name": "Backlog"}, {"id": "o-ready", "name": "Ready"},
+        {"id": "o-progress", "name": "In progress"}, {"id": "o-done", "name": "Done"}]},
+    "workflows": {"nodes": [{"name": "Item closed", "enabled": False},
+                            {"name": "Auto-add sub-issues to project", "enabled": True}]}}}}
+
+
+def board_cfg(repo, extra=""):
+    (repo / ".agents").mkdir(exist_ok=True)
+    (repo / ".agents/aw.toml").write_text(f'tracker = "github"\ngithub_project = "jvosten/1"\n{extra}')
+    return load()
+
+
+def card(status=None, item="I1", project="P1"):
+    nodes = [] if status is False else [
+        {"id": item, "project": {"id": project}, "fieldValueByName": status and {"name": status}}]
+    return {"repository": {"issue": {"id": "ISSUE5", "projectItems": {"nodes": nodes}}}}
+
+
+def board_gh(status=None, state="OPEN", **graphql):
+    return FakeGh(graphql={"repositoryOwner": BOARD, "projectItems": card(status),
+                           "addProjectV2ItemById": {"addProjectV2ItemById": {"item": {"id": "I2"}}},
+                           "updateProjectV2ItemFieldValue": {}, **graphql},
+                  issues={"5": gh_issue(5, state=state)})
+
+
+def test_board_set_status_moves_the_card_and_matches_columns_case_insensitively(repo, monkeypatch):
+    board_cfg(repo)
+    fake = board_gh("Backlog")
+    monkeypatch.setattr(GitHub, "gh", fake)
+    tracker = trackers.get(load())
+    assert tracker.set_status("5", "in_progress") == "#5 open · board In progress"
+    _, fields, _ = fake.calls[-1]
+    assert fake.calls[-1][0] == "updateProjectV2ItemFieldValue"
+    assert (fields["projectId"], fields["itemId"], fields["fieldId"], fields["optionId"]) == (
+        ("-F", "P1"), ("-F", "I1"), ("-F", "F1"), ("-f", "o-progress"))
+    assert fake.ops().count("repositoryOwner") == 1  # the board is read once per run
+
+
+def test_board_adds_a_missing_card_and_skips_a_card_already_there(repo, monkeypatch):
+    board_cfg(repo)
+    fake = board_gh(False)
+    monkeypatch.setattr(GitHub, "gh", fake)
+    assert trackers.get(load()).set_status("5", "backlog") == "#5 open · board Backlog"
+    assert fake.ops()[-2:] == ["addProjectV2ItemById", "updateProjectV2ItemFieldValue"]
+    assert fake.calls[-1][1]["itemId"] == ("-F", "I2")
+
+    fake = board_gh("In progress")
+    monkeypatch.setattr(GitHub, "gh", fake)
+    assert trackers.get(load()).set_status("5", "in_progress") == "#5 open · board already In progress"
+    assert "updateProjectV2ItemFieldValue" not in fake.ops()
+
+
+def test_board_done_closes_the_issue_and_an_unknown_column_changes_nothing(repo, monkeypatch):
+    board_cfg(repo)
+    fake = board_gh("In progress")
+    monkeypatch.setattr(GitHub, "gh", fake)
+    tracker = trackers.get(load())
+    assert tracker.set_status("5", "done") == "#5 closed · board Done"
+    assert (None, ("issue", "close", "5"), None) in fake.calls
+
+    calls = len(fake.calls)
+    with pytest.raises(AwError, match=r"no column 'In Review' \(columns: Backlog, Ready, In progress, Done\)"):
+        tracker.set_status("5", "in_review")
+    assert len(fake.calls) == calls
+
+
+def test_session_start_never_moves_a_card_backwards(repo, monkeypatch):
+    board_cfg(repo)
+    for current, moved in (("Done", False), ("In progress", False), ("Ready", True), (None, True)):
+        fake = board_gh(current)
+        monkeypatch.setattr(GitHub, "gh", fake)
+        messages = trackers.get(load()).advance("5", "in_progress")
+        assert ("updateProjectV2ItemFieldValue" in fake.ops()) is moved, current
+        if not moved:
+            assert messages == [f"#5 stays at {current}: a session start moves only from backlog or ready"]
+    fake = board_gh("In progress")
+    monkeypatch.setattr(GitHub, "gh", fake)
+    assert trackers.get(load()).advance("5", "done") == ["#5 closed · board Done"]
+
+
+def test_jira_session_start_leaves_an_issue_in_review(repo, monkeypatch):
+    tracker = trackers.get(jira_cfg(repo, 'status_map = { in_review = "Code Review" }\n'))
+    monkeypatch.setattr(Jira, "current_status", lambda self, i: "Code Review")
+    monkeypatch.setattr(Jira, "set_status", lambda self, i, s: pytest.fail("moved backwards"))
+    assert tracker.advance("PROJ-12", "in_progress") == [
+        "PROJ-12 stays at Code Review: a session start moves only from backlog or ready"]
+
+
+def test_board_create_puts_the_issue_on_the_board_or_names_the_repair(repo, monkeypatch):
+    board_cfg(repo)
+    context = {"repository": {"id": "R1", "owner": {"__typename": "User"}, "issueTypes": None}}
+    fake = board_gh(False, issueTypes=context, createIssue={"createIssue": {"issue": {"number": 5}}})
+    monkeypatch.setattr(GitHub, "gh", fake)
+    assert trackers.get(load()).create("T", "", None, None) == "5"
+    assert fake.ops() == ["repositoryOwner", "issueTypes", "createIssue", "projectItems",
+                          "addProjectV2ItemById", "updateProjectV2ItemFieldValue"]
+
+    def refuse(fields):
+        raise AwError("gh api graphql: insufficient scopes")
+
+    fake = board_gh(False, issueTypes=context, createIssue={"createIssue": {"issue": {"number": 5}}},
+                    addProjectV2ItemById=refuse)
+    monkeypatch.setattr(GitHub, "gh", fake)
+    with pytest.raises(AwError, match=r"created #5, but it is not on the board: .*insufficient scopes.*"
+                                      r"aw issue set-status 5 backlog`; do not create it again"):
+        trackers.get(load()).create("T", "", None, None)
+
+
+def test_board_without_the_backlog_column_fails_before_create(repo, monkeypatch):
+    board_cfg(repo, 'status_map = { backlog = "Icebox" }\n')
+    fake = board_gh(False)
+    monkeypatch.setattr(GitHub, "gh", fake)
+    with pytest.raises(AwError, match="no column 'Icebox'"):
+        trackers.get(load()).create("T", "", None, None)
+    assert "createIssue" not in fake.ops()
+
+
+def test_doctor_checks_scope_columns_and_advises_on_workflows(repo, monkeypatch):
+    from aw import doctor
+
+    board_cfg(repo, 'status_map = { in_review = "In review" }\n')
+    monkeypatch.setattr(GitHub, "gh", board_gh())
+    monkeypatch.setattr(doctor, "_gh_scopes", lambda: ["repo"])
+    assert doctor.check_board(load()) == [("fail", "gh token lacks the project scope; run `gh auth refresh -s project`")]
+
+    monkeypatch.setattr(doctor, "_gh_scopes", lambda: ["repo", "project"])
+    results = doctor.check_board(load())
+    assert results[0] == ("ok", "board jvosten/1 (Homelab), field Status")
+    assert results[1][0] == "fail" and "in_review → In review" in results[1][1]
+    assert results[2] == ("info", "board workflow 'Item closed' is off: issues closed outside aw finish stay out of Done")
+
+    board_cfg(repo)
+    assert doctor.check_board(load())[1] == ("ok", "board columns for backlog, in_progress, done")

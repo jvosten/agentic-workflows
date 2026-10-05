@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 import re
 import sys
+from functools import cached_property
 from typing import Any
 
 from aw.config import AwError
-from aw.trackers import STATUSES, Issue, Row, Tracker, run
+from aw.trackers import STATUSES, Issue, Row, Tracker, run, status_name
 
 PART_OF = re.compile(r"\bPart of #(\d+)", re.IGNORECASE)
 TASK_REF = re.compile(r"^\s*[-*] \[[ xX]\] .*?#(\d+)", re.MULTILINE)
@@ -29,6 +30,18 @@ LINK_CONTEXT = """query($owner:String!,$repo:String!,$number:Int!,$parent:Int!,$
   target: issue(number:$parent) @include(if:$withParent){id}}}"""
 ADD_SUB = """mutation($parentId:ID!,$childId:ID!){
   addSubIssue(input:{issueId:$parentId,subIssueId:$childId,replaceParent:true}){issue{number}}}"""
+BOARD = """query($login:String!,$number:Int!,$field:String!){repositoryOwner(login:$login){
+  ... on ProjectV2Owner{projectV2(number:$number){id title
+  field(name:$field){... on ProjectV2SingleSelectField{id name options{id name}}}
+  workflows(first:20){nodes{name enabled}}}}}}"""
+CARD = """query($owner:String!,$repo:String!,$number:Int!,$field:String!){repository(owner:$owner,name:$repo){
+  issue(number:$number){id projectItems(first:50){nodes{id project{id}
+  fieldValueByName(name:$field){... on ProjectV2ItemFieldSingleSelectValue{name}}}}}}}"""
+ADD_CARD = """mutation($projectId:ID!,$contentId:ID!){
+  addProjectV2ItemById(input:{projectId:$projectId,contentId:$contentId}){item{id}}}"""
+SET_CARD = """mutation($projectId:ID!,$itemId:ID!,$fieldId:ID!,$optionId:String!){
+  updateProjectV2ItemFieldValue(input:{projectId:$projectId,itemId:$itemId,fieldId:$fieldId,
+  value:{singleSelectOptionId:$optionId}}){projectV2Item{id}}}"""
 REMOVE_SUB = """mutation($parentId:ID!,$childId:ID!){
   removeSubIssue(input:{issueId:$parentId,subIssueId:$childId}){issue{number}}}"""
 
@@ -134,7 +147,13 @@ class GitHub(Tracker):
 
     def create(self, title: str, body: str, parent: str | None, issue_type: str | None,
                labels: list[str] | None = None) -> str:
-        """One createIssue mutation, so the issue never exists without its parent link or labels."""
+        """One createIssue mutation, so the issue never exists without its parent link or labels.
+
+        With github_project, the new issue then goes on the board as backlog; the column is resolved
+        first, so a board that cannot take it fails before anything is created.
+        """
+        if self.has_states():
+            self.option("backlog")
         target = self.normalize(parent) if parent else None
         repo = self.graphql(CREATE_CONTEXT, parent=int(target or 0), withParent=bool(target))["repository"]
         ids = {"repoId": repo["id"]}
@@ -160,7 +179,14 @@ class GitHub(Tracker):
             label_ids = [known[name.casefold()] for name in labels]
         data = self.graphql(CREATE, stdin=body, raw={"title": title}, body="@-", **ids,
                             **({"labelIds": label_ids} if label_ids else {}))
-        return str(data["createIssue"]["issue"]["number"])
+        number = str(data["createIssue"]["issue"]["number"])
+        if self.has_states():
+            try:
+                self.set_status(number, "backlog")
+            except AwError as e:
+                raise AwError(f"created #{number}, but it is not on the board: {e}. "
+                              f"Run `aw issue set-status {number} backlog`; do not create it again") from None
+        return number
 
     def set_parent(self, issue: str, parent: str | None) -> str:
         target = self.normalize(parent) if parent else None
@@ -189,16 +215,73 @@ class GitHub(Tracker):
             return
         self.gh(*args, "--body-file", "-", stdin=body)
 
+    # --- board: a GitHub Projects single-select field as the issue's workflow state ---
+
+    def has_states(self) -> bool:
+        return bool(self.cfg.get("github_project"))
+
+    @cached_property
+    def board(self) -> dict:
+        """The github_project board: id, title, status field with its options, workflows."""
+        spec, field = self.cfg.get("github_project"), self.cfg.get("status_field")
+        owner, _, number = spec.partition("/")
+        if not owner or not number.isdigit():
+            raise AwError(f"github_project must be owner/number, got {spec!r}")
+        try:
+            data = self.graphql(BOARD, raw={"login": owner, "field": field}, number=int(number))
+        except AwError as e:
+            raise AwError(f"github_project {spec}: {e} (token needs the project scope: gh auth refresh -s project)") from None
+        project = (data.get("repositoryOwner") or {}).get("projectV2")
+        if not project:
+            raise AwError(f"github_project {spec} not found")
+        if not (project.get("field") or {}).get("options"):
+            raise AwError(f"github_project {spec} has no single-select field {field!r} (status_field)")
+        return project
+
+    def option(self, status: str) -> dict:
+        """The board column for a canonical status: status_map name, matched case-insensitively."""
+        name = status_name(self.cfg, status)
+        options = self.board["field"]["options"]
+        match = next((o for o in options if o["name"].casefold() == name.casefold()), None)
+        if match is None:
+            available = ", ".join(o["name"] for o in options)
+            raise AwError(f"board has no column {name!r} (columns: {available}); set status_map.{status}")
+        return match
+
+    def _card(self, issue: str) -> tuple[str, dict | None]:
+        """Issue node id, and its item on the board if it is there."""
+        node = self.graphql(CARD, number=int(issue), raw={"field": self.cfg.get("status_field")})["repository"]["issue"]
+        item = next((i for i in node["projectItems"]["nodes"] if i["project"]["id"] == self.board["id"]), None)
+        return node["id"], item
+
+    def current_status(self, issue: str) -> str | None:
+        if not self.has_states():
+            return None
+        _, item = self._card(issue)
+        return ((item or {}).get("fieldValueByName") or {}).get("name")
+
+    def _move_card(self, issue: str, option: dict) -> str:
+        node_id, item = self._card(issue)
+        if item and ((item.get("fieldValueByName") or {}).get("name") or "").casefold() == option["name"].casefold():
+            return f"board already {option['name']}"
+        if item is None:  # addProjectV2ItemById is idempotent, but only an absent card needs it
+            item = self.graphql(ADD_CARD, projectId=self.board["id"], contentId=node_id)["addProjectV2ItemById"]["item"]
+        self.graphql(SET_CARD, projectId=self.board["id"], itemId=item["id"], fieldId=self.board["field"]["id"],
+                     raw={"optionId": option["id"]})
+        return f"board {option['name']}"
+
     def set_status(self, issue: str, status: str) -> str:
         if status not in STATUSES:
             raise AwError(f"status must be one of {', '.join(STATUSES)}")
+        option = self.option(status) if self.has_states() else None  # an unknown column fails before any change
         state = self.gh_json("issue", "view", issue, "--json", "state")["state"].lower()
         if status == "done":
-            if state == "closed":
-                return f"#{issue} already closed"
-            self.gh("issue", "close", issue)
-            return f"#{issue} closed"
-        if state == "closed":
+            message = f"#{issue} already closed" if state == "closed" else f"#{issue} closed"
+            if state != "closed":
+                self.gh("issue", "close", issue)
+        elif state == "closed":
             self.gh("issue", "reopen", issue)
-            return f"#{issue} reopened"
-        return f"#{issue} open"
+            message = f"#{issue} reopened"
+        else:
+            message = f"#{issue} open"
+        return f"{message} · {self._move_card(issue, option)}" if option else message

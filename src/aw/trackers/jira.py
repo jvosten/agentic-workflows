@@ -197,8 +197,9 @@ class Jira(Tracker):
         options = ", ".join(sorted({(t.get("to") or {}).get("name", "") for t in transitions})) or "none"
         raise AwError(f"{issue}: no transition to {target!r} (available: {options}); set status_map.{status}")
 
-    def on_start(self, issue: str) -> str | None:
-        return self.set_status(issue, "in_progress")
+    def has_states(self) -> bool:
+        return True
 
-    def on_merged(self, issue: str) -> str | None:
-        return self.set_status(issue, "done")
+    def current_status(self, issue: str) -> str | None:
+        data = self.request("GET", f"/rest/api/3/issue/{issue}", {"fields": "status"})
+        return (data["fields"].get("status") or {}).get("name")

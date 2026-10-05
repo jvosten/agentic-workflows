@@ -62,6 +62,18 @@ when = { tracker = "jira" }
 default = ""
 help = "Issue type for subtasks created from a plan (empty: the tracker default)"
 
+[keys.github_project]
+type = "str"
+ask = true
+when = { tracker = "github" }
+default = ""
+help = "GitHub Projects board whose status field follows the issue status, as owner/number (empty: none)"
+
+[keys.status_field]
+type = "str"
+default = "Status"
+help = "Single-select field of github_project that holds the column"
+
 [keys.status_map]
 type = "table"
 default = {}
@@ -70,7 +82,7 @@ help = "Canonical status (backlog, ready, in_progress, in_review, done) = tracke
 [keys.sync_issue_status]
 type = "bool"
 default = true
-help = "aw start-task moves the issue to in_progress and aw finish to done (trackers with workflow states)"
+help = "aw start-task moves the issue to in_progress (only from backlog or ready) and aw finish to done (Jira, or GitHub with github_project)"
 
 [keys.instructions_file]
 type = "str"

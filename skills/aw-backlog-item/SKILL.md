@@ -104,9 +104,10 @@ Show the payload — parent, issue type, labels, title, full body — and wait f
 
 - Title becomes the summary unchanged. The full item body becomes the description; do not shorten it.
 - The parent is set by `--parent` only, as the tracker's native link. Never write it into the body (`Part of #N`, `Epic: KEY`, a parent line under Links).
-- An unknown label fails before anything is created. Report it; do not create labels yourself.
+- An unknown label, or a board without the backlog column, fails before anything is created. Report it; do not create labels or columns yourself.
+- `created #N, but it is not on the board` → run the `aw issue set-status N backlog` it names. Never create again.
 - A warning that `--type` was ignored (GitHub repos owned by a user) → report it; the issue was still created.
-- `set-status` also runs `on_issue_status`, which is where a project puts its board move. The project's rules require a step `aw` does not do (a board without that hook) → do it as the rules say, and suggest setting `on_issue_status` so the next item needs no manual step.
+- With `github_project` set, `create` already puts the issue on the board as backlog, and `set-status` keeps it there; it is idempotent. `set-status` also runs `on_issue_status`. The project's rules require a step `aw` does not do (a GitHub board without `github_project`) → do it as the rules say, and suggest setting `github_project` so the next item needs no manual step.
 - An issue exists but is not under the chosen parent → fix the link with `aw issue set-parent <new id> <parent> --dry-run`, then without `--dry-run`. Never create it again.
 - `set-status` fails because the tracker has no such state → report the actual state, do not retry.
 
