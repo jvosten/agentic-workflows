@@ -2,7 +2,7 @@
 name: aw-finalize
 description: Finish an implementation session - document, verify, commit, open the pull request, add the changelog entry, wait for CI, then merge after your approval (or directly with merge_gate = auto) and clean up the worktree. Use only when the user invokes it.
 disable-model-invocation: true
-allowed-tools: Bash(~/.agents/bin/aw session) Bash(~/.agents/bin/aw config) Bash(~/.agents/bin/aw verify) Bash(~/.agents/bin/aw issue ref:*) Bash(~/.agents/bin/aw issue pr-text:*) Bash(~/.agents/bin/aw memory add:*) Bash(~/.agents/bin/aw backlog add:*) Bash(~/.agents/bin/aw backlog list) Bash(~/.agents/bin/aw backlog pop:*) Bash(~/.agents/bin/aw issue dupes:*) Bash(~/.agents/bin/aw issue children:*) Bash(~/.agents/bin/aw issue create:*) Bash(~/.agents/bin/aw issue set-parent:*) Bash(~/.agents/bin/aw issue set-status:*)
+allowed-tools: Bash(~/.agents/bin/aw session) Bash(~/.agents/bin/aw config) Bash(~/.agents/bin/aw verify) Bash(~/.agents/bin/aw issue ref:*) Bash(~/.agents/bin/aw template mr) Bash(~/.agents/bin/aw mr create:*) Bash(~/.agents/bin/aw mr update:*) Bash(~/.agents/bin/aw mr view:*) Bash(~/.agents/bin/aw mr checks:*) Bash(~/.agents/bin/aw mr comments:*) Bash(~/.agents/bin/aw memory add:*) Bash(~/.agents/bin/aw backlog add:*) Bash(~/.agents/bin/aw backlog list) Bash(~/.agents/bin/aw backlog pop:*) Bash(~/.agents/bin/aw issue dupes:*) Bash(~/.agents/bin/aw issue children:*) Bash(~/.agents/bin/aw issue create:*) Bash(~/.agents/bin/aw issue set-parent:*) Bash(~/.agents/bin/aw issue set-status:*)
 metadata:
   package: agentic-workflows
 ---
@@ -65,33 +65,33 @@ With `backlog_home = file`, the items stay in `backlog_file` and are committed w
 
 Non-zero exit → fix the cause and re-run. Do not continue on a failing check.
 
-## 7. Commit and open the pull request
+## 7. Commit and open the merge request
 
-- Commit in logical units, using the project's commit conventions (conventional commits unless `instructions_file` says otherwise). Push with `git -C <worktree> push -u origin <branch>`.
-- Open the PR against `main_branch`. With an issue: put `aw issue ref <issue>` in the title (Jira links PRs by key) and the line from `aw issue pr-text <issue>` in the body. The body summarizes the change and risks.
-  - `forge = github`: `gh pr create --base <main_branch> --title ... --body ...`
-  - `forge = gitlab`: `glab mr create --target-branch <main_branch> --title ... --description ...`
-  - `forge = none`: skip; tell the user to merge by hand.
+- Commit in logical units, using the project's commit conventions: `contributing_file` (default `CONTRIBUTING.md`) first, then `instructions_file`, else conventional commits. Push with `git -C <worktree> push -u origin <branch>`.
+- Load the `aw-merge-request` skill to write and open the merge request against `main_branch`. It follows the contribution rules and the merge request template, and `aw mr create` adds the issue's closing line.
+- `forge = none`: no merge request; tell the user to merge by hand.
 
 ## 8. Changelog
 
-If `changelog_file` is set: add one entry for this session, matching the file's existing format (position, heading style, level of detail) and naming the PR. Commit and push.
+If `changelog_file` is set: add one entry for this session, matching the file's existing format (position, heading style, level of detail) and naming the merge request. Commit and push.
 
 ## 9. Review and CI
 
-- Read the PR diff and all review comments (`gh pr view <pr> --comments` / `glab mr view <pr> --comments`).
-- Wait for CI (`gh pr checks <pr> --watch` / `glab ci status --live`).
+```bash
+~/.agents/bin/aw mr checks --watch      # waits; prints one line per failing check; exit 0 passed, 1 failed
+~/.agents/bin/aw mr comments            # unresolved review threads, then general comments
+```
+
 - CI failure → fix, push, wait again.
+- Every unresolved thread: fix it and push, or answer it; never resolve someone else's point silently.
 - Stop and report instead of merging when: a reviewer raised an unresolved point, the diff contains something unplanned, or you are unsure about a risk. This holds under either `merge_gate`.
 
 ## 10. Merge gate
 
 `merge_gate = approve` (the default): stop here. A merge to `main_branch` may be a deploy, and the permission prompt on `aw finish` is not a gate: an allowlist removes it silently. Show:
 
-- the PR link and title;
-- CI: every check and its result (`gh pr checks <pr>` / `glab ci status`);
-- review: approvals and unresolved comments, or "none";
-- the diff summary: files changed with lines added and removed, and the few lines of step 2;
+- `~/.agents/bin/aw mr view`: link and title, state, CI, review and unresolved threads, files changed with lines added and removed — print it as it is;
+- the few lines of step 2: what changed and why;
 - what `aw finish` will do: merge with `merge_method`, move the issue, remove the worktree, delete the branch.
 
 Then ask whether to merge, and wait for an explicit go ("merge", "go", "yes"). Anything else, or no answer → stop, report as in step 12, and say that `/aw-finalize` resumes at this step or `aw finish --pr <pr>` merges by hand. A push after the go (a late fix) means CI again, and the gate again.

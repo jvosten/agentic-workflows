@@ -11,9 +11,10 @@ from dataclasses import asdict
 from pathlib import Path
 
 from aw import (
-    __version__, backlog, doctor, finish, init, install, memory, plan, session, start_task, templates, trackers, ui,
+    __version__, backlog, doctor, finish, forge, init, install, memory, plan, session, start_task, templates, trackers,
+    ui,
 )
-from aw.config import PROJECT_FILE, AwError, load, toml_value
+from aw.config import PROJECT_FILE, AwError, git, load, toml_value
 from aw.trackers import STATUSES
 
 
@@ -137,6 +138,108 @@ def _issue(args: argparse.Namespace) -> None:
         print(tracker.pr_text(issue))
 
 
+MR_PREFIX = {"github": "#", "gitlab": "!"}
+
+
+def _closing_line(cfg, body: str) -> str | None:
+    """The line that links the session's issue, when the body does not reference the issue yet."""
+    try:
+        issue = session.read().get("issue")
+    except AwError:
+        return None
+    if not issue or cfg.get("tracker") == "none":
+        return None
+    tracker = trackers.get(cfg)
+    return None if tracker.ref(issue) in body else tracker.pr_text(issue)
+
+
+def _mr(args: argparse.Namespace) -> int:
+    cfg = load()
+    kind = cfg.get("forge")
+    if kind not in MR_PREFIX:
+        raise AwError(f"forge = {kind}: no merge requests (set forge in aw init)")
+    cwd, mark = cfg.checkout, MR_PREFIX[kind]
+    branch = git("branch", "--show-current", cwd=cwd)
+    ref = getattr(args, "ref", None) or branch
+    if args.op == "create":
+        if branch == cfg.get("main_branch"):
+            raise AwError(f"on {branch}: create the merge request from the session branch")
+        body = _body(args.body_file)
+        if line := _closing_line(cfg, body):
+            body = body.rstrip() + f"\n\n{line}\n"
+        if args.dry_run:
+            print(f"DRY RUN ({kind}): {branch} → {cfg.get('main_branch')} title={args.title!r} draft={args.draft}")
+            print(body, end="" if body.endswith("\n") else "\n")
+            return 0
+        try:
+            unpushed = git("rev-list", "--count", "@{upstream}..HEAD", cwd=cwd)
+        except AwError:
+            raise AwError(f"{branch} has no upstream; push it first: git push -u origin {branch}") from None
+        if unpushed != "0":
+            raise AwError(f"{branch} has {unpushed} unpushed commit(s); push first")
+        if existing := forge.find_open(kind, branch, cwd):
+            print(f"{mark}{existing.number} already open: {existing.url} (aw mr update changes it)")
+            return 0
+        made = forge.create(kind, branch, cfg.get("main_branch"), args.title, body, args.draft, cwd)
+        print(f"{mark}{made.number} {made.url}")
+    elif args.op == "update":
+        body = _body(args.body_file) if args.body_file else None
+        if args.title is None and body is None:
+            raise AwError("mr update: pass --title, --body-file, or both")
+        if args.dry_run:
+            print(f"DRY RUN ({kind}): update {ref} title={args.title!r}")
+            print(body if body is not None else "body: unchanged", end="" if body else "\n")
+            return 0
+        forge.update(kind, ref, args.title, body, cwd)
+        print(f"updated {ref}")
+    elif args.op == "checks":
+        results = forge.checks(kind, ref, cwd, args.watch)
+        print(_checks_line(results))
+        for c in results:
+            if c.bucket in ("fail", "pending") or args.verbose:
+                print(f"  {c.bucket:<8}{c.name}")
+        buckets = {c.bucket for c in results}
+        return 1 if "fail" in buckets else 2 if "pending" in buckets else 0
+    elif args.op == "comments":
+        threads, general, resolved = forge.comments(kind, ref, cwd)
+        print(f"{ui.plural(len(threads), 'unresolved thread')} · {resolved} resolved · "
+              f"{ui.plural(len(general), 'comment')}")
+        for t in threads:
+            print(f"\n{t.path}:{t.line}" if t.line else f"\n{t.path or '(general)'}")
+            for author, text in t.comments:
+                print(f"  {author}: {text.strip()}")
+        if general:
+            print("\nComments")
+            for author, text in general:
+                print(f"  {author}: {text.strip()}")
+    elif args.op == "view":
+        s = forge.summary(kind, ref, cwd)
+        print(f"{mark}{s.request.number} {s.request.title}")
+        print(s.request.url)
+        mergeable = s.mergeable if s.request.state in ("open", "opened") and s.mergeable not in ("", "unknown") else ""
+        state = [s.request.state, "draft" if s.draft else "", f"mergeable: {mergeable}" if mergeable else ""]
+        print("state    " + " · ".join(filter(None, state)))
+        print("checks   " + _checks_line(s.checks))
+        print(f"review   {s.review} · {ui.plural(s.unresolved, 'unresolved thread')}")
+        diff = f" · +{s.additions} −{s.deletions}" if s.additions is not None else ""
+        print(f"diff     {ui.plural(s.files, 'file')}{diff}")
+    return 0
+
+
+def _checks_line(results: list) -> str:
+    if not results:
+        return "no checks"
+    counts = {b: [c.name for c in results if c.bucket == b] for b in ("pass", "fail", "pending", "skip")}
+    parts = [f"{len(counts['pass'])} passed"]
+    if counts["fail"]:
+        parts.append(f"{len(counts['fail'])} failed: {', '.join(counts['fail'])}")
+    if counts["pending"]:
+        parts.append(f"{len(counts['pending'])} pending")
+    if counts["skip"]:
+        parts.append(f"{len(counts['skip'])} skipped")
+    return " · ".join(parts)
+
+
 def _plan(args: argparse.Namespace) -> None:
     cfg = load()
     tracker = trackers.get(cfg)
@@ -169,7 +272,11 @@ def _memory(args: argparse.Namespace) -> None:
 
 
 def _template(args: argparse.Namespace) -> None:
-    print(templates.read(load(), args.name), end="")
+    cfg = load()
+    path = templates.source(cfg, args.name)
+    shown = (path.relative_to(cfg.checkout) if path.is_relative_to(cfg.checkout) else ui.home(path)) if path else None
+    print(f"template: {shown or 'bundled ' + args.name}", file=sys.stderr)
+    print(templates.read(cfg, args.name), end="")
 
 
 def _session(args: argparse.Namespace) -> None:
@@ -301,7 +408,8 @@ def menu(parser: argparse.ArgumentParser) -> str:
     def head(text: str) -> str:
         return ui.style(text, "1")
 
-    workflow = ["aw-plan", "aw-to-story", "aw-plan-story", "aw-to-subtasks", "aw-start-task", "aw-finalize"]
+    workflow = ["aw-plan", "aw-to-story", "aw-plan-story", "aw-to-subtasks", "aw-start-task", "aw-merge-request",
+                "aw-finalize"]
     order = sorted(install.source_skills(), key=lambda p: (workflow.index(p.name) if p.name in workflow else 99, p.name))
     skills = []
     for skill in order:
@@ -411,6 +519,28 @@ def build_parser() -> argparse.ArgumentParser:
     o = ops.add_parser("pr-text", help="line for the PR body that links or closes the issue")
     o.add_argument("id")
     s.set_defaults(func=_issue)
+
+    s = sub.add_parser("mr", aliases=["pr"], help="merge/pull request operations (forge from config)")
+    mr_ops = s.add_subparsers(dest="op", required=True)
+    o = mr_ops.add_parser("create", help="open a merge request for the current branch against main_branch")
+    o.add_argument("--title", required=True)
+    o.add_argument("--body-file", required=True, help="Markdown file, or - for stdin")
+    o.add_argument("--draft", action="store_true")
+    o.add_argument("--dry-run", action="store_true")
+    o = mr_ops.add_parser("update", help="replace title and description")
+    o.add_argument("ref", nargs="?", help="number or branch (default: the current branch)")
+    o.add_argument("--title")
+    o.add_argument("--body-file", help="Markdown file with the complete new description, or - for stdin")
+    o.add_argument("--dry-run", action="store_true")
+    o = mr_ops.add_parser("view", help="state, checks, review, unresolved threads and diff size in one view")
+    o.add_argument("ref", nargs="?", help="number or branch (default: the current branch)")
+    o = mr_ops.add_parser("checks", help="CI results; exit 0 passed, 1 failed, 2 pending")
+    o.add_argument("ref", nargs="?", help="number or branch (default: the current branch)")
+    o.add_argument("--watch", action="store_true", help="wait until no check is pending")
+    o.add_argument("-v", "--verbose", action="store_true", help="list passing checks too")
+    o = mr_ops.add_parser("comments", help="unresolved review threads and general comments")
+    o.add_argument("ref", nargs="?", help="number or branch (default: the current branch)")
+    s.set_defaults(func=_mr)
 
     s = sub.add_parser("plan", help="locate the plan document of a story or subtask")
     plan_ops = s.add_subparsers(dest="op", required=True)

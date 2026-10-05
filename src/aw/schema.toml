@@ -119,6 +119,16 @@ ask = true
 default = "merge"
 help = "How aw finish merges the pull/merge request"
 
+[keys.mr_template]
+type = "str"
+default = ""
+help = "Forge merge request template by name: .gitlab/merge_request_templates/<name>.md or .github/PULL_REQUEST_TEMPLATE/<name>.md (empty: GitLab's Default, GitHub's pull_request_template.md, else the bundled one)"
+
+[keys.contributing_file]
+type = "str"
+default = "CONTRIBUTING.md"
+help = "Contribution rules (commit style, merge request title and sections, labels, reviewers); they win over the template"
+
 [keys.merge_gate]
 type = "choice"
 choices = ["approve", "auto"]

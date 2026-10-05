@@ -77,15 +77,9 @@ Deferred features and open checks. Each entry has enough context to be picked up
 
 ### [LOW] Native blocking links between subtasks
 
-**Context:** `aw-to-subtasks` writes blocking edges as a `## Blocked by` section in the body, because Jira link types are per-instance (`Blocks`, `is blocked by`, renamed schemes) and GitHub has no native equivalent.
+**Context:** `aw-to-subtasks` writes blocking edges as a `## Blocked by` section in the body, because Jira link types are per-instance (`Blocks`, `is blocked by`, renamed schemes). GitHub now has native issue dependencies: GraphQL `addBlockedBy` / `removeBlockedBy`, and `blockedBy` / `blocking` on issues (also `gh issue view --json blockedBy,blocking`).
 
-**Scope:** `aw issue link <id> blocks <other>`, link-type discovery for Jira, text fallback elsewhere, `aw doctor` reporting the available link types.
-
-### [MEDIUM] Forge operations through aw
-
-**Context:** Skills no longer call trackers directly, but `aw-finalize` still runs `gh pr create`, `gh pr checks`, `glab mr create` itself. Same pattern as the tracker contract, for pull/merge requests.
-
-**Scope:** `aw pr create|checks|comments` per forge; `aw-finalize` calls only `aw`.
+**Scope:** `aw issue link <id> blocks <other>`: GitHub through `addBlockedBy`, Jira with link-type discovery, text fallback elsewhere; `aw issue view` shows blocked-by and blocking; `aw doctor` reports the available Jira link types.
 
 ### [MEDIUM] Fetch linked design docs (Confluence)
 
@@ -242,13 +236,6 @@ Deferred features and open checks. Each entry has enough context to be picked up
 8. Keep it from happening again: `git config user.email '21955156+jvosten@users.noreply.github.com'` in each clone, or an `includeIf "gitdir:~/projects/"` block in `~/.gitconfig` that sets the personal identity.
 
 **Done when:** a fresh clone shows only the personal identity in `git log --all`, and the GitHub repo has no pull request that references the old commits.
-
----
-
-### [MEDIUM] Add a MR request skill
-
-- should be used in finalize
-- handles MR settings, is feed via CONTRIBUTING.md (which also holds commit style)
 
 ---
 

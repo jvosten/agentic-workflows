@@ -48,7 +48,8 @@ For design work before planning, `/aw-grill-with-docs` interviews you and keeps 
 | `aw-plan-story` | user or model | Story + parent + project context → plan in `S1`, `S2`, … sections, grilled with you |
 | `aw-to-subtasks` | user only | Plan sections → subtasks, each a vertical slice with its blocking edges |
 | `aw-start-task` | user only | Creates the session worktree via `aw start-task`, loads the plan section, hands over to implementation |
-| `aw-finalize` | user only | Docs, `aw verify`, commit, PR, changelog entry, review + CI, your go at the green PR (`merge_gate`), then `aw finish` |
+| `aw-merge-request` | user or model | Title and description from `CONTRIBUTING.md`, the merge request template and a show-the-change style; opens or updates it through `aw mr` |
+| `aw-finalize` | user only | Docs, `aw verify`, commit, merge request (`aw-merge-request`), changelog entry, review + CI, your go at the green PR (`merge_gate`), then `aw finish` |
 | `aw-grilling` | user or model | Interview in rounds over a design tree until nothing is assumed |
 | `aw-grill-with-docs` | user only | `aw-grilling` plus `aw-domain-modeling` |
 | `aw-domain-modeling` | user or model | Challenge terms, keep `GLOSSARY.md` and `docs/adr/` current |
@@ -99,6 +100,26 @@ Deferred work is captured with `/aw-backlog-item`, which `aw-finalize` also call
 `aw backlog add` places an item among the file's existing items and copies their heading level and separators, so a flat `## Item` list and a sectioned `### [PRIO] Item` list both stay intact. `aw backlog list` prints the titles, `aw backlog pop` removes one.
 
 Pushing an item to the tracker: `aw issue dupes <backlog_parent> --terms ...` shows candidates in any state, those under `backlog_parent` (two levels deep) first, then matches elsewhere in the project, you confirm, pick the parent (`backlog_parent` or one of its children and grandchildren, or none), `aw issue create --parent <parent> [--type <backlog_type>] [--label ...]` creates it with the tracker's native parent link, `aw issue set-status <id> backlog` files it (and runs `on_issue_status`), and `aw backlog pop` removes the local copy so one item does not live in two places.
+
+## Merge requests
+
+`/aw-merge-request` writes the merge request (a pull request on GitHub) for the current branch; `/aw-finalize` loads it. Three sources decide the content, strongest first:
+
+1. **Rules** in `contributing_file` (default `CONTRIBUTING.md`): title format, required sections, labels, reviewers, draft policy, commit style.
+2. **Template**: `aw template mr` resolves it — `templates.mr` when set; else the forge's own file (`mr_template` names one in `.gitlab/merge_request_templates/` or `.github/PULL_REQUEST_TEMPLATE/`; unset, GitLab's `Default.md` or GitHub's `pull_request_template.md`); else a bundled Summary / Evidence / Merge danger template. A named template that does not exist is an error; `aw doctor` checks it.
+3. **Style** for the content inside the sections: the smallest diagram, tree or diff sketch that shows the change, before/after evidence, and whether the merge is a one-way door and how far it reaches. Adapted from [mattpocock/skills `pr`](https://github.com/mattpocock/skills/tree/main/skills/engineering/pr).
+
+`aw mr` talks to the forge, so skills do not call `gh` or `glab` themselves. Its output is a compact summary, not the forge CLI's:
+
+| Command | Does |
+|---|---|
+| `aw mr create --title T --body-file F [--draft] [--dry-run]` | Opens the request from the current branch against `main_branch`; refuses unpushed work; an open request for the branch is reported, never duplicated; appends the issue's closing line (`Fixes #12`) when the body does not reference the issue |
+| `aw mr update [ref] --title T --body-file F` | Replaces title and description |
+| `aw mr view [ref]` | State, CI, review, unresolved threads, files and lines changed: what the merge gate shows |
+| `aw mr checks [ref] [--watch]` | One line of counts plus the failing and pending checks; `--watch` waits without streaming progress. Exit 0 passed, 1 failed, 2 pending |
+| `aw mr comments [ref]` | Unresolved review threads with file and line, then general comments |
+
+`ref` is a number or branch, the current branch by default; `aw pr` is the same command. GitLab is taken from the `glab` documentation and not tested against a live instance yet.
 
 ## Set up a project
 

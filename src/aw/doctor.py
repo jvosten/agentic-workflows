@@ -8,7 +8,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from aw import install, plan, trackers
+from aw import install, plan, templates, trackers
 from aw.config import PROJECT_FILE, AwError, Config, load, load_schema, repo_root
 
 NAME = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
@@ -127,6 +127,12 @@ def check_config(cfg: Config) -> list[Result]:
     value = cfg.get("changelog_file")
     if value and not (cfg.checkout / value).exists():
         results.append(("warn", f"changelog_file {value} not found"))
+    if cfg.get("forge") != "none":
+        try:
+            source = templates.source(cfg, "mr")
+            results.append(("ok", f"merge request template: {source.relative_to(cfg.checkout) if source else 'bundled'}"))
+        except AwError as e:
+            results.append(("fail", str(e)))
     if cfg.get("plan_scope") == "local" and not plan.ignored(cfg):
         results.append(("warn", f"plan_scope = local but {plan.directory(cfg)} is not gitignored"))
     results += check_memory(cfg)
