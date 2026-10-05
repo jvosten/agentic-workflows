@@ -55,6 +55,7 @@ class MergeRequest:
     url: str
     title: str = ""
     state: str = ""
+    head: str = ""  # head commit; for a merged request, the one it was merged at
 
 
 @dataclass
@@ -106,6 +107,29 @@ def find_open(kind: str, branch: str, cwd: Path) -> MergeRequest | None:
     if kind == "gitlab":
         rows = _json(["glab", "mr", "list", "--source-branch", branch, "--output", "json"], cwd)
         return MergeRequest(str(rows[0]["iid"]), rows[0]["web_url"], rows[0]["title"], "open") if rows else None
+    raise _unsupported(kind)
+
+
+def merged(kind: str, branch: str, cwd: Path) -> list[MergeRequest]:
+    """Merged requests from branch, oldest first: the parts a multi-merge session has shipped."""
+    if kind == "github":
+        rows = _json(["gh", "pr", "list", "--head", branch, "--state", "merged", "--limit", "100",
+                      "--json", "number,url,title,headRefOid,mergedAt"], cwd)
+        rows = sorted(rows, key=lambda r: r["mergedAt"])
+        return [MergeRequest(str(r["number"]), r["url"], r["title"], "merged", r["headRefOid"]) for r in rows]
+    if kind == "gitlab":
+        rows = _json(["glab", "mr", "list", "--source-branch", branch, "--merged", "--output", "json"], cwd) or []
+        rows = sorted(rows, key=lambda r: r.get("merged_at") or "")
+        return [MergeRequest(str(r["iid"]), r["web_url"], r["title"], "merged", r.get("sha", "")) for r in rows]
+    raise _unsupported(kind)
+
+
+def head(kind: str, ref: str, cwd: Path) -> str:
+    """The request's head commit (for a merged one, the commit it was merged at)."""
+    if kind == "github":
+        return _json(["gh", "pr", "view", ref, "--json", "headRefOid"], cwd)["headRefOid"]
+    if kind == "gitlab":
+        return _json(["glab", "mr", "view", ref, "--output", "json"], cwd)["sha"]
     raise _unsupported(kind)
 
 

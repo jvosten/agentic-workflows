@@ -89,8 +89,8 @@ def run(cfg: Config, kind: str, slug: str, issue: str | None, number: int | None
     counter = counter_file(cfg)
     previous = int(counter.read_text()) if counter.is_file() else 0
     counter.write_text(f"{max(n, previous)}\n")
-    session.write(worktree, {"session": n, "branch": branch, "worktree": str(worktree), "issue": issue,
-                             "type": kind, "slug": slug, "started": date.today().isoformat()})
+    session.write(worktree, {"session": n, "issue": issue, "type": kind, "slug": slug,
+                             "started": date.today().isoformat()})
 
     if cfg.get("direnv"):
         (worktree / ".envrc").write_text(ENVRC)

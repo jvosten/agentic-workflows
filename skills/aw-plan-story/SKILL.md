@@ -55,6 +55,7 @@ Fill it:
 - **Summary**, **Context and constraints**: what the story achieves, the decisions that bind it, pitfalls, dependencies.
 - **Implementation sections**: one per session-sized slice. Ids are `S1`, `S2`, … and never change; later work appends a new id. Each slice cuts a complete path through the layers it touches and is verifiable on its own. A wide mechanical refactor is the exception: sequence it expand → migrate in batches → contract.
 - Per section: **Subtask** (`none yet` until `/aw-to-subtasks` runs), **Steps**, **Files**, **Checks** (`verify_cmd` plus what is specific), **Acceptance criteria**.
+- A step whose result has to be live before the next one can be built or checked (a GitOps reconcile, a migration, a deploy) is followed by `Checkpoint: merge and verify <what, live>`. The session then merges more than once (`/aw-checkpoint`), and every checkpoint is a deploy: name what the live check looks at in **Checks**. Few checkpoints are better than many.
 - **Session order**, **Open questions**, **Risks**, **Out of scope**.
 - `definition_of_done` set → link it instead of copying it.
 

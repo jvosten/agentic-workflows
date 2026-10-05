@@ -67,9 +67,10 @@ def test_doctor_reports_a_missing_named_template(repo):
 # --- aw mr create -------------------------------------------------------------------
 
 @pytest.fixture
-def branch(repo):
+def branch(repo, monkeypatch):
     project(repo, 'forge = "github"\ntracker = "github"\n')
     git("checkout", "-qb", "feat/retries", cwd=repo)
+    monkeypatch.setattr(forge, "merged", lambda kind, b, cwd: [])
     return repo
 
 
@@ -208,3 +209,18 @@ def test_gitlab_checks_report_jobs_of_the_head_pipeline(repo, monkeypatch):
     assert [(c.name, c.bucket) for c in forge.checks("gitlab", "9", repo)] == [("test", "pass"), ("lint", "fail")]
     with pytest.raises(AwError, match="no merge requests"):
         forge.checks("none", "9", repo)
+
+
+def test_parts_reference_the_issue_without_closing_it(branch, tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(session, "read", lambda: {"issue": "12"})
+    monkeypatch.setattr(forge, "merged", lambda kind, b, cwd: [forge.MergeRequest("314", "u"),
+                                                               forge.MergeRequest("315", "u")])
+    body = tmp_path / "body.md"
+    body.write_text("## Summary\n\nPart three.\n")
+    assert cli.main(["mr", "create", "--title", "t", "--body-file", str(body), "--part", "--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "part=3" in out.splitlines()[0]
+    assert out.endswith("Part three.\n\nRefs #12 (part 3)\n") and "Fixes" not in out
+
+    assert cli.main(["mr", "create", "--title", "t", "--body-file", str(body), "--dry-run"]) == 0
+    assert capsys.readouterr().out.endswith("Part three.\n\nFixes #12\nEarlier parts: #314, #315\n")

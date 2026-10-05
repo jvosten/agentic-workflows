@@ -26,6 +26,7 @@ On error, show it and stop. `session` gives `branch`, `worktree`, `issue`; all p
 
 - `git -C <worktree> status` and `git -C <worktree> diff <main_branch>...HEAD`.
 - List what changed and why, in a few lines. You need this for docs, the PR, and the changelog.
+- After checkpoints (`/aw-checkpoint`), earlier parts are already in `main`: the diff holds only what came after the last one, and may be empty. Fill only what is missing below; never redo what a part already merged.
 
 ## 3. Documentation
 
@@ -70,10 +71,13 @@ Non-zero exit → fix the cause and re-run. Do not continue on a failing check.
 - Commit in logical units, using the project's commit conventions: `contributing_file` (default `CONTRIBUTING.md`) first, then `instructions_file`, else conventional commits. Push with `git -C <worktree> push -u origin <branch>`.
 - Load the `aw-merge-request` skill to write and open the merge request against `main_branch`. It follows the contribution rules and the merge request template, and `aw mr create` adds the issue's closing line.
 - `forge = none`: no merge request; tell the user to merge by hand.
+- Nothing left to commit after checkpoints → no merge request; go to step 11. `aw finish` sees that nothing is left to merge, skips the merge and the gate does not apply, and closes the issue itself.
 
 ## 8. Changelog
 
 If `changelog_file` is set: add one entry for this session, matching the file's existing format (position, heading style, level of detail) and naming the merge request. Commit and push.
+
+After checkpoints: one entry for the whole session, naming every part. A part already merged it → do not write a second one. It misses later parts → extend it in the final merge request, but never open a merge request just for that.
 
 ## 9. Review and CI
 
@@ -101,10 +105,10 @@ Then ask whether to merge, and wait for an explicit go ("merge", "go", "yes"). A
 ## 11. Merge and clean up
 
 ```bash
-~/.agents/bin/aw finish --pr <pr>      # forge = none: after the manual merge, without --pr
+~/.agents/bin/aw finish      # the branch's open request; forge = none: after the manual merge
 ```
 
-It merges with `merge_method`, moves the issue to done where a closing keyword does not (`sync_issue_status`) and runs `on_issue_status`, removes the worktree, updates `main_branch` in the primary checkout, and deletes the local and remote branch. It refuses on uncommitted or unpushed work, and while the backlog inbox holds items.
+It merges the branch's open request with `merge_method` (or skips the merge when nothing is left after checkpoints), moves the issue to done where a closing keyword does not (`sync_issue_status`) and runs `on_issue_status`, removes the worktree, updates `main_branch` in the primary checkout, runs `on_merge`, and deletes the local and remote branch. It refuses on uncommitted or unpushed work, and while the backlog inbox holds items.
 
 ## 12. Report
 

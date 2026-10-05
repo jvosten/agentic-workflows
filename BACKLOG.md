@@ -20,6 +20,7 @@ Deferred features and open checks. Each entry has enough context to be picked up
 - `tracker = jira` against a real instance: `aw doctor`, `aw issue view|children|list|comment|set-status`, status sync on start and finish, and ADF rendering of real descriptions (tested only with recorded responses).
 - Native parent links, mutations tested only with recorded responses: GitHub `aw issue create --parent --type` (one `createIssue` call with `parentIssueId`, `issueTypeId`) on an org-owned repo, `aw issue set-parent` link, re-parent and `--none` (`addSubIssue` with `replaceParent`, `removeSubIssue`); Jira `aw issue set-parent` including `--none` (`fields.parent = null`) and a refused hierarchy. Then move one text-linked GitHub project (homelab) until `aw issue children <root> --text-only` is empty.
 - GitHub Projects board (`github_project`), tested with recorded responses and read-only against the homelab board: a homelab session moves its card Backlog → In progress → Done through `aw` alone (create, `start-task`, `finish`), then `scripts/project/board-sync.sh` and its hook entry are deleted there. Also an organization-owned board.
+- Multi-merge session in the homelab: `/aw-checkpoint` twice (part merge requests with `Refs`, `aw merge` catching the branch up, `on_merge` running the Flux reconcile, issue comments), then `/aw-finalize` with and without a remaining diff. Also a squash-merge repo (the reset path and the deleted remote branch).
 - Codex finds `~/.agents/skills/aw-start-task` and honours `agents/openai.yaml` (`allow_implicit_invocation: false`).
 
 **Done when:** one real session per agent has run through both skills, and the findings are in the README.
@@ -139,14 +140,6 @@ Deferred features and open checks. Each entry has enough context to be picked up
 
 **Scope:** config `on_merged` (shell command, placeholders as in `on_issue_start`: `{issue}`, `{n}`, `{slug}`, `{type}`, `{date}`), run by `aw finish` in the primary checkout after `main_branch` is updated. Non-zero exit → warning, not failure: the merge already happened. `aw doctor` lists the configured hooks.
 
-### [MEDIUM] Sessions that need several merges
-
-**Context:** A GitOps repo can need more than one merge for one session's work (environment promotion, staged merges with a reconcile gate in between, or a change split across repos). `aw finish` assumes one: it merges the pull request, deletes the branch, removes the worktree and moves the issue to done in a single step, so it cannot survive "merged once, more to go".
-
-**Open first:** which shape the project actually has, and whether the later merges carry the same commits (cherry-pick or merge forward) or new ones (an image tag bump per environment). Design after that is answered; parked until then.
-
-**One answer (homelab, 2026-10-04):** a single environment; intermediate merges exist to let Flux reconcile so the change can be checked on the live cluster. Same branch throughout, new commits after each merge: commit, push, PR, CI, merge **without** deleting the branch, pull `main`, rebase the worktree on it, verify live, continue. The last merge is a normal `aw finish`. The project skill does this by hand today.
-
 ### [LOW] Per-skill model override for Claude Code
 
 **Context:** Frontmatter `model:` is Claude-only and static. With symlinked skills all agents share one `SKILL.md`, so it cannot be set per machine. With the deterministic steps in `aw`, the saving is small.
@@ -171,15 +164,15 @@ Deferred features and open checks. Each entry has enough context to be picked up
 
 **Scope:** `changelog_mode = file | fragments` plus `changelog_dir`; `aw-finalize` writes a fragment in fragments mode; `aw changelog build` compiles and removes fragments.
 
-### [LOW] Session number race
+### [LOW] Drop the session number
 
-**Context:** Two `aw start-task` runs in the same clone at the same moment compute the same number; the second fails on "path exists" only if the slug matches too.
+**Context:** `aw start-task` counts sessions per clone (`.git/aw-last-session`) and uses the number only to name the worktree (`s12-retries`). It is never committed, nothing else reads it, and computing it races when two sessions start at once in the same clone. Session state that matters (the issue) lives in the worktree's session metadata; merged parts come from the forge.
 
-**Scope:** take a lock file next to `aw-last-session` while computing the number and creating the worktree.
+**Scope:** worktrees named `{slug}`, or `{issue}-{slug}` with an issue; drop `{n}`, `--number` and the counter file; `aw start-task` refuses an existing path as today. Update `worktree_name` defaults, docs and skills that print `s<session>`.
 
 ### [LOW] Session title hook
 
-**Context:** From agent-issue-tracker. Set the agent session title to `s<N> <slug> (#issue)` so parallel sessions are distinguishable. Claude Code hook; other agents vary.
+**Context:** From agent-issue-tracker. Set the agent session title to `<slug> (#issue)` so parallel sessions are distinguishable. Claude Code hook; other agents vary.
 
 ### [LOW] Mark finished plans as history
 
@@ -249,6 +242,17 @@ Deferred features and open checks. Each entry has enough context to be picked up
 - Decide from the live test: whether `backlog` should default to the workflow's initial status on Jira, and whether a status that exists but has no direct transition from the usual starting points deserves a warning.
 
 **Done when:** `aw doctor` on a Jira project with a wrong `status_map` names the missing status and the fix, covered by recorded-response tests.
+
+---
+
+### [LOW] Multi-merge sessions across environments and repos
+
+**Context:** Multi-merge sessions (`aw merge`, `/aw-checkpoint`) cover one shape: one environment and one repo, where the same branch merges into `main_branch` several times with new commits in between. Two other shapes need different machinery, and no adopting project has them yet:
+
+- **Promotion across environments:** the same change merged to `dev`, then promoted to `staging` and `prod`. Either each merge targets another base branch (`env/prod`, often merged forward with the same commits), or each promotion is a new commit in another path (the prod overlay's image tag).
+- **Changes split across repos:** for example the app repo builds the image, then the GitOps repo bumps it. That is two worktrees in two repos with an order between them; `aw` sessions are per repo.
+
+**Open first:** which shape a real project has, and whether its promotions reuse the commits or create new ones. Design after that.
 
 ## Considered and not planned
 

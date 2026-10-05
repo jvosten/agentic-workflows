@@ -48,6 +48,7 @@ For design work before planning, `/aw-grill-with-docs` interviews you and keeps 
 | `aw-plan-story` | user or model | Story + parent + project context → plan in `S1`, `S2`, … sections, grilled with you |
 | `aw-to-subtasks` | user only | Plan sections → subtasks, each a vertical slice with its blocking edges |
 | `aw-start-task` | user only | Creates the session worktree via `aw start-task`, loads the plan section, hands over to implementation |
+| `aw-checkpoint` | user or model | Merge one part mid-session: verify, part merge request, CI, gate, `aw merge`, live check, then the session goes on |
 | `aw-merge-request` | user or model | Title and description from `CONTRIBUTING.md`, the merge request template and a show-the-change style; opens or updates it through `aw mr` |
 | `aw-finalize` | user only | Docs, `aw verify`, commit, merge request (`aw-merge-request`), changelog entry, review + CI, your go at the green PR (`merge_gate`), then `aw finish` |
 | `aw-grilling` | user or model | Interview in rounds over a design tree until nothing is assumed |
@@ -120,6 +121,18 @@ Pushing an item to the tracker: `aw issue dupes <backlog_parent> --terms ...` sh
 | `aw mr comments [ref]` | Unresolved review threads with file and line, then general comments |
 
 `ref` is a number or branch, the current branch by default; `aw pr` is the same command. GitLab is taken from the `glab` documentation and not tested against a live instance yet.
+
+## Sessions with several merges
+
+Some changes have to be live before the next step can be built or checked: a GitOps reconcile, a migration, a deploy. Such a session merges more than once, on the same branch and worktree:
+
+1. `/aw-plan-story` marks it: `Checkpoint: merge and verify <what>` after the step, with the live check under **Checks**.
+2. `/aw-checkpoint` at that step: `aw verify`, docs this part makes wrong, commit, a part merge request (`aw mr create --part`, which references the issue as `Refs #12 (part N)` and does not close it), CI, the merge gate (every merge deploys), `aw merge`, the live check. A failed live check stops and asks: fix forward or revert.
+3. The session goes on. `/aw-finalize` at the end fills only what is missing (memory, leftovers, inbox, one changelog entry for all parts); its merge request closes the issue and lists the earlier parts. Nothing left to merge → `aw finish` skips the merge and closes the issue itself.
+
+`aw merge [--pr N]` merges the branch's open request (`forge = none`: after a manual merge), refuses commits the request does not contain, updates `main`, and moves the branch to `main`'s tip: a fast-forward after a merge commit; after a squash or rebase merge a `reset --keep`, and the merged remote branch is deleted so the next `git push -u` needs no force. It comments on the issue (`Part 2 merged: #315`) and runs `on_merge` (e.g. `flux reconcile source git flux-system`), as `aw finish` does after the last merge. Worktree, branch and issue stay. Which parts merged and where a checkpoint stopped come from the forge and git, so an interrupted checkpoint resumes where it was.
+
+Promotion across environments and changes split across repos are not covered yet.
 
 ## Set up a project
 
@@ -196,7 +209,8 @@ How states, boards and the hook fit together on each tracker: [docs/boards.md](d
 | `aw start-task <type> <slug> [--issue N] [--number N]` | Sync main, pick session number, create branch + worktree, direnv, issue hook |
 | `aw session` | Print the current worktree's session metadata |
 | `aw verify` | Run `verify_cmd` in the current checkout (through direnv if enabled) |
-| `aw finish [--pr N]` | Merge with `merge_method`, remove worktree, update main, delete local + remote branch |
+| `aw merge [--pr N]` | Merge one part; the branch catches up with main, worktree and issue stay, `on_merge` runs |
+| `aw finish [--pr N]` | Last merge with `merge_method` (skipped when nothing is left), remove worktree, update main, delete local + remote branch |
 | `aw issue view\|children\|list\|search\|create\|update\|set-parent\|comment\|set-status\|ref\|pr-text` | Tracker operations; see [Issue trackers](#issue-trackers) |
 | `aw plan path <ref> [--slug S]` | Plan file of a story or subtask (subtask: through its parent); `--slug` composes the path to write |
 | `aw plan state <ref>` | What exists for the issue: plan file, subtasks |

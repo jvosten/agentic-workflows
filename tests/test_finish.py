@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from aw import finish, forge, session, start_task
@@ -58,10 +60,13 @@ def test_finish_with_forge_merges_first(started, repo, monkeypatch):
 
     monkeypatch.setattr(forge, "merge", fake_merge)
     monkeypatch.setattr(forge, "is_merged", lambda kind, pr, cwd: merged["state"])
+    open_request = {"found": None}
+    monkeypatch.setattr(forge, "find_open", lambda kind, branch, cwd: open_request["found"])
     cfg, meta = load(), session.read()
-    with pytest.raises(AwError, match="--pr"):
+    with pytest.raises(AwError, match="no open merge request; open one with `aw mr create`, or pass --pr"):
         finish.run(cfg, meta, None)
-    assert finish.run(cfg, meta, "7")[0] == "merged 7"
+    open_request["found"] = forge.MergeRequest("7", "https://x/pull/7")
+    assert finish.run(cfg, meta, None)[0] == "merged #7"
 
 
 def test_finish_refuses_dirty_or_unpushed(started, monkeypatch):
@@ -80,3 +85,80 @@ def test_finish_refuses_dirty_or_unpushed(started, monkeypatch):
 def test_session_outside_worktree(repo):
     with pytest.raises(AwError, match="not in a session worktree"):
         session.read()
+
+
+# --- multi-merge sessions ----------------------------------------------------------
+
+def commit(worktree, name, push=True):
+    (worktree / name).write_text(f"{name}\n")
+    git("add", ".", cwd=worktree)
+    git("commit", "-qm", f"feat: {name}", cwd=worktree)
+    if push:
+        git("push", "-q", "-u", "origin", git("branch", "--show-current", cwd=worktree), cwd=worktree)
+
+
+def test_merge_by_hand_keeps_the_session_going_until_finish(started, repo, tmp_path, monkeypatch):
+    wt = Path(started["worktree"])
+    monkeypatch.chdir(wt)
+    hook_log = tmp_path / "merges.log"
+    monkeypatch.setenv("AW_ON_MERGE", f"echo {{pr}}:{{final}} >> {hook_log}")
+    (wt / "BACKLOG.md").write_text("# Backlog\n\n## Later\n\nx\n")  # inbox noted mid-session
+    monkeypatch.setenv("AW_TRACKER", "github")
+    monkeypatch.setenv("AW_BACKLOG_HOME", "tracker")
+    cfg = load()
+    with pytest.raises(AwError, match="not merged"):
+        finish.merge(cfg, session.read(), None)
+
+    merge_by_hand(repo, started["branch"])
+    log = finish.merge(cfg, session.read(), None)
+    assert f"{started['branch']} is at main's tip; the session goes on" in log
+    assert git("rev-parse", "HEAD", cwd=wt) == git("rev-parse", "origin/main", cwd=repo)
+    assert (wt / "BACKLOG.md").is_file() and (repo / "new.txt").is_file()
+    assert hook_log.read_text() == ":false\n"
+
+    (wt / "BACKLOG.md").unlink()
+    commit(wt, "second.txt")  # a fast-forward push: the branch descends from what it pushed before
+    merge_by_hand(repo, started["branch"])
+    finish.merge(cfg, session.read(), None)
+    log = finish.run(cfg, session.read(), None)
+    assert log[0] == f"nothing left to merge: {started['branch']} has no changes against main"
+    assert str(wt) not in git("worktree", "list", cwd=repo)
+    assert (repo / "second.txt").is_file()
+    assert hook_log.read_text() == ":false\n:false\n"  # nothing merged at finish, so no third run
+
+
+def test_merge_refuses_commits_the_merge_request_does_not_contain(started, repo, monkeypatch):
+    wt = started["worktree"]
+    monkeypatch.chdir(wt)
+    monkeypatch.setenv("AW_FORGE", "github")
+    monkeypatch.setenv("AW_MERGE_METHOD", "squash")
+    monkeypatch.setattr(forge, "find_open", lambda kind, branch, cwd: forge.MergeRequest("7", "u"))
+    monkeypatch.setattr(forge, "is_merged", lambda kind, pr, cwd: True)
+    monkeypatch.setattr(forge, "head", lambda kind, pr, cwd: "0" * 40)
+    with pytest.raises(AwError, match="merged at another commit .* Push them into a new part first"):
+        finish.merge(load(), session.read(), None)
+
+
+def test_merge_after_a_squash_moves_the_branch_to_main_and_deletes_the_remote(started, repo, monkeypatch):
+    wt, branch = started["worktree"], started["branch"]
+    monkeypatch.chdir(wt)
+    monkeypatch.setenv("AW_FORGE", "github")
+    monkeypatch.setenv("AW_MERGE_METHOD", "squash")
+    head = git("rev-parse", "HEAD", cwd=wt)
+
+    def squash(kind, pr, method, cwd):
+        git("merge", "-q", "--squash", branch, cwd=repo)
+        git("commit", "-qm", "feat: thing (#7)", cwd=repo)
+        git("push", "-q", "origin", "main", cwd=repo)
+        git("reset", "-q", "--hard", "HEAD~1", cwd=repo)
+
+    state = {"merged": False}
+    monkeypatch.setattr(forge, "find_open", lambda kind, b, cwd: forge.MergeRequest("7", "u"))
+    monkeypatch.setattr(forge, "merge", lambda *a: squash(*a) or state.update(merged=True))
+    monkeypatch.setattr(forge, "is_merged", lambda kind, pr, cwd: state["merged"])
+    monkeypatch.setattr(forge, "head", lambda kind, pr, cwd: head)
+    log = finish.merge(load(), session.read(), None)
+    assert log[0] == "merged #7"
+    assert f"deleted origin/{branch}; the next `git push -u` recreates it" in log
+    assert git("rev-parse", "HEAD", cwd=wt) == git("rev-parse", "origin/main", cwd=repo)
+    assert not git("ls-remote", "--heads", "origin", branch, cwd=repo)

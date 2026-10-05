@@ -141,16 +141,22 @@ def _issue(args: argparse.Namespace) -> None:
 MR_PREFIX = {"github": "#", "gitlab": "!"}
 
 
-def _closing_line(cfg, body: str) -> str | None:
-    """The line that links the session's issue, when the body does not reference the issue yet."""
+def _issue_lines(cfg, body: str, part: int | None, earlier: list[str]) -> list[str]:
+    """Lines that tie the request to the session: the issue (closing it only on the last part), earlier parts."""
+    lines = []
     try:
         issue = session.read().get("issue")
     except AwError:
-        return None
-    if not issue or cfg.get("tracker") == "none":
-        return None
-    tracker = trackers.get(cfg)
-    return None if tracker.ref(issue) in body else tracker.pr_text(issue)
+        issue = None
+    if issue and cfg.get("tracker") != "none":
+        tracker = trackers.get(cfg)
+        if part:
+            lines.append(f"Refs {tracker.ref(issue)} (part {part})")
+        elif tracker.ref(issue) not in body:
+            lines.append(tracker.pr_text(issue))
+    if earlier and not part:
+        lines.append(f"Earlier parts: {', '.join(earlier)}")
+    return lines
 
 
 def _mr(args: argparse.Namespace) -> int:
@@ -165,10 +171,13 @@ def _mr(args: argparse.Namespace) -> int:
         if branch == cfg.get("main_branch"):
             raise AwError(f"on {branch}: create the merge request from the session branch")
         body = _body(args.body_file)
-        if line := _closing_line(cfg, body):
-            body = body.rstrip() + f"\n\n{line}\n"
+        done = [f"{mark}{r.number}" for r in forge.merged(kind, branch, cwd)]
+        part = len(done) + 1 if args.part else None
+        if lines := _issue_lines(cfg, body, part, done):
+            body = body.rstrip() + "\n\n" + "\n".join(lines) + "\n"
         if args.dry_run:
-            print(f"DRY RUN ({kind}): {branch} → {cfg.get('main_branch')} title={args.title!r} draft={args.draft}")
+            print(f"DRY RUN ({kind}): {branch} → {cfg.get('main_branch')} title={args.title!r} draft={args.draft}"
+                  + (f" part={part}" if part else ""))
             print(body, end="" if body.endswith("\n") else "\n")
             return 0
         try:
@@ -293,6 +302,11 @@ def _finish(args: argparse.Namespace) -> None:
         print(line)
 
 
+def _merge(args: argparse.Namespace) -> None:
+    for line in finish.merge(load(), session.read(), args.pr):
+        print(line)
+
+
 def _init(args: argparse.Namespace) -> None:
     report = init.run(args.yes, args.set)
     values, previous = report.values, report.previous
@@ -408,8 +422,8 @@ def menu(parser: argparse.ArgumentParser) -> str:
     def head(text: str) -> str:
         return ui.style(text, "1")
 
-    workflow = ["aw-plan", "aw-to-story", "aw-plan-story", "aw-to-subtasks", "aw-start-task", "aw-merge-request",
-                "aw-finalize"]
+    workflow = ["aw-plan", "aw-to-story", "aw-plan-story", "aw-to-subtasks", "aw-start-task", "aw-checkpoint",
+                "aw-merge-request", "aw-finalize"]
     order = sorted(install.source_skills(), key=lambda p: (workflow.index(p.name) if p.name in workflow else 99, p.name))
     skills = []
     for skill in order:
@@ -526,6 +540,8 @@ def build_parser() -> argparse.ArgumentParser:
     o.add_argument("--title", required=True)
     o.add_argument("--body-file", required=True, help="Markdown file, or - for stdin")
     o.add_argument("--draft", action="store_true")
+    o.add_argument("--part", action="store_true",
+                   help="one part of a multi-merge session: references the issue without closing it")
     o.add_argument("--dry-run", action="store_true")
     o = mr_ops.add_parser("update", help="replace title and description")
     o.add_argument("ref", nargs="?", help="number or branch (default: the current branch)")
@@ -584,8 +600,12 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("verify", help="run verify_cmd in the current checkout")
     s.set_defaults(func=_verify)
 
-    s = sub.add_parser("finish", help="merge the PR, remove the worktree, update main, delete the branch")
-    s.add_argument("--pr", help="pull/merge request number (required unless forge = none)")
+    s = sub.add_parser("merge", help="merge one part of the session; the branch catches up with main and goes on")
+    s.add_argument("--pr", help="merge request number (default: the branch's open one; forge = none: after a manual merge)")
+    s.set_defaults(func=_merge)
+
+    s = sub.add_parser("finish", help="last merge (skipped when nothing is left), remove the worktree, delete the branch")
+    s.add_argument("--pr", help="merge request number (default: the branch's open one; forge = none: after a manual merge)")
     s.set_defaults(func=_finish)
 
     s = sub.add_parser("doctor", help="check installation and project configuration")

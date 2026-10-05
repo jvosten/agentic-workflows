@@ -42,6 +42,7 @@ It syncs `main_branch`, picks the session number, creates branch and worktree, s
 - Plan source, first match: a plan path in the request; `~/.agents/bin/aw plan path <issue>` (for a subtask it resolves the parent story's plan); the issue from `aw issue view`.
 - The issue is a subtask → work only the plan section whose `**Subtask:**` line names it. No match → ask which section applies.
 - Create one task per plan step. No plan → plan the approach with the user before any code.
+- A `Checkpoint:` step becomes its own task: run `/aw-checkpoint` there, then continue with the next task.
 - State the scope: what this session delivers, what it defers.
 
 ## 5. Hand over

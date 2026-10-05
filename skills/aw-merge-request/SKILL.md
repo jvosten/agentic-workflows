@@ -1,7 +1,7 @@
 ---
 name: aw-merge-request
 license: MIT (see LICENSE)
-description: Write and open the merge request (pull request) for the current branch - follow the project's contribution rules and merge request template, shape the content to show the change at a glance, and create or update it through aw. Used by aw-finalize; use when the user says "open a PR", "merge request", "MR", "write the PR description".
+description: Write and open the merge request (pull request) for the current branch - follow the project's contribution rules and merge request template, shape the content to show the change at a glance, and create or update it through aw. Used by aw-finalize and aw-checkpoint; use when the user says "open a PR", "merge request", "MR", "write the PR description".
 allowed-tools: Bash(~/.agents/bin/aw config) Bash(~/.agents/bin/aw session) Bash(~/.agents/bin/aw template mr) Bash(~/.agents/bin/aw issue ref:*) Bash(~/.agents/bin/aw mr create:*) Bash(~/.agents/bin/aw mr update:*) Bash(~/.agents/bin/aw mr view:*)
 metadata:
   package: agentic-workflows
@@ -47,16 +47,17 @@ What decides the content, strongest first:
 
 ## 4. Body
 
-Fill the template following [Sections](#sections). Do not add the issue's closing line yourself: `aw mr create` appends it (`pr_close_keyword`, e.g. `Fixes #12`) when the body does not reference the issue yet.
+Fill the template following [Sections](#sections). Do not add the issue's closing line, a part reference or the list of earlier parts yourself: `aw mr create` appends them (`pr_close_keyword`, e.g. `Fixes #12`).
 
 ## 5. Create or update
 
 ```bash
-~/.agents/bin/aw mr create --title "<title>" --body-file - [--draft] --dry-run
-~/.agents/bin/aw mr create --title "<title>" --body-file - [--draft]
+~/.agents/bin/aw mr create --title "<title>" --body-file - [--draft] [--part] --dry-run
+~/.agents/bin/aw mr create --title "<title>" --body-file - [--draft] [--part]
 ```
 
-- Standalone: show the title and body and wait for a go before the real create. From `/aw-finalize`: create directly; the merge gate comes later.
+- Standalone: show the title and body and wait for a go before the real create. From `/aw-finalize` or `/aw-checkpoint`: create directly; the merge gate comes later.
+- One part of a multi-merge session (from `/aw-checkpoint`): `--part`. The request then references the issue as `Refs #12 (part N)` instead of closing it; the dry run prints N. Add ` (part N)` to the title unless the rules define titles. Without `--part`, after earlier parts, `aw mr create` lists them (`Earlier parts: #314, #315`) and closes the issue.
 - `--draft` when the rules ask for it, or the work is not ready for review.
 - `already open` → this branch has a merge request. Show the old and new description and update it on a go: `~/.agents/bin/aw mr update --title "<title>" --body-file -` (`--dry-run` first).
 - Print the merge request link.
@@ -131,6 +132,6 @@ Concrete proof that the change works, as a before and after.
 
 ## Rules
 
-- One merge request per branch; never open a second one for the same branch.
+- At most one open merge request per branch; a multi-merge session opens the next part only after the previous one merged.
 - No secret values in titles, descriptions or comments.
-- Never merge from this skill; merging is `/aw-finalize`'s gate and `aw finish`.
+- Never merge from this skill; merging is behind the gate of `/aw-finalize` (`aw finish`) or `/aw-checkpoint` (`aw merge`).

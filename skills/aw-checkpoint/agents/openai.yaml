@@ -1,0 +1,3 @@
+interface:
+  display_name: "Checkpoint"
+  short_description: "Merge one part of a session, check it live, keep going"
