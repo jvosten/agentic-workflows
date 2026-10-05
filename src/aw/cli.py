@@ -47,6 +47,19 @@ def _body(path: str) -> str:
     return sys.stdin.read() if path == "-" else Path(path).read_text()
 
 
+DUPES_FETCH = 50  # hits fetched per term; only the printed list follows --limit, so a small cap misses nothing
+
+
+def _dupes(rows: list[trackers.Row], limit: int, as_json: bool) -> None:
+    """Hits in the tree always; elsewhere only the best-ranked up to limit rows in all, plus a count of the rest."""
+    tree = [r for r in rows if r.scope != "elsewhere"]
+    elsewhere = [r for r in rows if r.scope == "elsewhere"]
+    keep = elsewhere[: max(limit - len(tree), 0)]
+    _rows(tree + keep, as_json)
+    if len(keep) < len(elsewhere) and not as_json:
+        print(f"… {len(elsewhere) - len(keep)} more elsewhere, matching fewer terms (--limit raises the cap)")
+
+
 def _issue(args: argparse.Namespace) -> None:
     cfg = load()
     tracker = trackers.get(cfg)
@@ -64,6 +77,11 @@ def _issue(args: argparse.Namespace) -> None:
             return
         new = tracker.create(args.title, body, args.parent, args.type, args.label)
         print(tracker.ref(new))
+        return
+    if op == "dupes" and args.id is None:
+        if args.tree_only:
+            raise AwError("issue dupes: --tree-only needs a parent")
+        _dupes(tracker.dupes(None, args.terms, DUPES_FETCH), args.limit, args.json)
         return
     issue = tracker.normalize(args.id)
     if op == "view":
@@ -92,10 +110,10 @@ def _issue(args: argparse.Namespace) -> None:
             return
         print(tracker.set_parent(issue, parent))
     elif op == "dupes":
-        rows = tracker.dupes(issue, args.terms, args.limit)
+        rows = tracker.dupes(issue, args.terms, DUPES_FETCH, args.tree_only)
+        _dupes(rows, args.limit, args.json)
         if not tracker.scoped():
             print(f"note: {tracker.name} has no parent links; searched the whole project", file=sys.stderr)
-        _rows(rows, args.json)
     elif op == "comment":
         tracker.comment(issue, _body(args.body_file))
         print(f"commented on {tracker.ref(issue)}")
@@ -351,10 +369,11 @@ def build_parser() -> argparse.ArgumentParser:
     o.add_argument("--text-only", action="store_true",
                    help="only children without a native link: what is left to move to set-parent")
     o.add_argument("--json", action="store_true")
-    o = ops.add_parser("dupes", help="candidates under a parent that match the given terms, any state")
-    o.add_argument("id", help="parent issue the candidates hang under")
+    o = ops.add_parser("dupes", help="issues matching the terms, any state: under the parent first, then elsewhere")
+    o.add_argument("id", nargs="?", help="parent issue the candidates hang under (none: the whole project)")
     o.add_argument("--terms", nargs="+", required=True)
-    o.add_argument("--limit", type=int, default=20)
+    o.add_argument("--tree-only", action="store_true", help="only issues under the parent (two levels)")
+    o.add_argument("--limit", type=int, default=20, help="rows in all; hits under the parent are never cut")
     o.add_argument("--json", action="store_true")
     o = ops.add_parser("list", help="open issues (Jira: in jira_project)")
     o.add_argument("--limit", type=int, default=20)

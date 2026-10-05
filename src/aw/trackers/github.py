@@ -16,6 +16,8 @@ TASK_REF = re.compile(r"^\s*[-*] \[[ xX]\] .*?#(\d+)", re.MULTILINE)
 
 META = """query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){
   issue(number:$number){body issueType{name} parent{number title state}}}}"""
+SEARCH = """query($q:String!,$first:Int!){search(query:$q,type:ISSUE,first:$first){
+  nodes{... on Issue{number title state parent{number}}}}}"""
 PART_OF_SEARCH = """query($q:String!){search(query:$q,type:ISSUE,first:100){
   nodes{... on Issue{number title state body parent{number}}}}}"""
 CREATE_CONTEXT = """query($owner:String!,$repo:String!,$parent:Int!,$withParent:Boolean!){
@@ -78,7 +80,8 @@ class GitHub(Tracker):
 
     @staticmethod
     def _row(d: dict, link: str = "") -> Row:
-        return Row(str(d["number"]), d.get("title", ""), d.get("state", "").lower(), link=link)
+        parent = str(d["parent"]["number"]) if d.get("parent") else ""
+        return Row(str(d["number"]), d.get("title", ""), d.get("state", "").lower(), link=link, parent=parent)
 
     def _meta(self, issue: str) -> dict:
         return self.graphql(META, number=int(issue))["repository"]["issue"]
@@ -107,12 +110,16 @@ class GitHub(Tracker):
                       for c in d.get("comments", [])],
         )
 
-    def children(self, issue: str, body: str | None = None) -> list[Row]:
+    def native_children(self, issue: str) -> list[Row]:
+        """Sub-issues only: one call, no lookups of task-list refs that would be dropped anyway."""
         try:
             subs = self.gh_json("api", f"repos/{{owner}}/{{repo}}/issues/{issue}/sub_issues") or []
         except AwError:
             subs = []
-        rows = [self._row(s, "native") for s in subs]
+        return [self._row(s, "native") for s in subs]
+
+    def children(self, issue: str, body: str | None = None) -> list[Row]:
+        rows = self.native_children(issue)
         if body is None:
             body = self.gh_json("issue", "view", issue, "--json", "body").get("body") or ""
         known = {r.id for r in rows}
@@ -141,9 +148,9 @@ class GitHub(Tracker):
         return [self._row(d) for d in data]
 
     def search(self, query: str, limit: int, raw: bool) -> list[Row]:
-        data = self.gh_json("issue", "list", "--state", "all", "--search", query, "--limit", str(limit),
-                            "--json", "number,title,state")
-        return [self._row(d) for d in data]
+        """Issues in any state, with their native parent, through GitHub search syntax."""
+        data = self.graphql(SEARCH, q=f"repo:{{owner}}/{{repo}} is:issue {query}", first=min(limit, 100))
+        return [self._row(node) for node in data["search"]["nodes"] if node]
 
     def create(self, title: str, body: str, parent: str | None, issue_type: str | None,
                labels: list[str] | None = None) -> str:

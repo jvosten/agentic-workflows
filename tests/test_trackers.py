@@ -186,14 +186,33 @@ def test_jira_set_parent_moves_clears_and_names_types_on_refusal(repo, monkeypat
         tracker.set_parent("PROJ-12", "PROJ-9")
 
 
-def test_jira_dupes_uses_one_scoped_jql(repo, monkeypatch):
-    fake = FakeJira({("GET", "/rest/api/3/search/jql"): CHILDREN})
+def test_jira_dupes_lists_the_tree_first_then_the_rest_of_the_project(repo, monkeypatch):
+    def hit(key, parent=None):
+        fields = {"summary": f"Retry {key}", "status": {"name": "To Do"}, "issuetype": {"name": "Task"}}
+        if parent:
+            fields["parent"] = {"key": parent}
+        return {"key": key, "fields": fields}
+
+    jqls = []
+
+    def fake(method, path, params=None, body=None):
+        jqls.append(params["jql"])
+        if params["jql"].startswith("parent = "):
+            return CHILDREN
+        return {"issues": [hit("PROJ-40", "PROJ-2"), hit("PROJ-14", "PROJ-13"), hit("PROJ-41"), hit("PROJ-13", "PROJ-12")]}
+
     tracker = trackers.get(jira_cfg(repo))
     monkeypatch.setattr(tracker, "request", fake)
-    tracker.dupes("PROJ-12", ["retry", "backoff"], 20)
-    assert fake.calls[0][2]["jql"] == "parent = PROJ-12 ORDER BY created ASC"
-    assert fake.calls[1][2]["jql"] == (
-        'parent in (PROJ-12, PROJ-13) AND (text ~ "retry" OR text ~ "backoff") ORDER BY updated DESC')
+    rows = tracker.dupes("PROJ-12", ["retry", "backoff"], 20)
+    assert jqls[-1] == 'project = "PROJ" AND (text ~ "retry" OR text ~ "backoff") ORDER BY updated DESC'
+    assert [(r.id, r.scope, r.parent) for r in rows] == [
+        ("PROJ-14", "tree", "PROJ-13"), ("PROJ-13", "tree", "PROJ-12"),
+        ("PROJ-40", "elsewhere", "PROJ-2"), ("PROJ-41", "elsewhere", "")]
+    assert trackers.rows_line(rows[2]).endswith("[elsewhere: parent PROJ-2]")
+    assert trackers.rows_line(rows[3]).endswith("[elsewhere: no parent]")
+
+    tracker.dupes("PROJ-12", ["retry"], 20, tree_only=True)
+    assert jqls[-1] == 'parent in (PROJ-12, PROJ-13) AND (text ~ "retry") ORDER BY updated DESC'
 
 
 def test_jira_update_replaces_summary_and_description(repo, monkeypatch):
@@ -442,26 +461,62 @@ def test_cli_set_parent_dry_run_and_arguments(repo, monkeypatch, capsys):
     assert len(calls) == 1
 
 
-def test_github_dupes_scopes_by_native_sub_issues(repo, monkeypatch):
-    (repo / ".agents").mkdir()
-    (repo / ".agents/aw.toml").write_text('tracker = "github"\n')
-    subs = {"7": [{"number": 8, "title": "Retry uploads", "state": "OPEN"}],
-            "8": [{"number": 9, "title": "Backoff", "state": "CLOSED"}]}
+def test_github_dupes_shows_hits_outside_the_tree_after_those_in_it(repo, monkeypatch, capsys):
+    github_cfg(repo)
 
-    def fake_gh(self, *args, stdin=None):
-        if args[0] == "api":
-            return json.dumps(subs.get(args[1].rsplit("/", 2)[-2], []))
-        if args[:2] == ("issue", "view"):
-            body = "- [ ] #40" if args[2] == "7" else ""
-            return json.dumps({"number": int(args[2]), "title": "T", "body": body, "state": "OPEN"})
-        if args[:2] == ("issue", "list"):
-            return json.dumps([{"number": 9, "title": "Backoff", "state": "CLOSED"},
-                               {"number": 40, "title": "Backoff, linked by text only", "state": "OPEN"}])
-        return ""
+    def search(fields):
+        term = fields["q"][1].rsplit(" ", 1)[-1]
+        nodes = {"backoff": [{"number": 40, "title": "Backoff, linked by text only", "state": "OPEN", "parent": None},
+                             {"number": 9, "title": "Backoff", "state": "CLOSED", "parent": {"number": 8}},
+                             {"number": 41, "title": "Backoff audit", "state": "OPEN", "parent": {"number": 3}}]}
+        return {"search": {"nodes": nodes.get(term, [])}}
 
-    monkeypatch.setattr(GitHub, "gh", fake_gh)
-    rows = trackers.get(load()).dupes("7", ["backoff"], 20)
-    assert [(r.id, r.status) for r in rows] == [("9", "closed")]
+    fake = FakeGh(graphql={"search(": search},
+                  issues={"7": gh_issue(7, body="- [ ] #40"), "8": gh_issue(8), "9": gh_issue(9),
+                          "40": gh_issue(40, "Backoff, linked by text only")},
+                  subs={"7": [{"number": 8, "title": "Retry uploads", "state": "OPEN"}],
+                        "8": [{"number": 9, "title": "Backoff", "state": "CLOSED"}]})
+    monkeypatch.setattr(GitHub, "gh", fake)
+    tracker = trackers.get(load())
+    rows = tracker.dupes("7", ["backoff", "retry"], 20)
+    assert [(r.id, r.scope, r.parent) for r in rows] == [
+        ("8", "tree", "7"), ("9", "tree", "8"), ("40", "elsewhere", ""), ("41", "elsewhere", "3")]
+    searches = [fields["q"][1] for op, fields, _ in fake.calls if op == "search("]
+    assert searches == ["repo:{owner}/{repo} is:issue backoff", "repo:{owner}/{repo} is:issue retry"]
+
+    assert [r.id for r in tracker.dupes("7", ["backoff", "retry"], 20, tree_only=True)] == ["8", "9"]
+
+    assert cli.main(["issue", "dupes", "7", "--terms", "backoff"]) == 0
+    assert capsys.readouterr().out.splitlines() == [
+        "- [closed] 9 Backoff",
+        "- [open] 40 Backoff, linked by text only [elsewhere: no parent]",
+        "- [open] 41 Backoff audit [elsewhere: parent 3]",
+    ]
+    # 41 matches both terms, 40 only one: within the group, more matched terms rank first
+    original = search
+
+    def search(fields):
+        data = original(fields)
+        if fields["q"][1].endswith(" audit"):
+            data = {"search": {"nodes": [{"number": 41, "title": "Backoff audit", "state": "OPEN", "parent": None}]}}
+        return data
+
+    fake.graphql["search("] = search
+    assert [r.id for r in tracker.dupes("7", ["backoff", "audit"], 20)] == ["9", "41", "40"]
+
+    assert not [c for c in fake.calls if c[0] is None and c[1][:2] == ("issue", "view")]  # the tree needs no body or task-list lookups
+
+    capsys.readouterr()
+    assert cli.main(["issue", "dupes", "7", "--terms", "backoff", "--limit", "2"]) == 0
+    assert capsys.readouterr().out.splitlines() == [
+        "- [closed] 9 Backoff",
+        "- [open] 40 Backoff, linked by text only [elsewhere: no parent]",
+        "… 1 more elsewhere, matching fewer terms (--limit raises the cap)",
+    ]
+
+    rows = tracker.dupes(None, ["backoff"], 20)  # no parent: the whole repo, every hit elsewhere
+    assert [(r.id, r.scope) for r in rows] == [("9", "elsewhere"), ("40", "elsewhere"), ("41", "elsewhere")]
+    assert cli.main(["issue", "dupes", "--terms", "backoff", "--tree-only"]) == 1
 
 
 def test_github_update_replaces_title_and_body(repo, monkeypatch):
@@ -539,7 +594,7 @@ def test_cli_set_status_runs_the_status_hook(repo, tmp_path, monkeypatch, capfd)
 
 def test_cli_issue_dupes_marks_closed_candidates(repo, monkeypatch, capsys):
     jira_cfg(repo)
-    monkeypatch.setattr(Jira, "dupes", lambda self, parent, terms, limit: [
+    monkeypatch.setattr(Jira, "dupes", lambda self, parent, terms, limit, tree_only: [
         trackers.Row("PROJ-20", "Retry uploads", "Done", "Sub-task")])
     assert cli.main(["issue", "dupes", "proj-12", "--terms", "retry", "upload"]) == 0
     assert capsys.readouterr().out.strip() == "- [Done] PROJ-20 (Sub-task) Retry uploads"

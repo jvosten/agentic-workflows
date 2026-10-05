@@ -68,14 +68,17 @@ It places the item with the file's other items and matches their heading level. 
 ## 4. Check for duplicates
 
 ```bash
-~/.agents/bin/aw issue dupes <backlog_parent> --terms "<term>" "<term>" "<term>"
+~/.agents/bin/aw issue dupes [<backlog_parent>] --terms "<term>" "<term>" "<term>"
 ```
 
-- Terms: the subject and the outcome, two to four of them. Matching is fuzzy; expect loose hits.
-- Treat a candidate as a duplicate **only** when it targets the same subject **and** the same outcome. Adjacent, enabling or related work is not a duplicate.
+- Terms: the subject and the outcome, two to four of them. Each term is searched on its own; hits matching more terms come first. Matching is fuzzy; expect loose hits.
+- Hits come in two groups: under `backlog_parent` first, then the rest of the project, marked `[elsewhere: parent N]` or `[elsewhere: no parent]`. Show both groups. Duplicates hide outside the tree: under the wrong parent, linked only by text, or with no parent at all.
+- Treat a candidate as a duplicate **only** when it targets the same subject **and** the same outcome, in either group. Adjacent, enabling or related work is not a duplicate.
 - Closed candidates count: "we already did this, see the closed one" is an answer.
 - Show every candidate with its state and let the user decide. Never skip the create on a weak match, never merge silently.
-- `backlog_parent` unset → ask which issue the item should hang under, or none.
+- A duplicate elsewhere that belongs under this tree → offer to move it (`aw issue set-parent <id> <parent> --dry-run`, then without) instead of creating a new issue.
+- The list is capped at `--limit` rows (default 20), never cutting hits in the tree; a last line counts the rest, which match fewer terms. Raise `--limit` only when the top hits leave doubt. `--tree-only` drops the rest of the project when the user asks for it.
+- `backlog_parent` unset and no parent named → `aw issue dupes --terms ...` without an id searches the whole project; every hit is marked with where it lives.
 
 ## 5. Pick the parent
 

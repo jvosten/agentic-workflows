@@ -98,7 +98,7 @@ Deferred work is captured with `/aw-backlog-item`, which `aw-finalize` also call
 
 `aw backlog add` places an item among the file's existing items and copies their heading level and separators, so a flat `## Item` list and a sectioned `### [PRIO] Item` list both stay intact. `aw backlog list` prints the titles, `aw backlog pop` removes one.
 
-Pushing an item to the tracker: `aw issue dupes <backlog_parent> --terms ...` shows candidates under `backlog_parent` two levels deep in any state, you confirm, pick the parent (`backlog_parent` or one of its children and grandchildren, or none), `aw issue create --parent <parent> [--type <backlog_type>] [--label ...]` creates it with the tracker's native parent link, `aw issue set-status <id> backlog` files it (and runs `on_issue_status`), and `aw backlog pop` removes the local copy so one item does not live in two places.
+Pushing an item to the tracker: `aw issue dupes <backlog_parent> --terms ...` shows candidates in any state, those under `backlog_parent` (two levels deep) first, then matches elsewhere in the project, you confirm, pick the parent (`backlog_parent` or one of its children and grandchildren, or none), `aw issue create --parent <parent> [--type <backlog_type>] [--label ...]` creates it with the tracker's native parent link, `aw issue set-status <id> backlog` files it (and runs `on_issue_status`), and `aw backlog pop` removes the local copy so one item does not live in two places.
 
 ## Set up a project
 
@@ -139,7 +139,7 @@ Skills never call a tracker directly; they call `aw issue <op>`, and `tracker` i
 | `view` (parent, children, comments, extra fields) | ✓ (parent: sub-issue link, `Part of #N` as fallback) | ✓ | ✓ (no parent/children/comments) |
 | `children` (`--text-only`) | sub-issues + task-list refs, the latter marked `[text link]` | JQL `parent = KEY` | – |
 | `set-parent <id> <parent>\|--none` (`--dry-run`) | sub-issue link, replaces an existing parent | `fields.parent` | – |
-| `dupes` (parent, terms, any state) | native sub-issue tree ∩ search | one scoped JQL | unscoped search, says so |
+| `dupes` (parent, terms, any state; `--tree-only`) | hits in the native sub-issue tree first, then the rest of the repo marked `[elsewhere: …]`, ranked by terms matched | one JQL over `jira_project`, tree first | unscoped search, says so |
 | `list`, `search` | ✓ | ✓ (`--raw` = JQL) | ✓ |
 | `create` (with `--parent`, `--type`, `--label`, `--dry-run`) | one GraphQL call, so never left unlinked; `--type` on org-owned repos only | ✓ (Markdown → ADF) | – |
 | `update` (title, description; `--dry-run`) | ✓ | ✓ | – |

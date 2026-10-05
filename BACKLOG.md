@@ -139,19 +139,6 @@ Deferred features and open checks. Each entry has enough context to be picked up
 
 - Cleanup inside `allowed-tools`: decide which of `aw finish`'s steps may run unprompted (worktree removal, branch deletion) and which keep asking (the merge itself).
 
-### [HIGH] Duplicate check beyond the parent's tree
-
-**Context:** `aw issue dupes <parent>` searches the tracker for each term, then keeps only hits inside the parent's tree (two levels of native links); a match anywhere else is dropped without a trace. Found in the homelab live test (2026-10-04): the project's own skill searched the whole repo, `aw-backlog-item` would not show #172, a related NetworkPolicy audit under another parent. Projects mid-migration from text links, unparented issues, and items filed under the wrong parent are exactly where duplicates hide.
-
-**Scope:**
-
-- `dupes` returns in-tree hits and out-of-tree hits, marked (`[elsewhere: parent #N | no parent]`), in-tree first. No hit dropped silently.
-- `--tree-only` keeps today's behavior for trackers where a full search is noisy.
-- `aw-backlog-item` shows both groups; the duplicate rule (same subject and same outcome) applies to both.
-- Jira: same JQL without the `parent in (...)` clause, limited to `jira_project`.
-
-**Done when:** a matching issue under another parent and an unparented one both appear in `aw-backlog-item`'s candidate list, with recorded-response tests for GitHub and Jira.
-
 ### [MEDIUM] Post-merge hook in aw finish
 
 **Context:** `on_issue_start` runs a project command when a session starts; nothing runs after the merge. GitOps projects need one: the homelab rule GO-2 requires `flux reconcile source git flux-system` after every merge, and neither the old project skill nor `aw-finalize` runs it. Other uses: deploy triggers, a board status move, a notification.

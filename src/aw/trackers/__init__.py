@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import subprocess
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from aw.config import AwError, Config
@@ -20,6 +20,8 @@ class Row:
     status: str = ""
     type: str = ""
     link: str = ""  # how a parent or child is linked: native | text; empty outside parent-child results
+    parent: str = ""  # native parent id, where the tracker returns it (search, dupes)
+    scope: str = ""  # dupes only: tree (under the given parent) | elsewhere
 
 
 @dataclass
@@ -109,23 +111,37 @@ class Tracker:
         """True when this tracker knows parent-child links, so dupes can be scoped."""
         return type(self).children is not Tracker.children
 
-    def dupes(self, parent: str, terms: list[str], limit: int) -> list[Row]:
-        """Issues under parent (two levels of native links) that match any term in title or body."""
-        scope: dict[str, Row] = {}
-        if self.scoped():
-            for child in self.native_children(parent):
-                scope[child.id] = child
-                for grandchild in self.native_children(child.id):
-                    scope[grandchild.id] = grandchild
+    def tree(self, parent: str) -> set[str]:
+        """The parent and its native children and grandchildren."""
+        ids = {parent}
+        for child in self.native_children(parent):
+            ids.add(child.id)
+            ids.update(grandchild.id for grandchild in self.native_children(child.id))
+        return ids
+
+    def dupes(self, parent: str | None, terms: list[str], limit: int, tree_only: bool = False) -> list[Row]:
+        """Issues matching any term: those in parent's tree first, then the ones elsewhere (unless tree_only).
+        Within each group, issues matching more of the terms come first. No parent: the whole project, all elsewhere.
+
+        A hit outside the tree is a duplicate filed under another parent, or under none, as often as not.
+        """
+        if not self.scoped():
+            hits = {row.id: row for term in terms for row in self.search(term, limit, raw=False)}
+            return sorted(hits.values(), key=_natural)
+        tree = self.tree(parent) if parent else set()
         hits: dict[str, Row] = {}
+        matched: dict[str, int] = {}  # terms each hit matched: one search per term, so a hit for all of them ranks first
         for term in terms:
             for row in self.search(term, limit, raw=False):
-                if row.id in scope or not scope:
-                    hits[row.id] = row
-        for row in scope.values():
-            if any(term.casefold() in row.title.casefold() for term in terms):
-                hits[row.id] = row
-        return sorted(hits.values(), key=lambda row: row.id)
+                row.scope = "tree" if row.id in tree else "elsewhere"
+                hits.setdefault(row.id, row)
+                matched[row.id] = matched.get(row.id, 0) + 1
+        for child in self.native_children(parent) if parent else []:  # search lags; titles in the tree count too
+            if child.id not in hits and any(term.casefold() in child.title.casefold() for term in terms):
+                hits[child.id] = replace(child, link="", parent=parent, scope="tree")
+                matched[child.id] = sum(term.casefold() in child.title.casefold() for term in terms)
+        found = [row for row in hits.values() if row.scope == "tree" or not tree_only]
+        return sorted(found, key=lambda row: (row.scope != "tree", -matched[row.id], _natural(row)))
 
     def native_children(self, issue: str) -> list[Row]:
         return [row for row in self.children(issue) if row.link != "text"]
@@ -176,6 +192,11 @@ def status_hook(cfg: Config, issue: str, status: str) -> str | None:
     return f"on_issue_status: {cmd}"
 
 
+def _natural(row: Row) -> list[int | str]:
+    """Sort key that puts #9 before #10 and PROJ-9 before PROJ-10."""
+    return [int(part) if part.isdigit() else part for part in re.split(r"(\d+)", row.id)]
+
+
 def get(cfg: Config) -> Tracker:
     from aw.trackers import github, gitlab, jira
 
@@ -214,4 +235,6 @@ def rows_line(row: Row) -> str:
     status = f"[{row.status}] " if row.status else ""
     kind = f" ({row.type})" if row.type else ""
     link = " [text link]" if row.link == "text" else ""
+    if row.scope == "elsewhere":
+        link += f" [elsewhere: parent {row.parent}]" if row.parent else " [elsewhere: no parent]"
     return f"- {status}{row.id}{kind} {row.title}".rstrip() + link

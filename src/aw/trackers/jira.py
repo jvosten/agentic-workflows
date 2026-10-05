@@ -84,11 +84,11 @@ class Jira(Tracker):
     def _row(self, data: dict) -> Row:
         f = data.get("fields", {})
         return Row(data["key"], f.get("summary", ""), (f.get("status") or {}).get("name", ""),
-                   (f.get("issuetype") or {}).get("name", ""))
+                   (f.get("issuetype") or {}).get("name", ""), parent=(f.get("parent") or {}).get("key", ""))
 
     def _search(self, jql: str, limit: int) -> list[Row]:
         data = self.request("GET", "/rest/api/3/search/jql",
-                            {"jql": jql, "maxResults": limit, "fields": "summary,status,issuetype"})
+                            {"jql": jql, "maxResults": limit, "fields": "summary,status,issuetype,parent"})
         return [self._row(i) for i in data.get("issues", [])]
 
     def _project_clause(self) -> str:
@@ -147,10 +147,18 @@ class Jira(Tracker):
             return "type unknown"
         return (data["fields"].get("issuetype") or {}).get("name", "type unknown")
 
-    def dupes(self, parent: str, terms: list[str], limit: int) -> list[Row]:
-        scope = ", ".join([parent, *(row.id for row in self.children(parent))])
+    def dupes(self, parent: str | None, terms: list[str], limit: int, tree_only: bool = False) -> list[Row]:
+        """One text search; hits under parent (two levels) first, the rest of the project after."""
+        if parent is None and tree_only:
+            raise AwError("--tree-only needs a parent")
+        children = [row.id for row in self.children(parent)] if parent else []
         text = " OR ".join(f"text ~ {_jql_str(term)}" for term in terms)
-        return self._search(f"parent in ({scope}) AND ({text}) ORDER BY updated DESC", limit)
+        where = f"parent in ({', '.join([parent, *children])})" if tree_only else self._project_clause()
+        rows = self._search(f"{where} AND ({text}) ORDER BY updated DESC", limit)
+        tree = {parent, *children} if parent else set()
+        for row in rows:  # children and grandchildren hang under the parent or one of its children
+            row.scope = "tree" if row.id in tree or row.parent in tree else "elsewhere"
+        return sorted(rows, key=lambda row: row.scope != "tree")
 
     def list_open(self, limit: int) -> list[Row]:
         return self._search(f"{self._project_clause()} AND statusCategory != Done ORDER BY updated DESC", limit)
