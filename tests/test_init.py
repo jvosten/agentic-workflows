@@ -23,6 +23,7 @@ def test_detects_defaults(repo):
         "verify_cmd": "make validate",
         "changelog_file": "CHANGELOG.md",
         "merge_method": "merge",
+        "merge_gate": "approve",
     }
     assert (repo / ".agents/.gitignore").read_text() == "aw.local.toml\n"
 

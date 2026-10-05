@@ -145,17 +145,6 @@ Deferred features and open checks. Each entry has enough context to be picked up
 
 **Scope:** config `on_merged` (shell command, placeholders as in `on_issue_start`: `{issue}`, `{n}`, `{slug}`, `{type}`, `{date}`), run by `aw finish` in the primary checkout after `main_branch` is updated. Non-zero exit → warning, not failure: the merge already happened. `aw doctor` lists the configured hooks.
 
-### [HIGH] Stop at a green PR by default
-
-**Context:** `aw-finalize` merges once CI is green unless a reviewer raised a point. The only human gate is the permission prompt on `aw finish`, which a broad allowlist removes silently, and [Finalize refactor](#medium-finalize-refactor) may narrow it further. In the homelab a merge to `main` is a deploy through Flux, and merging requires explicit approval of the green PR. That is the safe default for most repos; agent-driven repos with strong CI may want the opposite.
-
-**Scope:**
-
-- Config `merge_gate = approve | auto`, default `approve`.
-- `approve`: `aw-finalize` stops after CI and review, prints the PR link, CI state, unresolved comments and the diff summary, and waits for an explicit go before `aw finish`.
-- `auto`: today's behavior.
-- The gate lives in the skill; `aw finish` stays usable by hand.
-
 ### [MEDIUM] Sessions that need several merges
 
 **Context:** A GitOps repo can need more than one merge for one session's work (environment promotion, staged merges with a reconcile gate in between, or a change split across repos). `aw finish` assumes one: it merges the pull request, deletes the branch, removes the worktree and moves the issue to done in a single step, so it cannot survive "merged once, more to go".

@@ -1,6 +1,6 @@
 ---
 name: aw-finalize
-description: Finish an implementation session - document, verify, commit, open the pull request, add the changelog entry, wait for CI, merge, and clean up the worktree. Use only when the user invokes it.
+description: Finish an implementation session - document, verify, commit, open the pull request, add the changelog entry, wait for CI, then merge after your approval (or directly with merge_gate = auto) and clean up the worktree. Use only when the user invokes it.
 disable-model-invocation: true
 allowed-tools: Bash(~/.agents/bin/aw session) Bash(~/.agents/bin/aw config) Bash(~/.agents/bin/aw verify) Bash(~/.agents/bin/aw issue ref:*) Bash(~/.agents/bin/aw issue pr-text:*) Bash(~/.agents/bin/aw memory add:*) Bash(~/.agents/bin/aw backlog add:*) Bash(~/.agents/bin/aw backlog list) Bash(~/.agents/bin/aw backlog pop:*) Bash(~/.agents/bin/aw issue dupes:*) Bash(~/.agents/bin/aw issue children:*) Bash(~/.agents/bin/aw issue create:*) Bash(~/.agents/bin/aw issue set-parent:*) Bash(~/.agents/bin/aw issue set-status:*)
 metadata:
@@ -82,9 +82,23 @@ If `changelog_file` is set: add one entry for this session, matching the file's 
 - Read the PR diff and all review comments (`gh pr view <pr> --comments` / `glab mr view <pr> --comments`).
 - Wait for CI (`gh pr checks <pr> --watch` / `glab ci status --live`).
 - CI failure → fix, push, wait again.
-- Stop and report instead of merging when: a reviewer raised an unresolved point, the diff contains something unplanned, or you are unsure about a risk.
+- Stop and report instead of merging when: a reviewer raised an unresolved point, the diff contains something unplanned, or you are unsure about a risk. This holds under either `merge_gate`.
 
-## 10. Merge and clean up
+## 10. Merge gate
+
+`merge_gate = approve` (the default): stop here. A merge to `main_branch` may be a deploy, and the permission prompt on `aw finish` is not a gate: an allowlist removes it silently. Show:
+
+- the PR link and title;
+- CI: every check and its result (`gh pr checks <pr>` / `glab ci status`);
+- review: approvals and unresolved comments, or "none";
+- the diff summary: files changed with lines added and removed, and the few lines of step 2;
+- what `aw finish` will do: merge with `merge_method`, move the issue, remove the worktree, delete the branch.
+
+Then ask whether to merge, and wait for an explicit go ("merge", "go", "yes"). Anything else, or no answer → stop, report as in step 12, and say that `/aw-finalize` resumes at this step or `aw finish --pr <pr>` merges by hand. A push after the go (a late fix) means CI again, and the gate again.
+
+`merge_gate = auto`: continue without asking.
+
+## 11. Merge and clean up
 
 ```bash
 ~/.agents/bin/aw finish --pr <pr>      # forge = none: after the manual merge, without --pr
@@ -92,6 +106,6 @@ If `changelog_file` is set: add one entry for this session, matching the file's 
 
 It merges with `merge_method`, moves the issue to done where a closing keyword does not (`sync_issue_status`) and runs `on_issue_status`, removes the worktree, updates `main_branch` in the primary checkout, and deletes the local and remote branch. It refuses on uncommitted or unpushed work, and while the backlog inbox holds items.
 
-## 11. Report
+## 12. Report
 
-Print the PR link, what was merged, what went to the tracker (issue refs) or was discarded, and the first step for the next session.
+Print the PR link, what was merged (or that the PR waits at the gate), what went to the tracker (issue refs) or was discarded, and the first step for the next session.

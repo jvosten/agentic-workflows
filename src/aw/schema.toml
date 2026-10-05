@@ -119,6 +119,13 @@ ask = true
 default = "merge"
 help = "How aw finish merges the pull/merge request"
 
+[keys.merge_gate]
+type = "choice"
+choices = ["approve", "auto"]
+ask = true
+default = "approve"
+help = "approve: aw-finalize stops at the green pull request and waits for your go; auto: it merges once CI and review are green"
+
 [keys.backlog_home]
 type = "choice"
 choices = ["tracker", "file"]

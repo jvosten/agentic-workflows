@@ -37,7 +37,7 @@ One session, start to finish:
 2. `/aw-plan-story #12` — reads the issue, its parent, children and the project docs, drafts a plan in session-sized sections, grills it with you, saves it under `.agents/plans/` (see [Plans](#plans)).
 3. `/aw-to-subtasks #12` — one subtask per plan section, reconciled with the subtasks that exist, published after your approval, linked back into the plan.
 4. `/aw-start-task PROJ-13` — creates the branch and worktree, loads that subtask's plan section as a task list, then implements it with you.
-5. `/aw-finalize` — docs, `aw verify`, commit, pull request, changelog entry, review and CI. It asks before the merge.
+5. `/aw-finalize` — docs, `aw verify`, commit, pull request, changelog entry, review and CI. Then it stops at the green PR and merges only on your go (`merge_gate = approve`, the default; `auto` merges once CI and review are green).
 
 For design work before planning, `/aw-grill-with-docs` interviews you and keeps `GLOSSARY.md` and `docs/adr/` current.
 
@@ -48,7 +48,7 @@ For design work before planning, `/aw-grill-with-docs` interviews you and keeps 
 | `aw-plan-story` | user or model | Story + parent + project context → plan in `S1`, `S2`, … sections, grilled with you |
 | `aw-to-subtasks` | user only | Plan sections → subtasks, each a vertical slice with its blocking edges |
 | `aw-start-task` | user only | Creates the session worktree via `aw start-task`, loads the plan section, hands over to implementation |
-| `aw-finalize` | user only | Docs, `aw verify`, commit, PR, changelog entry, review + CI, then `aw finish` |
+| `aw-finalize` | user only | Docs, `aw verify`, commit, PR, changelog entry, review + CI, your go at the green PR (`merge_gate`), then `aw finish` |
 | `aw-grilling` | user or model | Interview in rounds over a design tree until nothing is assumed |
 | `aw-grill-with-docs` | user only | `aw-grilling` plus `aw-domain-modeling` |
 | `aw-domain-modeling` | user or model | Challenge terms, keep `GLOSSARY.md` and `docs/adr/` current |
