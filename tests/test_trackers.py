@@ -350,6 +350,41 @@ def test_github_parent_falls_back_to_a_part_of_line(repo, monkeypatch):
     assert trackers.get(load()).parent("5") == trackers.Row("3", link="text")
 
 
+def test_github_parent_carries_its_type_and_an_epic_type_stops_the_rollup(repo, monkeypatch):
+    github_cfg(repo)
+    parent = {"number": 4, "title": "Big", "state": "OPEN", "issueType": {"name": "epic"}}
+    monkeypatch.setattr(GitHub, "gh", FakeGh(graphql={"body issueType": gh_meta(parent)}))
+    tracker = trackers.get(load())
+    row = tracker.parent("5")
+    assert (row.id, row.type, row.link) == ("4", "epic", "native")
+    assert tracker.is_epic(row)  # epic_types match case-insensitively
+    assert not tracker.is_epic(trackers.Row("4", type="Feature"))
+
+
+def test_board_card_without_a_column_is_an_epic(repo, monkeypatch):
+    board_cfg(repo)
+    for column, epic in ((None, True), ("Backlog", False), (False, False)):  # False: not on the board
+        monkeypatch.setattr(GitHub, "gh", board_gh(column))
+        assert trackers.get(load()).is_epic(trackers.Row("5")) is epic, column
+
+
+def test_jira_epic_by_hierarchy_level_and_closed_by_category(repo, monkeypatch):
+    tracker = trackers.get(jira_cfg(repo))
+    level = {"key": "PROJ-1", "fields": {"summary": "Initiative", "issuetype": {"name": "Theme", "hierarchyLevel": 1}}}
+    fake = FakeJira({("GET", "/rest/api/3/issue/PROJ-12"): {"fields": {"parent": level}},
+                     ("GET", "/rest/api/3/search/jql"): {"issues": [
+                         {"key": key, "fields": {"status": {"name": name, "statusCategory": {"key": category}}}}
+                         for key, name, category in (("PROJ-13", "Shipped", "done"), ("PROJ-14", "QA", "indeterminate"))
+                     ]}})
+    monkeypatch.setattr(tracker, "request", fake)
+    assert tracker.is_epic(tracker.parent("PROJ-12"))
+    assert not tracker.is_epic(trackers.Row("PROJ-2", type="Story"))
+    children = tracker.children("PROJ-1")
+    calls = len(fake.calls)
+    assert [tracker.closed(row) for row in children] == [True, False]
+    assert len(fake.calls) == calls  # the categories came with the search
+
+
 def test_github_set_status(repo, monkeypatch):
     github_cfg(repo)
     fake = FakeGh(issues={"5": gh_issue(5)})
@@ -546,7 +581,11 @@ def test_start_and_finish_sync_jira_status(repo, tmp_path, monkeypatch):
     moves = []
     monkeypatch.setattr(Jira, "set_status", lambda self, i, s: moves.append((i, s)) or f"{i} -> {s}")
     monkeypatch.setattr(Jira, "current_status", lambda self, i: "To Do")
-    monkeypatch.setattr(Jira, "status_category", lambda self, i: "new")  # unmapped, but Jira's to-do category
+    # unmapped, but Jira's to-do category; PROJ-13, the story's other subtask, is done
+    monkeypatch.setattr(Jira, "status_category", lambda self, i: "done" if i == "PROJ-13" else "new")
+    story = trackers.Row("PROJ-1", "Story", type="Story", link="native")
+    monkeypatch.setattr(Jira, "parent", lambda self, i: story if i == "PROJ-12" else None)
+    monkeypatch.setattr(Jira, "children", lambda self, i: [trackers.Row("PROJ-12"), trackers.Row("PROJ-13")])
 
     out = start_task.run(load(), "feat", "retries", "proj-12")
     assert out["branch"] == "feat/PROJ-12-retries" and out["issue"] == "PROJ-12"
@@ -562,9 +601,12 @@ def test_start_and_finish_sync_jira_status(repo, tmp_path, monkeypatch):
     monkeypatch.chdir(wt)
     monkeypatch.setenv("AW_FORGE", "none")
     log = finish.run(load(), session.read(), None)
-    assert moves == [("PROJ-12", "in_progress"), ("PROJ-12", "done")]
+    assert moves == [("PROJ-12", "in_progress"), ("PROJ-1", "in_progress"), ("PROJ-12", "done")]
     assert "PROJ-12 -> done" in log
-    assert (tmp_path / "board.log").read_text() == "PROJ-12 in_progress In Progress\nPROJ-12 done Shipped\n"
+    assert ("PROJ-1 can close: no child open besides PROJ-12 (children: PROJ-12, PROJ-13); "
+            "`aw issue rollup PROJ-12 --close` closes it") in log
+    assert (tmp_path / "board.log").read_text() == (
+        "PROJ-12 in_progress In Progress\nPROJ-1 in_progress In Progress\nPROJ-12 done Shipped\n")
 
 
 def test_cli_issue_ref_and_view(repo, monkeypatch, capsys):

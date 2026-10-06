@@ -112,6 +112,14 @@ class Tracker:
         """True when this tracker knows parent-child links, so dupes can be scoped."""
         return type(self).children is not Tracker.children
 
+    def is_epic(self, row: Row) -> bool:
+        """True for an issue above story level, which a parent rollup never moves or closes: one of epic_types."""
+        return row.type.casefold() in {name.casefold() for name in self.cfg.get("epic_types")}
+
+    def closed(self, row: Row) -> bool:
+        """True when the row's issue is closed, or in the state status_map calls done."""
+        return row.status.casefold() == "closed" or canonical(self.cfg, row.status) == "done"
+
     def tree(self, parent: str) -> set[str]:
         """The parent and its native children and grandchildren."""
         ids = {parent}

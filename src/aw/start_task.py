@@ -8,7 +8,7 @@ import sys
 from datetime import date
 from pathlib import Path
 
-from aw import session, trackers
+from aw import rollup, session, trackers
 from aw.config import PROJECT_FILE, AwError, Config, git
 
 SLUG = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
@@ -105,6 +105,11 @@ def run(cfg: Config, kind: str, slug: str, issue: str | None, number: int | None
                 print(message, file=sys.stderr)
         except AwError as e:
             print(f"warning: issue status not updated: {e}", file=sys.stderr)
+        try:
+            for message in rollup.start(tracker, issue):
+                print(f"parent: {message}", file=sys.stderr)
+        except AwError as e:
+            print(f"warning: parent status not updated: {e}", file=sys.stderr)
 
     hook = cfg.get("on_issue_start", **ph)
     if issue and hook:

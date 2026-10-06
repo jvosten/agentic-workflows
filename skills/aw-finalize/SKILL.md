@@ -2,7 +2,7 @@
 name: aw-finalize
 description: Finish an implementation session - document, verify, commit, open the pull request, add the changelog entry, wait for CI, then merge after your approval (or directly with merge_gate = auto) and clean up the worktree. Use only when the user invokes it.
 disable-model-invocation: true
-allowed-tools: Bash(~/.agents/bin/aw session) Bash(~/.agents/bin/aw config) Bash(~/.agents/bin/aw verify) Bash(~/.agents/bin/aw issue ref:*) Bash(~/.agents/bin/aw template mr) Bash(~/.agents/bin/aw mr create:*) Bash(~/.agents/bin/aw mr update:*) Bash(~/.agents/bin/aw mr view:*) Bash(~/.agents/bin/aw mr checks:*) Bash(~/.agents/bin/aw mr comments:*) Bash(~/.agents/bin/aw memory add:*) Bash(~/.agents/bin/aw memory log:*) Bash(~/.agents/bin/aw memory find:*) Bash(~/.agents/bin/aw memory show:*) Bash(~/.agents/bin/aw memory tags:*) Bash(~/.agents/bin/aw backlog add:*) Bash(~/.agents/bin/aw backlog list) Bash(~/.agents/bin/aw backlog pop:*) Bash(~/.agents/bin/aw issue dupes:*) Bash(~/.agents/bin/aw issue children:*) Bash(~/.agents/bin/aw issue create:*) Bash(~/.agents/bin/aw issue set-parent:*) Bash(~/.agents/bin/aw issue set-status:*)
+allowed-tools: Bash(~/.agents/bin/aw session) Bash(~/.agents/bin/aw config) Bash(~/.agents/bin/aw verify) Bash(~/.agents/bin/aw issue ref:*) Bash(~/.agents/bin/aw template mr) Bash(~/.agents/bin/aw mr create:*) Bash(~/.agents/bin/aw mr update:*) Bash(~/.agents/bin/aw mr view:*) Bash(~/.agents/bin/aw mr checks:*) Bash(~/.agents/bin/aw mr comments:*) Bash(~/.agents/bin/aw memory add:*) Bash(~/.agents/bin/aw memory log:*) Bash(~/.agents/bin/aw memory find:*) Bash(~/.agents/bin/aw memory show:*) Bash(~/.agents/bin/aw memory tags:*) Bash(~/.agents/bin/aw backlog add:*) Bash(~/.agents/bin/aw backlog list) Bash(~/.agents/bin/aw backlog pop:*) Bash(~/.agents/bin/aw issue dupes:*) Bash(~/.agents/bin/aw issue children:*) Bash(~/.agents/bin/aw issue create:*) Bash(~/.agents/bin/aw issue set-parent:*) Bash(~/.agents/bin/aw issue set-status:*) Bash(~/.agents/bin/aw issue rollup:*)
 metadata:
   package: agentic-workflows
 ---
@@ -105,9 +105,10 @@ After checkpoints: one entry for the whole session, naming every part. A part al
 
 - `~/.agents/bin/aw mr view`: link and title, state, CI, review and unresolved threads, files changed with lines added and removed — print it as it is;
 - the few lines of step 2: what changed and why;
-- what `aw finish` will do: merge with `merge_method`, move the issue, remove the worktree, delete the branch.
+- what `aw finish` will do: merge with `merge_method`, move the issue, remove the worktree, delete the branch;
+- with an `issue`, the parent story: `~/.agents/bin/aw issue rollup <issue>` — print its line as it is.
 
-Then ask whether to merge, and wait for an explicit go ("merge", "go", "yes"). Anything else, or no answer → stop, report as in step 12, and say that `/aw-finalize` resumes at this step or `aw finish --pr <pr>` merges by hand. A push after the go (a late fix) means CI again, and the gate again.
+Then ask whether to merge, and wait for an explicit go ("merge", "go", "yes"). When the story `can close`, ask too whether to close it with the merge; that answer is separate, and only an explicit yes closes it. A story can hold work never cut into a subtask, so never assume it. Anything else, or no answer → stop, report as in step 12, and say that `/aw-finalize` resumes at this step or `aw finish --pr <pr>` merges by hand. A push after the go (a late fix) means CI again, and the gate again.
 
 `merge_gate = auto`: continue without asking.
 
@@ -119,6 +120,8 @@ Then ask whether to merge, and wait for an explicit go ("merge", "go", "yes"). A
 
 It merges the branch's open request with `merge_method` (a request you merged on the forge yourself counts as that merge; it skips the merge when nothing is left after checkpoints), moves the issue to done where a closing keyword does not (`sync_issue_status`) and runs `on_issue_status`, removes the worktree, updates `main_branch` in the primary checkout, runs `on_merge`, and deletes the local and remote branch. It refuses on uncommitted or unpushed work, and while the backlog inbox holds items.
 
+The user said yes to closing the parent story at the gate → `~/.agents/bin/aw finish --close-parent`: after the issue, it moves the story to done and comments with its children. It leaves the story open with a warning when something still keeps it open; report that. No yes, `merge_gate = auto`, or a gate that did not apply → never pass it; `aw finish` then prints whether the story can close.
+
 ## 12. Report
 
-Print the PR link, what was merged (or that the PR waits at the gate), what went to the tracker (issue refs) or was discarded, and the first step for the next session.
+Print the PR link, what was merged (or that the PR waits at the gate), what went to the tracker (issue refs) or was discarded, the parent story's state (closed, or `aw finish`'s line on it), and the first step for the next session.

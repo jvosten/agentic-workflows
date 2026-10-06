@@ -29,6 +29,8 @@ status_map = { backlog = "To Do", in_review = "Code Review" }
 | `aw issue set-status <id> <status>` | any | no: someone chose that state |
 | `aw start-task … --issue <id>` | `in_progress` | yes |
 | `aw finish` | `done` | no: merged work is done, from any state |
+| `aw start-task … --issue <subtask>` | parent story `in_progress` | yes, like the subtask |
+| `aw finish --close-parent`, `aw issue rollup <subtask> --close` | parent story `done` | refuses while a child is open or a plan section has no subtask |
 | `aw issue create` | `backlog`, or `--status` | GitHub with a board: the column (`--status none`: on the board without one, e.g. an epic). Jira: transitions right after the create when `--status` is given. Elsewhere the tracker's own default applies |
 
 `/aw-backlog-item` runs `aw issue set-status <id> backlog` after each create. `sync_issue_status = false` turns off the moves at session start and finish; explicit `set-status` still works.
@@ -38,6 +40,14 @@ status_map = { backlog = "To Do", in_review = "Code Review" }
 A session start moves the issue to `in_progress` only when its current state is `backlog`, `ready`, or nothing at all. Anything else stays where it is, and `aw start-task` says so (`PROJ-12 stays at Code Review: a session start moves only from backlog or ready`).
 
 The current state is read from the tracker and mapped back through `status_map`. A state that maps to no canonical status (a "Blocked" or "On hold" column) stays too, because it may be ahead of in progress; the message names the `status_map` entry that would allow the move. One exception: on Jira an unmapped status in the *to do* category (e.g. "To Do", "Open") moves, since Jira itself says it is not started. This is why a card someone moved to review, done or blocked is never dragged back by a session that picks the issue up again.
+
+### The parent story
+
+A story follows its subtasks. A session start on a subtask moves the subtask and, under the same guard, its parent story: a story still in backlog shows as in progress once its first subtask is. This needs workflow states and a native parent link (`Part of #N` alone does not count).
+
+The story never closes on its own. After the last merge `aw finish` reports whether it could (`#322 can close: no child open besides #325`), or what keeps it open: another open child, or a section of the story's plan whose `**Subtask:**` line names no issue, which is work never cut into a subtask. `/aw-finalize` asks at the merge gate and on a yes runs `aw finish --close-parent`; later, `aw issue rollup <subtask> --close` does the same. Either moves the story to done, runs the hook and comments with the list of children.
+
+Epics are never moved or closed this way; they carry no status of their own and close by decision. An epic is a type in `epic_types` (default `Epic`, matched case-insensitively), on Jira any issue type above story level, and on a GitHub board a card without a column (how `aw issue create --status none` files an epic).
 
 ### Trackers with and without states
 
@@ -61,6 +71,7 @@ Use it for what `aw` does not do itself: a notification, a board on another syst
 - Change board or workflow configuration, or create columns, statuses or labels.
 - Touch a board it was not pointed at.
 - Move an issue backwards on its own.
+- Close a story or move an epic on its own.
 
 ## Per tracker
 

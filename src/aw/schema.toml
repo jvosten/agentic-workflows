@@ -84,6 +84,11 @@ type = "bool"
 default = true
 help = "aw start-task moves the issue to in_progress (only from backlog or ready) and aw finish to done (Jira, or GitHub with github_project)"
 
+[keys.epic_types]
+type = "list"
+default = ["Epic"]
+help = "Issue types above story level: a parent rollup never moves or closes them (Jira: also any type above story level; GitHub board: also a card without a column)"
+
 [keys.instructions_file]
 type = "str"
 ask = true

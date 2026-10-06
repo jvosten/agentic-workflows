@@ -12,7 +12,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from aw import backlog, forge, trackers
+from aw import backlog, forge, rollup, trackers
 from aw.config import AwError, Config, git
 
 PREFIX = {"github": "#", "gitlab": "!"}
@@ -141,9 +141,14 @@ def merge(cfg: Config, meta: dict[str, Any], pr: str | None) -> list[str]:
     return log
 
 
-def run(cfg: Config, meta: dict[str, Any], pr: str | None) -> list[str]:
-    """The last merge, then cleanup: worktree, branch, main, issue. Nothing left to merge skips the merge."""
+def run(cfg: Config, meta: dict[str, Any], pr: str | None, close_parent: bool = False) -> list[str]:
+    """The last merge, then cleanup: worktree, branch, main, issue. Nothing left to merge skips the merge.
+
+    close_parent: also close the issue's parent story, when nothing else keeps it open (rollup.close).
+    """
     root, main, branch = cfg.root, cfg.get("main_branch"), meta["branch"]
+    if close_parent and not meta.get("issue"):
+        raise AwError("--close-parent needs a session with an issue")
     worktree = Path(meta["worktree"])
     kind = cfg.get("forge")
     log: list[str] = []
@@ -168,14 +173,23 @@ def run(cfg: Config, meta: dict[str, Any], pr: str | None) -> list[str]:
         pr = _merge_request(cfg, kind, branch, pr, worktree, log)
 
     issue = meta.get("issue")
+    tracker = trackers.get(cfg)
     if issue and cfg.get("sync_issue_status"):
         try:
-            tracker = trackers.get(cfg)
             if nothing_left and not tracker.has_states() and cfg.get("tracker") != "none":
                 log.append(tracker.set_status(issue, "done"))  # no closing keyword merged; close it here
             log += tracker.advance(issue, "done")
         except AwError as e:
             log.append(f"warning: issue status not updated: {e}")
+    if issue and (close_parent or cfg.get("sync_issue_status")):
+        try:  # the story closes only when asked: work never cut into a subtask is the user's call
+            if close_parent:
+                log += rollup.close(cfg, tracker, issue)
+            elif (result := rollup.check(cfg, tracker, issue)).parent:
+                hint = rollup.report(tracker, issue, result)
+                log.append(hint if result.left else f"{hint}; `aw issue rollup {issue} --close` closes it")
+        except AwError as e:
+            log.append(f"warning: parent story: {e}")
 
     git("worktree", "remove", str(worktree), cwd=root)
     log.append(f"removed {worktree}")

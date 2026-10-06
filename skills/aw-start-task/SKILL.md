@@ -31,7 +31,7 @@ On error, show it and stop. If `.agents/aw.toml` is missing, tell the user to ru
 ~/.agents/bin/aw start-task <type> <slug> [--issue <id>]
 ```
 
-It syncs `main_branch`, picks the session number, creates branch and worktree, sets up direnv, moves the issue to in progress (trackers with workflow states, `sync_issue_status`), and runs `on_issue_start`. It prints `session`, `branch`, `worktree`, `issue`.
+It syncs `main_branch`, picks the session number, creates branch and worktree, sets up direnv, moves the issue to in progress, and a subtask's parent story with it (trackers with workflow states, `sync_issue_status`), and runs `on_issue_start`. It prints `session`, `branch`, `worktree`, `issue`.
 
 - Do not create branches or worktrees any other way.
 - On a non-zero exit, show stderr and stop.

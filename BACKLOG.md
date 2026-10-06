@@ -222,6 +222,19 @@ Deferred features and open checks. Each entry has enough context to be picked up
 
 **Open first:** which shape a real project has, and whether its promotions reuse the commits or create new ones. Design after that.
 
+---
+
+### [LOW] Stories left open in aw doctor
+
+**Context:** The parent rollup (README, Parent rollup) moves a story to in progress with its first subtask and offers to close it after the last, at `/aw-finalize`'s merge gate. A story whose last subtask closed outside `aw` (a hand merge, a closing keyword with no `aw finish`), or where the user said no at the gate, stays open, and nobody is reminded.
+
+**Scope:**
+- `aw doctor` lists open stories (not epics: `epic_types`, Jira hierarchy level, GitHub card without a column) whose children are all closed, each with `aw issue rollup <child> --close`.
+- GitHub: one GraphQL search over open issues with `subIssuesSummary { total completed }` and `issueType`, no call per issue. Jira: JQL for open issues of story level that have children; the closed check needs the children's status categories, so cap the count or skip it on large projects.
+- An info line, not a failure: closing stays a decision.
+
+**Done when:** `aw doctor` names a story whose children are all closed, on GitHub and Jira, covered by recorded-response tests.
+
 ## Considered and not planned
 
 - **Personas and multi-agent roles** (BMAD), **spec-driven phases** (spec-kit), **label-based handoff queues** (zaks-io): full methods of their own; out of scope for a session-workflow standard.

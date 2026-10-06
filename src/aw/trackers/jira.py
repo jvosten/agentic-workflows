@@ -83,8 +83,13 @@ class Jira(Tracker):
 
     def _row(self, data: dict) -> Row:
         f = data.get("fields", {})
-        return Row(data["key"], f.get("summary", ""), (f.get("status") or {}).get("name", ""),
-                   (f.get("issuetype") or {}).get("name", ""), parent=(f.get("parent") or {}).get("key", ""))
+        status, kind = f.get("status") or {}, f.get("issuetype") or {}
+        if category := (status.get("statusCategory") or {}).get("key"):
+            self._categories = {**getattr(self, "_categories", {}), data["key"]: category}
+        if (level := kind.get("hierarchyLevel")) is not None:
+            self._levels = {**getattr(self, "_levels", {}), data["key"]: level}
+        return Row(data["key"], f.get("summary", ""), status.get("name", ""), kind.get("name", ""),
+                   parent=(f.get("parent") or {}).get("key", ""))
 
     def _search(self, jql: str, limit: int) -> list[Row]:
         data = self.request("GET", "/rest/api/3/search/jql",
@@ -219,6 +224,13 @@ class Jira(Tracker):
         status = self.request("GET", f"/rest/api/3/issue/{issue}", {"fields": "status"})["fields"].get("status") or {}
         self._categories = {**getattr(self, "_categories", {}), issue: (status.get("statusCategory") or {}).get("key")}
         return status.get("name")
+
+    def is_epic(self, row: Row) -> bool:
+        """One of epic_types, or a type above story level (hierarchyLevel 1 and up), whatever its name."""
+        return super().is_epic(row) or getattr(self, "_levels", {}).get(row.id, 0) >= 1
+
+    def closed(self, row: Row) -> bool:
+        return self.status_category(row.id) == "done"
 
     def status_category(self, issue: str) -> str | None:
         if issue not in getattr(self, "_categories", {}):

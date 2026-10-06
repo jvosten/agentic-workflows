@@ -11,8 +11,8 @@ from dataclasses import asdict
 from pathlib import Path
 
 from aw import (
-    __version__, backlog, doctor, finish, forge, init, install, memory, plan, session, start_task, templates, trackers,
-    ui,
+    __version__, backlog, doctor, finish, forge, init, install, memory, plan, rollup, session, start_task, templates,
+    trackers, ui,
 )
 from aw.config import PROJECT_FILE, AwError, git, load, toml_value
 from aw.trackers import STATUSES
@@ -132,6 +132,9 @@ def _issue(args: argparse.Namespace) -> None:
         print(tracker.set_status(issue, args.status))
         if message := trackers.status_hook(cfg, issue, args.status):
             print(message)
+    elif op == "rollup":
+        print("\n".join(rollup.close(cfg, tracker, issue)) if args.close
+              else rollup.report(tracker, issue, rollup.check(cfg, tracker, issue)))
     elif op == "ref":
         print(tracker.ref(issue))
     elif op == "pr-text":
@@ -346,7 +349,7 @@ def _verify(args: argparse.Namespace) -> int:
 
 
 def _finish(args: argparse.Namespace) -> None:
-    for line in finish.run(load(), session.read(), args.pr):
+    for line in finish.run(load(), session.read(), args.pr, args.close_parent):
         print(line)
 
 
@@ -579,6 +582,10 @@ def build_parser() -> argparse.ArgumentParser:
     o = ops.add_parser("set-status", help="move to a canonical status (mapped by status_map), then run on_issue_status")
     o.add_argument("id")
     o.add_argument("status", choices=STATUSES)
+    o = ops.add_parser("rollup", help="whether this subtask's story can close once it is done; --close closes it")
+    o.add_argument("id", help="the subtask; it counts as closed")
+    o.add_argument("--close", action="store_true",
+                   help="close the story with a comment naming its children; refuses while anything keeps it open")
     o = ops.add_parser("ref", help="how to reference the issue in text (#12, PROJ-123)")
     o.add_argument("id")
     o = ops.add_parser("pr-text", help="line for the PR body that links or closes the issue")
@@ -676,6 +683,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("finish", help="last merge (skipped when nothing is left), remove the worktree, delete the branch")
     s.add_argument("--pr", help="merge request number (default: the branch's open one; forge = none: after a manual merge)")
+    s.add_argument("--close-parent", action="store_true",
+                   help="also close the issue's parent story, unless another child or a plan section keeps it open")
     s.set_defaults(func=_finish)
 
     s = sub.add_parser("doctor", help="check installation and project configuration")

@@ -10,6 +10,8 @@ from aw.config import AwError, Config, git
 from aw.trackers import Row, Tracker
 
 PLACEHOLDER = re.compile(r"\\\{(\w+)\\\}")
+SECTION = re.compile(r"^### (S\d+)\b", re.MULTILINE)
+SUBTASK = re.compile(r"^\*\*Subtask:\*\*(.*)$", re.MULTILINE)
 
 
 def directory(cfg: Config) -> Path:
@@ -77,6 +79,19 @@ def state(cfg: Config, tracker: Tracker, ref: str) -> dict[str, str]:
     subtasks = tracker.children(issue) if tracker.name != "none" else []
     return {"issue": issue, "plan": str(found) if found else "none",
             "subtasks": " ".join(row.id for row in subtasks)}
+
+
+def unsplit(path: Path) -> list[str]:
+    """Implementation sections whose **Subtask:** line names no issue: work never cut into a subtask."""
+    text = path.read_text()
+    marks = list(SECTION.finditer(text))
+    left = []
+    for mark, after in zip(marks, [*marks[1:], None]):
+        line = SUBTASK.search(text, mark.end(), after.start() if after else len(text))
+        value = line.group(1).strip() if line else ""
+        if not re.search(r"\d", value) or value.casefold().startswith(("none", "<")):
+            left.append(mark.group(1))
+    return left
 
 
 def slugify(text: str, words: int = 5) -> str:

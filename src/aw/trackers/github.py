@@ -15,7 +15,7 @@ PART_OF = re.compile(r"\bPart of #(\d+)", re.IGNORECASE)
 TASK_REF = re.compile(r"^\s*[-*] \[[ xX]\] .*?#(\d+)", re.MULTILINE)
 
 META = """query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){
-  issue(number:$number){body issueType{name} parent{number title state}}}}"""
+  issue(number:$number){body issueType{name} parent{number title state issueType{name}}}}}"""
 SEARCH = """query($q:String!,$first:Int!){search(query:$q,type:ISSUE,first:$first){
   nodes{... on Issue{number title state parent{number}}}}}"""
 PART_OF_SEARCH = """query($q:String!){search(query:$q,type:ISSUE,first:100){
@@ -81,7 +81,8 @@ class GitHub(Tracker):
     @staticmethod
     def _row(d: dict, link: str = "") -> Row:
         parent = str(d["parent"]["number"]) if d.get("parent") else ""
-        return Row(str(d["number"]), d.get("title", ""), d.get("state", "").lower(), link=link, parent=parent)
+        return Row(str(d["number"]), d.get("title", ""), d.get("state", "").lower(),
+                   (d.get("issueType") or {}).get("name", ""), link=link, parent=parent)
 
     def _meta(self, issue: str) -> dict:
         return self.graphql(META, number=int(issue))["repository"]["issue"]
@@ -274,6 +275,15 @@ class GitHub(Tracker):
             return None
         _, item = self._card(issue)
         return ((item or {}).get("fieldValueByName") or {}).get("name")
+
+    def is_epic(self, row: Row) -> bool:
+        """One of epic_types, or on the board without a column: how `aw issue create --status none` files an epic."""
+        if super().is_epic(row):
+            return True
+        if not self.has_states():
+            return False
+        _, item = self._card(row.id)
+        return item is not None and not (item.get("fieldValueByName") or {}).get("name")
 
     def _add_card(self, issue: str) -> dict:
         node_id, item = self._card(issue)

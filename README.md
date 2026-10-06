@@ -193,11 +193,14 @@ Skills never call a tracker directly; they call `aw issue <op>`, and `tracker` i
 | `update` (title, description; `--dry-run`) | ✓ | ✓ | – |
 | `comment` | ✓ | ✓ | ✓ |
 | `set-status` | open/closed, plus the board column with `github_project` | workflow transition via `status_map` | open/closed only |
+| `rollup <subtask>` (`--close`) | whether the parent story can close once the subtask is done; `--close` closes it | ✓ | – |
 | `ref` / `pr-text` | `#12` / `Fixes #12` | `PROJ-12` / `PROJ-12` | `#12` / `Fixes #12` |
 
 **Parent links** are always the tracker's own: GitHub sub-issues, Jira `parent`. Skills never write `Part of #N` or `Epic: KEY` into a body. On GitHub, `view` still reads a `Part of #N` line and `children` a task-list ref, marked `[text link]`, so older projects keep working while they move: `aw issue children <root> --text-only` lists what is linked only by text (task-list refs in the root, `Part of #<root>` lines in other issues), `aw issue set-parent <id> <root>` links each one natively, and an empty `--text-only` confirms none remain. Jira rejects parents that break its hierarchy (a sub-task under an epic, mixed team- and company-managed projects); `set-parent` passes the error through with both issue types.
 
 Statuses are canonical (`backlog`, `ready`, `in_progress`, `in_review`, `done`); `status_map` maps them to the tracker's names, defaulting to title case (`In Progress`). With `sync_issue_status` (default on), `aw start-task --issue` moves the issue to `in_progress` and `aw finish` to `done`, on trackers with workflow states. These automatic moves never go backwards: a session start moves only from backlog or ready (or no status), so an issue in review stays there. An explicit `aw issue set-status` is never guarded. Without workflow states, GitHub and GitLab close through the PR keyword.
+
+**Parent rollup:** a story follows its subtasks. A session start on a subtask also moves its parent story to `in_progress`, under the same guard. After the last merge, `aw finish` says whether the story can close: no other child open, and no section of the story's plan without a subtask. It never closes the story itself, because a story can hold work that was never cut into a subtask; `/aw-finalize` asks at the merge gate and passes `aw finish --close-parent` on a yes; `aw issue rollup <subtask> --close` does the same later. Either closes the story with a comment naming its children and refuses while anything keeps it open. Epics never roll up: a type in `epic_types` (default `Epic`), on Jira any type above story level, on a GitHub board a card without a column. Only native parent links count.
 
 How states, boards and the hook fit together on each tracker: [docs/boards.md](docs/boards.md).
 
@@ -224,8 +227,8 @@ How states, boards and the hook fit together on each tracker: [docs/boards.md](d
 | `aw session` | Print the current worktree's session metadata |
 | `aw verify` | Run `verify_cmd` in the current checkout (through direnv if enabled) |
 | `aw merge [--pr N]` | Merge one part; the branch catches up with main, worktree and issue stay, `on_merge` runs |
-| `aw finish [--pr N]` | Last merge with `merge_method` (skipped when nothing is left), remove worktree, update main, delete local + remote branch |
-| `aw issue view\|children\|list\|search\|create\|update\|set-parent\|comment\|set-status\|ref\|pr-text` | Tracker operations; see [Issue trackers](#issue-trackers) |
+| `aw finish [--pr N] [--close-parent]` | Last merge with `merge_method` (skipped when nothing is left), remove worktree, update main, delete local + remote branch; `--close-parent` also closes the parent story (see [Parent rollup](#issue-trackers)) |
+| `aw issue view\|children\|list\|search\|create\|update\|set-parent\|comment\|set-status\|rollup\|ref\|pr-text` | Tracker operations; see [Issue trackers](#issue-trackers) |
 | `aw plan path <ref> [--slug S]` | Plan file of a story or subtask (subtask: through its parent); `--slug` composes the path to write |
 | `aw plan state <ref>` | What exists for the issue: plan file, subtasks |
 | `aw template <story\|subtask\|plan>` | Print a document template, project override from `templates` |
