@@ -169,3 +169,36 @@ def test_start_task_warns_when_the_config_is_not_committed(repo, tmp_path, capsy
     (repo / ".agents/aw.toml").write_text(f'worktree_root = "{tmp_path}/wt"\n')
     start_task.run(load(), "feat", "uncommitted", None)
     assert "warning: .agents/aw.toml is not committed on main" in capsys.readouterr().err
+
+
+def test_finish_runs_on_merge_after_a_pull_request_merged_outside_aw(started, repo, tmp_path, monkeypatch):
+    wt, branch = Path(started["worktree"]), started["branch"]
+    monkeypatch.chdir(wt)
+    monkeypatch.setenv("AW_FORGE", "github")
+    hook_log = tmp_path / "merges.log"
+    monkeypatch.setenv("AW_ON_MERGE", f"echo {{pr}}:{{final}} >> {hook_log}")
+    merge_by_hand(repo, branch)  # someone pressed merge on GitHub
+    git("fetch", "-q", "origin", cwd=wt)
+    git("merge", "-q", "--ff-only", "origin/main", cwd=wt)  # the branch has no changes left against main
+    git("push", "-q", "origin", branch, cwd=wt)
+    head = git("rev-parse", "HEAD", cwd=wt)
+    monkeypatch.setattr(forge, "merged", lambda kind, b, cwd: [forge.MergeRequest("7", "u", head=head)])
+    log = finish.run(load(), session.read(), None)
+    assert log[0] == "#7 was merged outside aw"
+    assert hook_log.read_text() == "7:true\n"
+
+
+def test_finish_skips_on_merge_when_nothing_was_merged_since_the_last_part(started, repo, tmp_path, monkeypatch):
+    wt, branch = Path(started["worktree"]), started["branch"]
+    monkeypatch.chdir(wt)
+    monkeypatch.setenv("AW_FORGE", "github")
+    hook_log = tmp_path / "merges.log"
+    monkeypatch.setenv("AW_ON_MERGE", f"echo {{pr}}:{{final}} >> {hook_log}")
+    merge_by_hand(repo, branch)
+    git("fetch", "-q", "origin", cwd=wt)
+    git("merge", "-q", "--ff-only", "origin/main", cwd=wt)
+    git("push", "-q", "origin", branch, cwd=wt)
+    monkeypatch.setattr(forge, "merged", lambda kind, b, cwd: [forge.MergeRequest("6", "u", head="0" * 40)])
+    log = finish.run(load(), session.read(), None)
+    assert log[0] == f"nothing left to merge: {branch} has no changes against main"
+    assert not hook_log.exists()

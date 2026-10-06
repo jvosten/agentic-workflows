@@ -66,6 +66,13 @@ def _merge_request(cfg: Config, kind: str, branch: str, pr: str | None, worktree
     return pr
 
 
+def _merged_outside(kind: str, branch: str, worktree: Path) -> str | None:
+    """The merged request from branch whose head is the branch's head: someone merged it without aw."""
+    head = git("rev-parse", "HEAD", cwd=worktree)
+    hits = [m.number for m in forge.merged(kind, branch, worktree) if m.head == head]
+    return hits[-1] if hits else None
+
+
 def _merged_by_hand(root: Path, main: str, branch: str) -> None:
     git("fetch", "--quiet", "origin", main, cwd=root)
     if subprocess.run(["git", "merge-base", "--is-ancestor", branch, f"origin/{main}"],
@@ -149,7 +156,11 @@ def run(cfg: Config, meta: dict[str, Any], pr: str | None) -> list[str]:
     git("fetch", "--quiet", "origin", main, cwd=worktree)
     nothing_left = subprocess.run(["git", "diff", "--quiet", f"origin/{main}", "HEAD"],
                                   cwd=worktree, check=False).returncode == 0
-    if nothing_left:
+    if nothing_left and kind != "none" and (outside := _merged_outside(kind, branch, worktree)):
+        # Merged on the forge by hand: the last merge happened, so it is handled as one (on_merge runs).
+        nothing_left, pr = False, outside
+        log.append(f"{PREFIX[kind]}{pr} was merged outside aw")
+    elif nothing_left:
         log.append(f"nothing left to merge: {branch} has no changes against {main}")
     elif kind == "none":
         _merged_by_hand(root, main, branch)
