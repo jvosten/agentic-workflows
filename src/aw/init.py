@@ -23,6 +23,7 @@ from aw.config import (
     repo_root,
     toml_value,
 )
+from aw.memory import LOG
 
 
 def _main_branch(root: Path) -> str | None:
@@ -171,7 +172,7 @@ def run(assume_yes: bool, sets: list[str]) -> Report:
     path.parent.mkdir(exist_ok=True)
     path.write_text(dump_toml(values))
     ignore = path.parent / ".gitignore"
-    entries = [Path(LOCAL_FILE).name]
+    entries = [Path(LOCAL_FILE).name, Path(LOG).name]
     merged = {key: spec["default"] for key, spec in schema.items()} | values
     plans = Path(merged["plan_dir"] or schema["plan_dir"]["default"])
     if merged["plan_scope"] == "local" and plans.parts[:1] == (path.parent.name,):

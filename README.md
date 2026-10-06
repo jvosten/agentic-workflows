@@ -76,18 +76,32 @@ A plan lives at `plan_dir/plan_file`, by default `.agents/plans/<area>/<issue>-<
 
 ## Project memory
 
-Two committed files under `memory_dir` (default `.agents/memory`) carry what the project learned:
+What the project learned is committed under `memory_dir` (default `.agents/memory`), one file per entry:
 
-| File | Holds |
+| Path | Holds |
 |---|---|
-| `decisions.md` | What the team settled, and why it won |
-| `gotchas.md` | Non-obvious constraints that cost someone time |
+| `gotchas/<slug>.md` | External tool behavior that cost someone time: symptom, cause, fix |
+| `decisions/<slug>.md` | What the project settled, and why it won |
+| `tags.toml` | The tag vocabulary: `flux = "Flux CD: kustomizations, HelmReleases"` |
 
-One entry per heading, newest last, each stamped with its date and issue. `aw memory add <decision\|gotcha> --title "<claim>" --body-file -` appends; `aw memory supersede <kind> --title "<claim>" --reason "<what changed>"` retires an entry under a `## Superseded` heading instead of deleting it.
+Each file has a small frontmatter (title, tags, status, aliases, date, issue). The slug comes from the title and is the entry's permanent id; numbers from an older numbering live on as aliases (`aw memory show 95`). Titles are claims (`boto3 is pinned below 1.36`): plans list entries by title alone. Entries are retired, never deleted. Parallel sessions write different files, so they never conflict. A workflow pitfall that bites whatever the tool is not a gotcha but a rule for `instructions_file`.
 
-Writers: `aw-plan-story` after accepted grilling decisions that outlive the story, `aw-finalize` for gotchas the session paid for, `/aw-remember` any time in between. Entries are written in the session worktree, so they are reviewed and merged with the work that taught them. `aw-start-task` reads both files at the start of the next session, and `aw doctor` warns when a file passes 200 lines — the point to retire what no longer holds.
+| Command | Does |
+|---|---|
+| `aw memory add <gotcha\|decision> --title T --tags a,b --body-file F [--ref ID]` | Writes one entry; unknown tags are refused, and a gotcha needs one |
+| `aw memory find [--kind K] [--tags a,b] [--text terms…] [--compact]` | Entries with any of the tags and all of the terms; `--compact` prints `id · title` |
+| `aw memory show <id\|alias>` | One entry |
+| `aw memory tags [-v]` | The vocabulary with the number of active gotchas per tag |
+| `aw memory supersede <id> --reason R [--by ID]` | Retires an entry |
+| `aw memory import --json F` | Writes entries from JSON lines (`kind`, `title`, `tags`, `aliases`, `date`, `issue`, `body` or `sections`); every line is checked before any file is written |
+| `aw memory load [--plan]` | What a session start reads |
+| `aw memory log --relevant IDS --missed IDS` | One line for the gotchas experiment (gitignored) |
 
-Titles are claims (`boto3 is pinned below 1.36`), because a session loads these files whole and the title carries the point.
+Converting an existing pitfalls table or decision log is a matter of producing those JSON lines, with a `jq` line, a short script or a model; `aw` checks and writes.
+
+**Loading.** `gotchas_load = full` (default) loads every active gotcha at session start. `gotchas_load = tags` loads only the tags that have gotchas, with counts (about 150 tokens); `/aw-plan-story` pulls the gotchas matching the story's tags into the plan as `id · title` lines, and the session looks up the rest when a tool errors. The decision index goes into the plan; a session without a plan loads it at start. `tags` is an experiment: `/aw-finalize` records per session which gotchas mattered and which bit although they existed (`aw memory log`), and the defaults follow the result.
+
+Writers: `aw-plan-story` after accepted grilling decisions that outlive the story, `aw-finalize` for gotchas the session paid for, `/aw-remember` any time in between. Entries are written in the session worktree, so they are reviewed and merged with the work that taught them. `aw doctor` checks unknown tags, retired entries pointing nowhere and aliases claimed twice, and says how many tokens a session start loads.
 
 ## Backlog
 
@@ -215,8 +229,7 @@ How states, boards and the hook fit together on each tracker: [docs/boards.md](d
 | `aw plan path <ref> [--slug S]` | Plan file of a story or subtask (subtask: through its parent); `--slug` composes the path to write |
 | `aw plan state <ref>` | What exists for the issue: plan file, subtasks |
 | `aw template <story\|subtask\|plan>` | Print a document template, project override from `templates` |
-| `aw memory add <decision\|gotcha> --title T --body-file F [--ref ID]` | Append one entry to the project's memory |
-| `aw memory supersede <decision\|gotcha> --title T --reason R` | Retire an entry, keeping it under `## Superseded` |
+| `aw memory add\|find\|show\|tags\|supersede\|import\|load\|log` | Project memory; see [Project memory](#project-memory) |
 | `aw backlog add --title T --body-file F` | Add an item to `backlog_file`, matching the file's item shape |
 | `aw backlog list` / `aw backlog pop --title T` | Item titles; remove one (sent or discarded). An emptied inbox is deleted |
 | `aw doctor [-v]` | Check installation, skill frontmatter, project config, tools, tracker auth; one line per area plus every problem, `-v` (`make doctor V=1`) lists passing checks too |

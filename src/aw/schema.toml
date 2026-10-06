@@ -162,7 +162,13 @@ help = "Issue type for backlog items pushed to the tracker (empty: the tracker d
 [keys.memory_dir]
 type = "str"
 default = ".agents/memory"
-help = "Directory with the project's committed decisions.md and gotchas.md"
+help = "Directory with the project's committed memory: decisions/, gotchas/ (one file per entry) and tags.toml"
+
+[keys.gotchas_load]
+type = "choice"
+choices = ["full", "tags"]
+default = "full"
+help = "What a session start loads: full (every active gotcha) or tags (the tag list; plans pull matching gotchas)"
 
 [keys.definition_of_done]
 type = "str"

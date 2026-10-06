@@ -13,7 +13,6 @@ from aw.config import PROJECT_FILE, AwError, Config, load, load_schema, repo_roo
 
 NAME = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 TRACKER_CLI = {"github": "gh", "gitlab": "glab"}
-MEMORY_LIMIT = 200
 
 Result = tuple[str, str]  # (ok | info | warn | fail, message); info is advice, not a problem
 WORKFLOW_ADVICE = {
@@ -206,14 +205,32 @@ def check_board(cfg) -> list[Result]:
 def check_memory(cfg) -> list[Result]:
     from aw import memory
 
+    try:
+        every, vocab = memory.entries(cfg), memory.vocabulary(cfg)
+    except AwError as e:
+        return [("fail", f"memory: {e}")]
+    if not every:
+        return []
     results: list[Result] = []
-    for kind in memory.KINDS:
-        path = memory.file(cfg, kind)
-        if not path.is_file():
-            continue
-        lines = len(path.read_text().splitlines())
-        results.append(("warn", f"{path.name}: {lines} lines, over 200 lines; retire what no longer holds")
-                       if lines > MEMORY_LIMIT else ("ok", f"{path.name}: {lines} lines"))
+    slugs = {e.slug for e in every}
+    unknown = sorted({f"{e.slug} ({t})" for e in every for t in e.tags if t not in vocab})
+    if unknown:
+        results.append(("fail", f"memory: unknown tags on {', '.join(unknown[:5])}"
+                                + (f" and {len(unknown) - 5} more" if len(unknown) > 5 else "")))
+    dangling = [e.slug for e in every if e.superseded_by and e.superseded_by not in slugs]
+    if dangling:
+        results.append(("fail", f"memory: superseded_by points nowhere in {', '.join(dangling)}"))
+    owners: dict[str, list[str]] = {}
+    for e in every:
+        for alias in e.aliases:
+            owners.setdefault(alias.casefold(), []).append(e.slug)
+    claimed = [f"{a} ({', '.join(o)})" for a, o in owners.items() if len(o) > 1]
+    if claimed:
+        results.append(("fail", f"memory: aliases claimed twice: {'; '.join(claimed)}"))
+    active = {k: sum(e.kind == k and e.status == "active" for e in every) for k in memory.KINDS}
+    load = memory.tokens(memory.start_text(cfg, has_plan=False))
+    results.append(("ok", (f"memory: {active['gotcha']} gotchas, {active['decision']} decisions active; "
+                           f"session start loads ~{load} tokens (gotchas_load = {cfg.get('gotchas_load')})")))
     return results
 
 

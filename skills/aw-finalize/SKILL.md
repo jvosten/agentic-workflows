@@ -2,7 +2,7 @@
 name: aw-finalize
 description: Finish an implementation session - document, verify, commit, open the pull request, add the changelog entry, wait for CI, then merge after your approval (or directly with merge_gate = auto) and clean up the worktree. Use only when the user invokes it.
 disable-model-invocation: true
-allowed-tools: Bash(~/.agents/bin/aw session) Bash(~/.agents/bin/aw config) Bash(~/.agents/bin/aw verify) Bash(~/.agents/bin/aw issue ref:*) Bash(~/.agents/bin/aw template mr) Bash(~/.agents/bin/aw mr create:*) Bash(~/.agents/bin/aw mr update:*) Bash(~/.agents/bin/aw mr view:*) Bash(~/.agents/bin/aw mr checks:*) Bash(~/.agents/bin/aw mr comments:*) Bash(~/.agents/bin/aw memory add:*) Bash(~/.agents/bin/aw backlog add:*) Bash(~/.agents/bin/aw backlog list) Bash(~/.agents/bin/aw backlog pop:*) Bash(~/.agents/bin/aw issue dupes:*) Bash(~/.agents/bin/aw issue children:*) Bash(~/.agents/bin/aw issue create:*) Bash(~/.agents/bin/aw issue set-parent:*) Bash(~/.agents/bin/aw issue set-status:*)
+allowed-tools: Bash(~/.agents/bin/aw session) Bash(~/.agents/bin/aw config) Bash(~/.agents/bin/aw verify) Bash(~/.agents/bin/aw issue ref:*) Bash(~/.agents/bin/aw template mr) Bash(~/.agents/bin/aw mr create:*) Bash(~/.agents/bin/aw mr update:*) Bash(~/.agents/bin/aw mr view:*) Bash(~/.agents/bin/aw mr checks:*) Bash(~/.agents/bin/aw mr comments:*) Bash(~/.agents/bin/aw memory add:*) Bash(~/.agents/bin/aw memory log:*) Bash(~/.agents/bin/aw memory find:*) Bash(~/.agents/bin/aw memory show:*) Bash(~/.agents/bin/aw memory tags:*) Bash(~/.agents/bin/aw backlog add:*) Bash(~/.agents/bin/aw backlog list) Bash(~/.agents/bin/aw backlog pop:*) Bash(~/.agents/bin/aw issue dupes:*) Bash(~/.agents/bin/aw issue children:*) Bash(~/.agents/bin/aw issue create:*) Bash(~/.agents/bin/aw issue set-parent:*) Bash(~/.agents/bin/aw issue set-status:*)
 metadata:
   package: agentic-workflows
 ---
@@ -34,13 +34,22 @@ Apply the documentation rules in `<worktree>/<instructions_file>`: decision reco
 
 ## 4. Project memory
 
-Something in this session cost you time and is not visible in the code — a version pin, an API quirk, an ordering rule, a tool that lies — then record it, one entry each:
+Something in this session cost you time and is not visible in the code, then record it, one entry each, following the `aw-remember` skill:
 
-```bash
-~/.agents/bin/aw memory add gotcha --title "<the constraint as a claim>" --body-file - --ref <issue>
-```
+- external tool behavior (a version pin, an API quirk, a tool that lies) → a gotcha, tagged, with Symptom / Cause / Fix: `~/.agents/bin/aw memory add gotcha --title "<claim>" --tags <tag,tag> --body-file - --ref <issue>`;
+- a workflow pitfall that bites whatever the tool → no memory entry: propose the rule text for `instructions_file` and let the user decide.
 
 It is committed with this session, so it lands in the same review. Nothing cost you time → write nothing.
+
+Then record the session for the gotchas experiment (the log is gitignored, one line per session):
+
+```bash
+~/.agents/bin/aw memory log --relevant <gotcha ids that mattered, or none> --missed <ids that bit although they existed, or none> [--note "<one line>"]
+```
+
+- **relevant**: gotchas whose knowledge changed what you did this session, whether you had them from the plan or looked them up.
+- **missed**: a gotcha that bit although an entry for it existed, because nobody looked or the plan did not pull it. A gotcha recorded new this session is neither.
+- `--note`: a tag that was missing or wrong, a lookup that found nothing although it should have.
 
 ## 5. Leftovers and the backlog inbox
 

@@ -42,6 +42,16 @@
 
 1. S1 — <why first; mark sections that can run in parallel>
 
+## Known gotchas
+
+Tags: <the tags this story touches>
+
+- <id> · <title, from `aw memory find --kind gotcha --tags … --compact`>
+
+## Decisions in force
+
+- <id> · <title, from `aw memory find --kind decision --compact`>
+
 ## Open questions
 
 - <Unresolved external input, and who can answer it>

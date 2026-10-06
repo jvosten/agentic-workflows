@@ -25,7 +25,7 @@ def test_detects_defaults(repo):
         "merge_method": "merge",
         "merge_gate": "approve",
     }
-    assert (repo / ".agents/.gitignore").read_text() == "aw.local.toml\n"
+    assert (repo / ".agents/.gitignore").read_text() == "aw.local.toml\ngotchas-experiment.log\n"
 
 
 def test_rerun_keeps_answers_and_set_overrides(repo):
@@ -35,13 +35,13 @@ def test_rerun_keeps_answers_and_set_overrides(repo):
     assert data["plan_dir"] == "docs/plans"
     assert data["on_issue_start"] == "echo {issue}"
     assert data["direnv"] is True
-    assert (repo / ".agents/.gitignore").read_text() == "aw.local.toml\n"
+    assert (repo / ".agents/.gitignore").read_text() == "aw.local.toml\ngotchas-experiment.log\n"
 
 
 def test_local_plans_are_gitignored(repo):
     init.run(True, ["plan_scope=local"])
     init.run(True, [])
-    assert (repo / ".agents/.gitignore").read_text() == "aw.local.toml\nplans/\n"
+    assert (repo / ".agents/.gitignore").read_text() == "aw.local.toml\ngotchas-experiment.log\nplans/\n"
 
 
 def test_tracker_detection(repo):

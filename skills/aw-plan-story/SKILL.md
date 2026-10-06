@@ -1,7 +1,7 @@
 ---
 name: aw-plan-story
 description: Plan one story - gather the issue, its parent, children and linked docs, draft an implementation plan in session-sized sections, grill it with the user, and save it for /aw-to-subtasks. Use when the user says "plan story", "plan issue #N", "plan PROJ-123", or wants to turn an issue into a session plan.
-allowed-tools: Bash(~/.agents/bin/aw config) Bash(~/.agents/bin/aw template plan) Bash(~/.agents/bin/aw plan path:*) Bash(~/.agents/bin/aw plan state:*) Bash(~/.agents/bin/aw issue view:*) Bash(~/.agents/bin/aw issue children:*) Bash(~/.agents/bin/aw issue list:*) Bash(~/.agents/bin/aw issue search:*) Bash(~/.agents/bin/aw issue update:*) Bash(~/.agents/bin/aw issue comment:*) Bash(~/.agents/bin/aw memory add:*)
+allowed-tools: Bash(~/.agents/bin/aw config) Bash(~/.agents/bin/aw template plan) Bash(~/.agents/bin/aw plan path:*) Bash(~/.agents/bin/aw plan state:*) Bash(~/.agents/bin/aw issue view:*) Bash(~/.agents/bin/aw issue children:*) Bash(~/.agents/bin/aw issue list:*) Bash(~/.agents/bin/aw issue search:*) Bash(~/.agents/bin/aw issue update:*) Bash(~/.agents/bin/aw issue comment:*) Bash(~/.agents/bin/aw memory add:*) Bash(~/.agents/bin/aw memory find:*) Bash(~/.agents/bin/aw memory show:*) Bash(~/.agents/bin/aw memory tags:*)
 metadata:
   package: agentic-workflows
 ---
@@ -26,7 +26,10 @@ Turn one story into a plan the user has vetted, cut into session-sized sections,
 
 - `~/.agents/bin/aw issue view <id>`: description, acceptance criteria, children, comments, parent.
 - Parent → `aw issue view <parent>` too, and read the design docs it links.
-- Read `instructions_file` and follow its pointers to whatever the work touches: decision records (do not reopen decided choices), known pitfalls, reference docs.
+- Read `instructions_file` and follow its pointers to whatever the work touches: reference docs, runbooks.
+- Project memory:
+  - Decisions in force: `~/.agents/bin/aw memory find --kind decision --compact`. Do not reopen them; `aw memory show <id>` for the reasoning of one.
+  - Gotchas: pick the tags this story touches from `~/.agents/bin/aw memory tags --verbose`, by the tools of the files and systems the plan will change and by what the story names. Then `~/.agents/bin/aw memory find --kind gotcha --tags <tag,tag> --compact`.
 - Where the work touches running systems, check their current state read-only instead of trusting docs.
 - Facts you can look up are your job; ask the user only for decisions.
 - Delegate this gathering to a cheap subagent when the harness has one (`subagent_model`, when set): it reads and summarizes, you keep the judgement.
@@ -57,6 +60,8 @@ Fill it:
 - Per section: **Subtask** (`none yet` until `/aw-to-subtasks` runs), **Steps**, **Files**, **Checks** (`verify_cmd` plus what is specific), **Acceptance criteria**.
 - A step whose result has to be live before the next one can be built or checked (a GitOps reconcile, a migration, a deploy) is followed by `Checkpoint: merge and verify <what, live>`. The session then merges more than once (`/aw-checkpoint`), and every checkpoint is a deploy: name what the live check looks at in **Checks**. Few checkpoints are better than many.
 - **Session order**, **Open questions**, **Risks**, **Out of scope**.
+- **Known gotchas**: the lines of the gotcha `find` above, as printed (`- <id> · <title>`). Do not copy entries in full; a session runs `aw memory show <id>` for one. Write the tags you chose on the line above the list.
+- **Decisions in force**: the decision index from step 2, as printed.
 - `definition_of_done` set → link it instead of copying it.
 
 A story that fits one session has one section.
@@ -86,7 +91,7 @@ The story grew past the size rule in step 3 → go back to that rule instead of 
 - Decisions from grilling that outlive this story (they bind work beyond it) also go into the project's memory, one entry each:
 
   ```bash
-  ~/.agents/bin/aw memory add decision --title "<the decision as a claim>" --body-file - --ref <id>
+  ~/.agents/bin/aw memory add decision --title "<the decision as a claim>" [--tags <tag,tag>] --body-file - --ref <id>
   ```
 
   Only after the user accepted them, and only the ones a later session would otherwise reopen.

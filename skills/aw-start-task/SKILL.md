@@ -2,7 +2,7 @@
 name: aw-start-task
 description: Start an implementation session - create the branch and worktree, load the scope into a task list, and hand over to implementation. Use only when the user invokes it.
 disable-model-invocation: true
-allowed-tools: Bash(~/.agents/bin/aw config) Bash(~/.agents/bin/aw start-task:*) Bash(~/.agents/bin/aw issue view:*) Bash(~/.agents/bin/aw plan path:*)
+allowed-tools: Bash(~/.agents/bin/aw config) Bash(~/.agents/bin/aw start-task:*) Bash(~/.agents/bin/aw issue view:*) Bash(~/.agents/bin/aw plan path:*) Bash(~/.agents/bin/aw memory load:*) Bash(~/.agents/bin/aw memory find:*) Bash(~/.agents/bin/aw memory show:*) Bash(~/.agents/bin/aw memory tags:*)
 metadata:
   package: agentic-workflows
 ---
@@ -38,8 +38,10 @@ It syncs `main_branch`, picks the session number, creates branch and worktree, s
 
 ## 4. Load scope
 
-- Read `<worktree>/<instructions_file>`, and `<worktree>/<memory_dir>/decisions.md` and `gotchas.md` when they exist: they hold what earlier sessions settled and got bitten by.
+- Read `<worktree>/<instructions_file>`.
 - Plan source, first match: a plan path in the request; `~/.agents/bin/aw plan path <issue>` (for a subtask it resolves the parent story's plan); the issue from `aw issue view`.
+- Project memory, from the worktree: `~/.agents/bin/aw memory load` (add `--plan` when there is a plan). Depending on `gotchas_load` it prints every gotcha, or only the tags that have gotchas; without a plan it adds the decisions in force. With a plan, its **Known gotchas** and **Decisions in force** sections are the memory for this session.
+- With `gotchas_load = tags`: before working with a tool that has gotchas, and whenever a tool errors, look first: `aw memory find --tags <tag> --compact` (or `--text <error words>`), then `aw memory show <id>` for the one that fits.
 - The issue is a subtask → work only the plan section whose `**Subtask:**` line names it. No match → ask which section applies.
 - Create one task per plan step. No plan → plan the approach with the user before any code.
 - A `Checkpoint:` step becomes its own task: run `/aw-checkpoint` there, then continue with the next task.

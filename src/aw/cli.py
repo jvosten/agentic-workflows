@@ -272,12 +272,60 @@ def _backlog(args: argparse.Namespace) -> None:
     print(f"added to {backlog.add(cfg, args.title, _body(args.body_file))}")
 
 
+def _ids(text: str) -> list[str]:
+    return [] if text.strip().casefold() == "none" else [i for i in re.split(r"[,\s]+", text.strip()) if i]
+
+
 def _memory(args: argparse.Namespace) -> None:
     cfg = load()
-    if args.op == "supersede":
-        print(f"superseded in {memory.supersede(cfg, args.kind, args.title, args.reason)}")
-        return
-    print(f"appended to {memory.add(cfg, args.kind, args.title, _body(args.body_file), args.ref)}")
+    op = args.op
+    if op == "add":
+        path = memory.add(cfg, args.kind, args.title, _body(args.body_file), _ids(args.tags or ""), args.ref)
+        print(f"wrote {path.relative_to(cfg.checkout)}")
+    elif op == "find":
+        found = memory.find(cfg, args.kind, _ids(args.tags or ""), args.text or [], args.retired)
+        if args.compact:
+            print("\n".join(f"- {e.compact()}" for e in found) or "no entries")
+        else:
+            print("\n".join(e.text() for e in found).rstrip() or "no entries")
+    elif op == "show":
+        entry = memory.resolve(cfg, args.id)
+        print(f"{entry.kind}: {entry.slug}")
+        print(entry.text(), end="")
+    elif op == "tags":
+        rows = memory.tag_counts(cfg)
+        if not rows:
+            print(f"no vocabulary: {cfg.get('memory_dir')}/tags.toml")
+        elif args.verbose:
+            width = max(len(t) for t, _, _ in rows) + 2
+            print("\n".join(f"{t:<{width}}{n:>4}  {d}" for t, n, d in rows))
+        else:
+            print(" · ".join(f"{t} {n}" for t, n, _ in rows))
+    elif op == "supersede":
+        path = memory.supersede(cfg, args.id, args.reason, args.by)
+        print(f"retired {path.relative_to(cfg.checkout)}")
+    elif op == "import":
+        lines = (sys.stdin.read() if args.json == "-" else Path(args.json).read_text()).splitlines()
+        written = memory.import_json(cfg, lines)
+        kinds = {k: sum(p.parent.name == d for p in written) for k, d in memory.KINDS.items()}
+        print(f"imported {', '.join(ui.plural(n, k) for k, n in kinds.items() if n) or 'nothing'}")
+    elif op == "load":
+        text = memory.start_text(cfg, args.plan)
+        try:
+            session.update(memory_start_tokens=memory.tokens(text))
+        except AwError:
+            pass  # outside a session: nothing to record
+        print(text or "no project memory yet")
+    elif op == "log":
+        meta = session.read()
+        found = None
+        if meta.get("issue") and cfg.get("tracker") != "none":
+            try:
+                _, found = plan.owner(cfg, trackers.get(cfg), meta["issue"])
+            except AwError:
+                found = None
+        path = memory.log(cfg, meta, found, _ids(args.relevant), _ids(args.missed), args.note or "")
+        print(f"logged to {path}")
 
 
 def _template(args: argparse.Namespace) -> None:
@@ -580,17 +628,36 @@ def build_parser() -> argparse.ArgumentParser:
     o = backlog_ops.add_parser("list", help="item titles in backlog_file, one per line")
     s.set_defaults(func=_backlog)
 
-    s = sub.add_parser("memory", help="append to the project's decisions and gotchas")
+    s = sub.add_parser("memory", help="the project's decisions and gotchas, one file per entry")
     memory_ops = s.add_subparsers(dest="op", required=True)
-    o = memory_ops.add_parser("add", help="append one entry")
+    o = memory_ops.add_parser("add", help="write one entry")
     o.add_argument("kind", choices=sorted(memory.KINDS))
-    o.add_argument("--title", required=True, help="the fact, stated as a claim")
+    o.add_argument("--title", required=True, help="the fact, stated as a claim; becomes the slug")
     o.add_argument("--body-file", required=True, help="Markdown file, or - for stdin")
+    o.add_argument("--tags", help="comma-separated tags from tags.toml (a gotcha needs at least one)")
     o.add_argument("--ref", help="issue the entry came from")
-    o = memory_ops.add_parser("supersede", help="retire an entry, keeping it under Superseded")
-    o.add_argument("kind", choices=sorted(memory.KINDS))
-    o.add_argument("--title", required=True, help="title of the entry to retire")
+    o = memory_ops.add_parser("find", help="entries with any of the tags and all of the text terms")
+    o.add_argument("--kind", choices=sorted(memory.KINDS))
+    o.add_argument("--tags", help="comma-separated; any of them")
+    o.add_argument("--text", nargs="+", help="terms that must all appear (case-insensitive)")
+    o.add_argument("--compact", action="store_true", help="one line per entry: id · title")
+    o.add_argument("--retired", action="store_true", help="include retired entries")
+    o = memory_ops.add_parser("show", help="one entry by slug or alias (95, D15)")
+    o.add_argument("id")
+    o = memory_ops.add_parser("tags", help="the tag vocabulary with the number of active gotchas per tag")
+    o.add_argument("-v", "--verbose", action="store_true", help="one tag per line, with its description")
+    o = memory_ops.add_parser("supersede", help="retire an entry; it stays, marked retired")
+    o.add_argument("id", help="slug or alias")
     o.add_argument("--reason", required=True, help="why it no longer holds")
+    o.add_argument("--by", help="the entry that replaces it")
+    o = memory_ops.add_parser("import", help="write entries from JSON lines; all are checked before any is written")
+    o.add_argument("--json", required=True, metavar="FILE", help="one JSON object per line, or - for stdin")
+    o = memory_ops.add_parser("load", help="what a session start reads, per gotchas_load")
+    o.add_argument("--plan", action="store_true", help="the session has a plan: leave out the decision index")
+    o = memory_ops.add_parser("log", help="record this session for the gotchas experiment (gitignored)")
+    o.add_argument("--relevant", required=True, help="gotcha ids that mattered this session, or none")
+    o.add_argument("--missed", required=True, help="gotchas that bit although an entry existed, or none")
+    o.add_argument("--note", help="one line, e.g. a tag that was missing")
     s.set_defaults(func=_memory)
 
     s = sub.add_parser("template", help="print a document template (project override from templates)")

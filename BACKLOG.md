@@ -36,37 +36,11 @@ Deferred features and open checks. Each entry has enough context to be picked up
 
 ### [MEDIUM] Experiment: gotchas retrieved by tag, not preloaded
 
-**Context:** `aw-start-task` reads `<memory_dir>/decisions.md` and `gotchas.md` in full at session start; `aw doctor` warns past 200 lines. The first large adopter (homelab) has 201 gotchas, ~23,500 tokens, in a table grouped by tool, with numbers cited 144 times from code, CI and docs. Loading all of it costs that much every session, whatever the task. A typical session needs a handful of entries; the rest dilute the relevant ones. Context loaded at session start is the first to be compacted away, so a gotcha is often gone by the time the agent edits the file it is about. And the 200-line warning pushes toward deleting knowledge to fit a budget. Pure on-demand lookup has the opposite failure: the agent must suspect there is something to find, and a missed gotcha shows only as a repeated mistake. A design session on 2026-10-04 settled on a middle path, to be tried as an experiment.
+**Context:** `aw-start-task` used to read every gotcha at session start. The first large adopter (homelab) had 203 gotchas, ~23,500 tokens, loaded every session whatever the task; context loaded at session start is also the first to be compacted away. Pure on-demand lookup fails the other way: the agent must suspect there is something to find. The middle path, settled in design sessions on 2026-10-04 and 2026-10-06, is built (see README, Project memory): one file per entry under `.agents/memory/{gotchas,decisions}/`, a tag vocabulary in `tags.toml`, `aw memory add|find|show|tags|supersede|import|load|log`, `gotchas_load = full | tags`, plan-time pulls into the plan's **Known gotchas** and **Decisions in force**, and a gitignored per-session log written by `aw-finalize`.
 
-**Settled in that discussion:**
+**Next:** homelab adopts it (its issue #322): import its gotchas table (201 entries after merging two duplicates) and decision log (109 decisions; the phase docs own the D-numbers), set `gotchas_load = "tags"`, point its rules at `aw memory`, freeze the two old docs. Then run ten sessions and read `.agents/gotchas-experiment.log`. Hooks that inject entries before an edit (Claude Code only) are the fallback if plan-time pulls miss too often.
 
-- A gotcha is external tool behavior: symptom, cause, fix. A workflow pitfall that bites regardless of tool becomes a rule in `instructions_file`; `aw-finalize` proposes the rule text, the user decides.
-- One file per gotcha: `<gotchas_dir>/<slug>.md`, and the slug is the permanent id. Frontmatter `tools`, `status` (active | retired), `superseded_by`, `issue`, `date`, and `aliases` for the numbers of imported entries, so existing citations still resolve. Entries are retired, never deleted. Two gotchas get two slugs and never collide; the same slug twice is a real duplicate, and git shows it as a conflict. No new numbers: parallel sessions take the same next free one (the homelab table has 15 such duplicates), and renumbering breaks citations.
-- Decisions use the same layout, one file per decision with a slug id: same code path, and it ends append conflicts on `decisions.md`. Coordinate with [Configurable decision records](#medium-configurable-decision-records-for-aw-domain-modeling).
-- Tags name tools, from a fixed vocabulary; `aw memory add` rejects unknown tags, so a new tag is a deliberate addition. No hierarchy.
-- Session start loads only the tag list with counts (`flux 34 · talos 21 · …`, ~150 tokens): enough to know which tools have known traps, so the agent knows when to look.
-- `aw-plan-story` writes compact lines (`id · claim`) for the entries that match the story's tags into the plan file, with `aw memory show <id>` for the full entry. The plan is on disk and survives compaction, and the CLI picks the entries, not the model. Full entries are not copied: they would go stale in the plan when one is retired.
-- Debugging and unplanned work: two-step search, compact hits (`id · claim`, ~20 tokens each) first, then one full entry.
-- Decisions: the decision index goes into the plan at planning time (`aw-plan-story`, grilling); a session without a plan loads the decision index at start, so unplanned work still sees them. Full records on demand.
-- Prior art: [encephalon](https://github.com/isaachinman/encephalon). Pointer block in `AGENTS.md`, literal AND search, `--compact` then full, append-only with `supersedes`. It preloads no index at all; this design preloads the tag list on purpose, so the agent knows when to search.
-
-**Scope, first cut** (what the experiment needs):
-
-- Config: `gotchas_dir`; `gotcha_tags` (the vocabulary); `gotchas_load = full | tags` (default `full`).
-- `aw memory add gotcha --tags a,b` writes `<slug>.md`; `aw memory find --tags|--text [--compact]`; `aw memory show <id>` (slug or alias); `aw memory tags` (vocabulary with counts); `aw memory supersede` sets `status` and `superseded_by`. The same commands for decisions.
-- `aw doctor`: unknown tags, `superseded_by` pointing nowhere, an alias claimed by two entries.
-- Skills: `aw-start-task` loads gotchas per `gotchas_load`, and the decision index only when there is no plan; `aw-plan-story` derives tags from the story and the paths the plan touches, and writes the compact gotcha lines and the decision index into the plan; `aw-finalize` and `aw-remember` write files, not appends, and propose rules for workflow pitfalls.
-- `aw-finalize` appends one line per session to a gitignored log (`.agents/gotchas-experiment.log`): tokens loaded at start, entries pulled at plan time, whether the gotcha that mattered was among them, gotchas that bit although an entry existed, tag rejections. Nobody records ten sessions by hand.
-
-**Scope, after the first results:** `tag_map` (path glob → tag), `aw memory import` for an existing table, `gotchas_load = none`, and `aw doctor` suggesting `tags` past a size threshold.
-
-**Experiment:** run it in the homelab for ten sessions and read the log. Hooks that inject entries before an edit (Claude Code only) are the fallback if plan-time pulls miss too often.
-
-**Open:**
-
-- `tag_map` alone, model-chosen tags alone, or both (current lean: both).
-- Converting an existing table: a one-off in the adopting project, or `aw memory import`. The homelab conversion gives each entry a slug and keeps its number as an alias; a duplicated number stays the alias of the entry its citations mean, and the other entry keeps only its slug.
-- Whether `full` stays the default once `tags` has a track record.
+**After the first results:** `tag_map` (path glob → tag) if model-chosen tags miss too often; `gotchas_load = none`; `aw doctor` suggesting `tags` past a size threshold; whether `full` stays the default; in homelab, rewriting the 33 files that link the old docs and deleting them.
 
 **Done when:** the ten sessions are recorded in the README, and the defaults are set from the result.
 
