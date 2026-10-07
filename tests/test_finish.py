@@ -202,3 +202,13 @@ def test_finish_skips_on_merge_when_nothing_was_merged_since_the_last_part(start
     log = finish.run(load(), session.read(), None)
     assert log[0] == f"nothing left to merge: {branch} has no changes against main"
     assert not hook_log.exists()
+
+
+def test_finish_updates_main_while_the_primary_checkout_is_on_another_branch(started, repo, monkeypatch):
+    monkeypatch.chdir(started["worktree"])
+    merge_by_hand(repo, started["branch"])
+    git("checkout", "-q", "-b", "look-around", cwd=repo)
+    log = finish.run(load(), session.read(), None)
+    assert "updated main" in log
+    assert git("rev-parse", "main", cwd=repo) == git("rev-parse", "origin/main", cwd=repo)
+    assert git("branch", "--show-current", cwd=repo) == "look-around"

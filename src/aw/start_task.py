@@ -9,7 +9,7 @@ from datetime import date
 from pathlib import Path
 
 from aw import rollup, session, trackers
-from aw.config import PROJECT_FILE, AwError, Config, git
+from aw.config import PROJECT_FILE, AwError, Config, fast_forward, git
 
 SLUG = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 
@@ -64,11 +64,9 @@ def run(cfg: Config, kind: str, slug: str, issue: str | None, number: int | None
         raise AwError(f"slug must be kebab-case: {slug!r}")
 
     root, main = cfg.root, cfg.get("main_branch")
-    current = git("branch", "--show-current", cwd=root)
-    if current != main:
-        raise AwError(f"{root} is on {current!r}, expected {main!r}")
+    # The worktree starts from the main ref, so the primary checkout may have any branch checked out.
     if "origin" in git("remote", cwd=root).split():
-        git("pull", "--ff-only", "--quiet", "origin", main, cwd=root)
+        fast_forward(root, main)
     else:
         print("warning: no 'origin' remote, skipping pull", file=sys.stderr)
 

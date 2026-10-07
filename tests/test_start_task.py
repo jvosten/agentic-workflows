@@ -62,10 +62,51 @@ def test_rejects_bad_input(configured, args, message):
         start_task.run(load(), *args)
 
 
-def test_requires_main(configured):
-    git("checkout", "-q", "-b", "elsewhere", cwd=configured)
-    with pytest.raises(AwError, match="expected 'main'"):
-        start_task.run(load(), "feat", "x", None)
+def push_to_origin(tmp_path, name):
+    """A commit on origin's main from another clone, which the local main does not have yet."""
+    other = tmp_path / "other"
+    if not other.exists():
+        git("clone", "-q", str(tmp_path / "origin.git"), str(other), cwd=tmp_path)
+    git("pull", "-q", cwd=other)
+    (other / name).write_text(f"{name}\n")
+    git("add", ".", cwd=other)
+    git("commit", "-qm", name, cwd=other)
+    git("push", "-q", "origin", "main", cwd=other)
+
+
+def test_starts_while_the_primary_checkout_is_on_another_branch(configured, tmp_path):
+    git("checkout", "-q", "-b", "look-around", cwd=configured)
+    push_to_origin(tmp_path, "upstream.txt")
+    out = start_task.run(load(), "feat", "x", None)
+    assert (tmp_path / "wt/s1-x/upstream.txt").is_file()  # the session starts from origin's main
+    assert git("branch", "--show-current", cwd=configured) == "look-around"
+    assert git("rev-parse", "main", cwd=configured) == git("rev-parse", "origin/main", cwd=configured)
+    assert out["branch"].startswith("feat/x-")
+
+
+def test_main_checked_out_in_another_worktree_is_merged_there(configured, tmp_path):
+    git("checkout", "-q", "-b", "look-around", cwd=configured)
+    holder = tmp_path / "holder"
+    git("worktree", "add", "-q", str(holder), "main", cwd=configured)
+    push_to_origin(tmp_path, "upstream.txt")
+    start_task.run(load(), "feat", "x", None)
+    assert (holder / "upstream.txt").is_file()  # that checkout's files follow the moved branch
+    assert git("status", "--porcelain", cwd=holder) == ""
+
+
+def test_local_main_ahead_stays_and_a_diverged_main_fails(configured, tmp_path):
+    (configured / "local.txt").write_text("x\n")
+    git("add", "local.txt", cwd=configured)
+    git("commit", "-qm", "local", cwd=configured)
+    ahead = git("rev-parse", "main", cwd=configured)
+    start_task.run(load(), "feat", "x", None)
+    assert git("rev-parse", "main", cwd=configured) == ahead
+
+    git("checkout", "-q", "-b", "look-around", cwd=configured)
+    push_to_origin(tmp_path, "upstream.txt")
+    with pytest.raises(AwError, match="main and origin/main have diverged"):
+        start_task.run(load(), "feat", "y", None)
+    assert git("rev-parse", "main", cwd=configured) == ahead
 
 
 def test_existing_branch(configured):

@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from aw import backlog, forge, rollup, trackers
-from aw.config import AwError, Config, git
+from aw.config import AwError, Config, fast_forward, git
 
 PREFIX = {"github": "#", "gitlab": "!"}
 
@@ -81,11 +81,10 @@ def _merged_by_hand(root: Path, main: str, branch: str) -> None:
 
 
 def _update_main(root: Path, main: str, log: list[str]) -> None:
-    if git("branch", "--show-current", cwd=root) == main:
-        git("pull", "--ff-only", "--quiet", "origin", main, cwd=root)
-        log.append(f"updated {main}")
-    else:
-        log.append(f"warning: {root} is not on {main}; not pulled")
+    try:
+        log.append(fast_forward(root, main))
+    except AwError as e:  # the merge happened; a stale local main is for the user to sort out
+        log.append(f"warning: {main} not updated: {e}")
 
 
 def _on_merge(cfg: Config, meta: dict[str, Any], pr: str, final: bool, log: list[str]) -> None:

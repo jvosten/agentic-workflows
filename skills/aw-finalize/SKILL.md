@@ -118,7 +118,7 @@ Then ask whether to merge, and wait for an explicit go ("merge", "go", "yes"). W
 ~/.agents/bin/aw finish      # the branch's open request; forge = none: after the manual merge
 ```
 
-It merges the branch's open request with `merge_method` (a request you merged on the forge yourself counts as that merge; it skips the merge when nothing is left after checkpoints), moves the issue to done where a closing keyword does not (`sync_issue_status`) and runs `on_issue_status`, removes the worktree, updates `main_branch` in the primary checkout, runs `on_merge`, and deletes the local and remote branch. It refuses on uncommitted or unpushed work, and while the backlog inbox holds items.
+It merges the branch's open request with `merge_method` (a request you merged on the forge yourself counts as that merge; it skips the merge when nothing is left after checkpoints), moves the issue to done where a closing keyword does not (`sync_issue_status`) and runs `on_issue_status`, removes the worktree, fast-forwards the local `main_branch` (whatever the primary checkout has checked out), runs `on_merge`, and deletes the local and remote branch. It refuses on uncommitted or unpushed work, and while the backlog inbox holds items.
 
 The user said yes to closing the parent story at the gate → `~/.agents/bin/aw finish --close-parent`: after the issue, it moves the story to done and comments with its children. It leaves the story open with a warning when something still keeps it open; report that. No yes, `merge_gate = auto`, or a gate that did not apply → never pass it; `aw finish` then prints whether the story can close.
 

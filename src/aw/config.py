@@ -43,6 +43,42 @@ def git(*args: str, cwd: Path | str | None = None) -> str:
     return r.stdout.strip()
 
 
+def fast_forward(root: Path, branch: str) -> str:
+    """Bring the local branch up to origin's, whatever the primary checkout has checked out.
+
+    Where the branch is checked out (the primary checkout or any worktree), a fast-forward merge there keeps
+    that checkout's files in step; elsewhere only the ref moves. A branch ahead of origin stays; one that
+    diverged fails, never moves back.
+    """
+    git("fetch", "--quiet", "origin", branch, cwd=root)
+    ref, upstream = f"refs/heads/{branch}", f"refs/remotes/origin/{branch}"
+    where = None
+    for block in git("worktree", "list", "--porcelain", cwd=root).split("\n\n"):
+        lines = block.splitlines()
+        if f"branch {ref}" in lines:
+            where = lines[0].removeprefix("worktree ")
+    if where:
+        try:
+            git("merge", "--ff-only", "--quiet", upstream, cwd=where)
+        except AwError as e:  # uncommitted changes the update would overwrite; git touched nothing
+            raise AwError(f"cannot update {branch} in {where}: commit or stash the changes there, then retry\n{e}") \
+                from None
+        return f"updated {branch} in {where}"
+    local, remote = git("rev-parse", ref, cwd=root), git("rev-parse", upstream, cwd=root)
+    if local == remote:
+        return f"{branch} up to date"
+    if _is_ancestor(root, local, remote):
+        git("update-ref", ref, remote, local, cwd=root)
+        return f"updated {branch}"
+    if _is_ancestor(root, remote, local):
+        return f"{branch} is ahead of origin/{branch}; left as it is"
+    raise AwError(f"{branch} and origin/{branch} have diverged; reconcile them in {root} first")
+
+
+def _is_ancestor(root: Path, older: str, newer: str) -> bool:
+    return subprocess.run(["git", "merge-base", "--is-ancestor", older, newer], cwd=root, check=False).returncode == 0
+
+
 def repo_root(cwd: Path | str | None = None) -> Path:
     """Primary checkout of the repo, also when called from a linked worktree."""
     try:
