@@ -109,10 +109,9 @@ def run(cfg: Config, kind: str, slug: str, issue: str | None, number: int | None
         except AwError as e:
             print(f"warning: parent status not updated: {e}", file=sys.stderr)
 
-    hook = cfg.get("on_issue_start", **ph)
-    if issue and hook:
+    if hook := cfg.get("on_start", **ph):
         r = subprocess.run(hook, shell=True, cwd=worktree, stdout=sys.stderr, check=False)
         if r.returncode:
-            print(f"warning: on_issue_start exited {r.returncode}", file=sys.stderr)
+            print(f"warning: on_start exited {r.returncode}", file=sys.stderr)
 
     return {"session": str(n), "branch": branch, "worktree": str(worktree), "issue": issue}

@@ -139,7 +139,11 @@ def run(assume_yes: bool, sets: list[str]) -> Report:
     root = checkout_root()
     path = root / PROJECT_FILE
     existing = read_toml(path) if path.is_file() else {}
-    warnings = [f"dropped unknown key {key!r}" for key in existing if key != "aw_version" and key not in schema]
+    renamed = full.get("renamed", {})
+    warnings = [f"renamed {old!r} to {new!r}" for old, new in renamed.items() if old in existing]
+    existing = {renamed.get(key, key): value for key, value in existing.items()
+                if not (key in renamed and renamed[key] in existing)}
+    warnings += [f"dropped unknown key {key!r}" for key in existing if key != "aw_version" and key not in schema]
 
     overrides: dict[str, Any] = {}
     for item in sets:

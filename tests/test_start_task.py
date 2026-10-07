@@ -1,4 +1,5 @@
 from datetime import date
+from pathlib import Path
 
 import pytest
 
@@ -11,7 +12,7 @@ def configured(repo, tmp_path):
     (repo / ".agents").mkdir()
     (repo / ".agents/aw.toml").write_text(
         f'worktree_root = "{tmp_path}/wt"\n'
-        'on_issue_start = "echo hook-{issue} > hook.txt"\n'
+        'on_start = "echo hook-{issue} > hook.txt"\n'
     )
     return repo
 
@@ -35,7 +36,8 @@ def test_numbering_hook_and_output(configured, tmp_path):
 
 def test_counter_survives_removed_worktrees(configured):
     first = start_task.run(load(), "docs", "one", None)
-    git("worktree", "remove", first["worktree"], cwd=configured)
+    assert (Path(first["worktree"]) / "hook.txt").read_text() == "hook-\n"  # on_start runs without an issue too
+    git("worktree", "remove", "--force", first["worktree"], cwd=configured)
     assert start_task.run(load(), "docs", "two", None)["session"] == "2"
 
 

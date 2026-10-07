@@ -7,11 +7,15 @@
 # default: fallback when nothing else sets the key
 #
 # Placeholders, expanded when read: {project} {repo_parent} everywhere;
-# {type} {slug} {n} {date} {issue} in branch_name, worktree_name, on_issue_start;
+# {type} {slug} {n} {date} {issue} in branch_name, worktree_name, on_start ({issue} empty without one);
 # {issue} {status} {status_name} in on_issue_status; {pr} {final} {issue} {slug} {type} {date} in on_merge.
 # {n} is the session number, counted per clone and never committed.
 
 version = 1
+
+# Old key = new key. Config files that still use the old name keep working; aw init rewrites them.
+[renamed]
+on_issue_start = "on_start"
 
 [keys.main_branch]
 type = "str"
@@ -226,10 +230,10 @@ type = "str"
 default = "s{n}-{slug}"
 help = "Worktree directory name pattern"
 
-[keys.on_issue_start]
+[keys.on_start]
 type = "str"
 default = ""
-help = "Shell command run in the new worktree when a session starts from an issue"
+help = "Shell command run in the new worktree after every session start, e.g. worktree setup: direnv exec . uv sync"
 
 [keys.on_merge]
 type = "str"

@@ -148,6 +148,7 @@ class Config:
     sources: dict[str, str] = field(default_factory=dict)
     file_version: int | None = None
     unknown: list[tuple[str, str]] = field(default_factory=list)
+    renamed: list[tuple[str, str, str]] = field(default_factory=list)  # layer, old key, new key
 
     @property
     def project(self) -> str:
@@ -171,7 +172,7 @@ def read_toml(path: Path) -> dict[str, Any]:
 
 def load(cwd: Path | str | None = None) -> Config:
     full = load_schema()
-    schema = full["keys"]
+    schema, renamed = full["keys"], full.get("renamed", {})
     cfg = Config(root=repo_root(cwd), checkout=checkout_root(cwd), schema=schema)
     for key, spec in schema.items():
         cfg.values[key] = spec["default"]
@@ -191,6 +192,11 @@ def load(cwd: Path | str | None = None) -> Config:
         for key, value in data.items():
             if key == "aw_version":
                 continue
+            if key in renamed:
+                cfg.renamed.append((layer, key, renamed[key]))
+                if renamed[key] in data:  # the new name, set in the same file, wins
+                    continue
+                key = renamed[key]
             if key not in schema:
                 cfg.unknown.append((layer, key))
                 continue

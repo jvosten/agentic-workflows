@@ -235,6 +235,47 @@ Deferred features and open checks. Each entry has enough context to be picked up
 
 **Done when:** `aw doctor` names a story whose children are all closed, on GitHub and Jira, covered by recorded-response tests.
 
+---
+
+### [MEDIUM] Stacked branches: start a session on a pending branch
+
+**Context:** The start-task skill of an earlier project (before `aw`) had `--base <branch>`: a session forked from a branch whose merge request was still in review, so dependent work did not wait for the merge. `aw start-task` always branches from `main_branch`, and `aw mr create` and `aw finish` assume `main_branch` as the target. Work that builds on an unmerged change has to wait, or is cut from `main` and conflicts later.
+
+**Scope:**
+- `aw start-task <type> <slug> --base <branch>`: fetch the base, create the worktree from `origin/<base>`, and record the base in the session metadata (the old skill used `git config branch.<branch>.stacked-on <base>`; the session file is the `aw` place for it).
+- `aw mr create` targets the base branch while it is unmerged, and `main_branch` once it has merged.
+- The base updated while the stacked session runs: rebase onto `origin/<base>`, through `aw` or as documented skill steps.
+- The base merged first: rebase onto `origin/<main_branch>` (`push --force-with-lease`) and retarget the open merge request to `main_branch`. With squash or rebase merges, the base's commits are in main under other ids, so a plain rebase replays them; decide between `rebase --onto` and the reset `aw merge` already does.
+- The stacked branch ready first: merge it into the base, so both land together.
+- `aw finish` and `aw merge` know the target: the base, or main once the base has merged. `aw-start-task`, `aw-checkpoint`, `aw-finalize` and `aw-merge-request` name the base wherever they say `main_branch` now.
+- Out of scope unless needed: stacks deeper than two.
+
+**Open first:** whether `aw` does the rebase and retarget itself, or detects that the base merged and tells the agent the steps; and how GitHub and GitLab differ when the base branch is deleted after its merge (GitHub retargets the open pull request to main automatically, GitLab does not).
+
+**Done when:** a session started with `--base` opens its merge request against the base, survives the base merging first (rebased, retargeted, merged into `main_branch` by `aw finish`) and the stacked branch merging first, covered by tests for both paths.
+
+---
+
+### [MEDIUM] Project additions to skills
+
+**Context:** Skills are installed once per machine (`~/.agents/skills`, linked into `~/.claude/skills`) and shared by every project. A project that wants a skill to behave a little differently can only set config keys, write a hook, or fork the whole skill. A forked copy drifts from `aw`: skills are tightly bound to the CLI (commands, flags, `allowed-tools`), so a copy breaks silently when `aw` changes, and every fix has to be carried into every repo. An earlier project's `start-task` shows the cost: a per-project copy with hardcoded paths and dev commands. Discussed 2026-10-07 together with the `on_start` hook.
+
+**Where each kind of change belongs:**
+- Mechanical steps that must always run (worktree setup: `direnv allow`, `uv sync`, `tofu init`) → hooks (`on_start`, `on_merge`, `on_issue_status`). They are deterministic and run without an agent.
+- Rules for the whole project → `instructions_file` (`AGENTS.md`).
+- Steps that need judgment at one point of one skill (for example "for changes under `infra/`, run `tofu plan` and put the summary in the merge request" in `aw-finalize`, or "read `docs/scheduler.md` before touching the scheduler" in `aw-start-task`) → project additions, this item.
+
+**Scope:**
+- An optional file per skill in the repo, e.g. `.agents/skills/<skill-name>.md` (decide the path; it must not look like a skill directory that agents load on their own).
+- Each skill reads its addition at a defined point and follows it as part of that step. The addition can add steps and tighten rules; it cannot remove the skill's guards (merge gate, no tracker writes without a go).
+- One place in each skill that loads it, worded the same everywhere, e.g. after loading settings: `aw skill addition <name>` prints the file, or nothing.
+- `aw doctor` lists the additions a project has, and flags one for a skill that does not exist.
+- README: when to use a hook, the instructions file, or an addition.
+
+**Open first:** whether additions are per step (a heading per skill step, inserted there) or per skill (read once at the start), and whether a full override (a project copy that shadows the global skill) is ever needed, with `aw doctor` reporting drift; that is related to [Vendor skills into a repo](#medium-vendor-skills-into-a-repo).
+
+**Done when:** a project adds a step to `aw-finalize` and a rule to `aw-start-task` through addition files, both are followed in a real session, and the global skills stay unchanged.
+
 ## Considered and not planned
 
 - **Personas and multi-agent roles** (BMAD), **spec-driven phases** (spec-kit), **label-based handoff queues** (zaks-io): full methods of their own; out of scope for a session-workflow standard.

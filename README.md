@@ -223,7 +223,7 @@ How states, boards and the hook fit together on each tracker: [docs/boards.md](d
 | `aw install [--agent claude] [-v]` | Link skills into `~/.agents/skills` and agent dirs, CLI into `~/.agents/bin/aw` |
 | `aw init [-y] [--set K=V] [-v]` | Create or update `.agents/aw.toml`; reports what changed, `-v` every value and where it came from |
 | `aw config [--get KEY] [--sources]` | Print resolved configuration |
-| `aw start-task <type> <slug> [--issue N] [--number N]` | Fast-forward the local main (the primary checkout may be on any branch), pick session number, create branch + worktree from main, direnv, issue hook |
+| `aw start-task <type> <slug> [--issue N] [--number N]` | Fast-forward the local main (the primary checkout may be on any branch), pick session number, create branch + worktree from main, direnv, `on_start` |
 | `aw session` | Print the current worktree's session metadata |
 | `aw verify` | Run `verify_cmd` in the current checkout (through direnv if enabled) |
 | `aw merge [--pr N]` | Merge one part; the branch catches up with main, worktree and issue stay, `on_merge` runs |

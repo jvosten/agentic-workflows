@@ -3,7 +3,7 @@ import tomllib
 import pytest
 
 from aw import init
-from aw.config import AwError
+from aw.config import AwError, load
 
 
 def read(repo):
@@ -29,11 +29,11 @@ def test_detects_defaults(repo):
 
 
 def test_rerun_keeps_answers_and_set_overrides(repo):
-    init.run(True, ["plan_dir=docs/plans", "on_issue_start=echo {issue}"])
+    init.run(True, ["plan_dir=docs/plans", "on_start=echo {issue}"])
     init.run(True, ["direnv=yes"])
     data = read(repo)
     assert data["plan_dir"] == "docs/plans"
-    assert data["on_issue_start"] == "echo {issue}"
+    assert data["on_start"] == "echo {issue}"
     assert data["direnv"] is True
     assert (repo / ".agents/.gitignore").read_text() == "aw.local.toml\ngotchas-experiment.log\n"
 
@@ -126,3 +126,16 @@ def test_init_reports_what_it_wrote(repo, capsys):
     rows = {line.split()[0]: line.split()[1:] for line in capsys.readouterr().out.splitlines()[2:]}
     assert rows["verify_cmd"] == ["make", "test", "kept"]
     assert rows["changelog_file"] == ["CHANGELOG.md", "kept"]
+
+
+def test_a_renamed_key_keeps_working_and_init_rewrites_it(repo):
+    (repo / ".agents").mkdir()
+    (repo / ".agents/aw.toml").write_text('aw_version = 1\non_issue_start = "make setup"\n')
+    cfg = load()
+    assert cfg.get("on_start") == "make setup" and cfg.renamed == [("project", "on_issue_start", "on_start")]
+    assert cfg.unknown == []
+    report = init.run(True, [])
+    assert "renamed 'on_issue_start' to 'on_start'" in report.warnings
+    data = read(repo)
+    assert data["on_start"] == "make setup" and "on_issue_start" not in data
+    assert load().renamed == []
