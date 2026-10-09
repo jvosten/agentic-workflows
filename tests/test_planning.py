@@ -122,3 +122,14 @@ def test_plan_state_reports_plan_and_subtasks(repo, capsys, monkeypatch):
     monkeypatch.setattr(Jira, "children", lambda self, i: [trackers.Row("PROJ-13"), trackers.Row("PROJ-14")])
     assert cli.main(["plan", "state", "proj-12"]) == 0
     assert capsys.readouterr().out == f"issue=PROJ-12\nplan={plan}\nsubtasks=PROJ-13 PROJ-14\n"
+
+
+def test_plan_state_of_a_story_under_an_epic_stays_on_the_story(repo, capsys, monkeypatch):
+    project(repo, 'plan_dir = "docs/planning"\n')
+    (repo / "docs/planning").mkdir(parents=True)
+    (repo / "docs/planning/PROJ-1-the-epic.md").write_text("# epic plan\n")
+    epic = trackers.Row("PROJ-1", type="Epic", link="native")
+    monkeypatch.setattr(Jira, "parent", lambda self, i: epic)
+    monkeypatch.setattr(Jira, "children", lambda self, i: [trackers.Row("PROJ-13")] if i == "PROJ-12" else [])
+    assert cli.main(["plan", "state", "proj-12"]) == 0
+    assert capsys.readouterr().out == "issue=PROJ-12\nplan=none\nsubtasks=PROJ-13\n"

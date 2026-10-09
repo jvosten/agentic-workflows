@@ -57,7 +57,7 @@ def owner(cfg: Config, tracker: Tracker, ref: str) -> tuple[str, Path | None]:
     found = find(cfg, issue)
     if found is None and tracker.name != "none":
         parent = tracker.parent(issue)
-        if parent:
+        if parent and not tracker.is_epic(parent):
             return parent.id, find(cfg, parent.id)
     return issue, found
 
