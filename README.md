@@ -214,7 +214,7 @@ How states, boards and the hook fit together on each tracker: [docs/boards.md](d
 
 **Hook:** `on_issue_status` runs after every status change (`aw issue set-status`, session start, `aw finish`) with `{issue}`, `{status}` (canonical) and `{status_name}` (from `status_map`), for anything beyond the board: a notification, a board on another system. A failing hook makes `set-status` exit non-zero; at session start and finish it is a warning.
 
-**Jira setup:** `aw init` asks for `jira_base_url` and `jira_project` when `tracker = jira`. Credentials come from the environment only: `JIRA_USER_EMAIL`, `JIRA_API_TOKEN`, and optionally `JIRA_CLOUD_ID` for scoped tokens (routes through `api.atlassian.com`). Instance-specific fields go into `jira_fields`, e.g. `aw init --set jira_fields=acceptance_criteria=customfield_10000`. `aw doctor` checks that the variables are set, never their values, and calls `/myself`.
+**Jira setup:** `aw init` asks for `jira_base_url` and `jira_project` when `tracker = jira`. Credentials come from the environment only: `JIRA_USER_EMAIL`, `JIRA_API_TOKEN`, and optionally `JIRA_CLOUD_ID` for scoped tokens (routes through `api.atlassian.com`). Instance-specific fields go into `jira_fields`, e.g. `aw init --set jira_fields=acceptance_criteria=customfield_10000`. `aw doctor` checks that the variables are set, never their values, and runs a one-issue search.
 
 ## Commands
 

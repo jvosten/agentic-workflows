@@ -247,7 +247,7 @@ def check_jira(cfg) -> list[Result]:
         results.append(("warn", "jira_project is not set; aw issue list and create need it"))
     if all(r[0] != "fail" for r in results):
         try:
-            trackers.get(cfg).request("GET", "/rest/api/3/myself")
+            trackers.get(cfg).request("GET", "/rest/api/3/search/jql", {"jql": "created >= -1d", "maxResults": 1, "fields": "summary"})
             results.append(("ok", "jira authenticated"))
         except Exception as e:  # noqa: BLE001 - any failure is a doctor finding
             results.append(("fail", f"jira: {e}"))

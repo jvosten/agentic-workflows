@@ -664,6 +664,18 @@ def test_doctor_jira_reports_missing_env_by_name(repo):
     assert results == {"JIRA_USER_EMAIL is not set": "fail", "JIRA_API_TOKEN is not set": "fail"}
 
 
+def test_doctor_jira_probes_search_not_myself(repo, monkeypatch):
+    from aw import doctor
+
+    jira_cfg(repo)
+    monkeypatch.setenv("JIRA_USER_EMAIL", "a@b.c")
+    monkeypatch.setenv("JIRA_API_TOKEN", "x")
+    paths = []
+    monkeypatch.setattr(Jira, "request", lambda self, method, path, *a, **k: paths.append(path) or {})
+    assert ("ok", "jira authenticated") in doctor.check_jira(load())
+    assert paths == ["/rest/api/3/search/jql"]
+
+
 # --- GitHub Projects board -------------------------------------------------------
 
 BOARD = {"repositoryOwner": {"projectV2": {
