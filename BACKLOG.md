@@ -276,6 +276,61 @@ Deferred features and open checks. Each entry has enough context to be picked up
 
 **Done when:** a project adds a step to `aw-finalize` and a rule to `aw-start-task` through addition files, both are followed in a real session, and the global skills stay unchanged.
 
+---
+
+### [LOW] Backlog skill shows story descriptions when picking a parent
+
+**Context:** `aw-backlog-item` step 5 picks the parent for a new tracker item from `aw issue children` output. That output has type and title only, so the model matches an item to a story by title alone. A story with a vague title can attract the wrong item.
+
+**Problem:** a wrong parent hides the item from the team that owns the story, and moving it later costs a `set-parent` round trip.
+
+**Scope:**
+
+- In step 5, after the numbered list, run `aw issue view <id>` for the two or three candidates that best match the item.
+- Show each candidate's description (trimmed) with the list, and base the recommendation on it.
+- Skip the views when the tree has fewer than three candidates or the user names the parent.
+- Update the skill text only; `aw issue view` already returns the description.
+
+**Acceptance criteria:**
+
+- The skill lists the exact `aw issue view` calls in `allowed-tools` (already present) and in step 5.
+- For an epic with many stories, the shown candidates include description text.
+- No `aw` code change is needed.
+
+**Effort:** small, one skill edit.
+
+---
+
+### [LOW] Plan resolution tests for epic parents
+
+**Context:** `plan.owner()` now skips an epic parent (`tracker.is_epic`), so `aw plan state` on a story under an epic returns the story. One regression test covers the Jira path with an `Epic`-typed parent (`tests/test_planning.py`). `is_epic` itself is tested for case-insensitive types and Jira hierarchy levels in `tests/test_trackers.py`, and rollup diagnostics in `tests/test_rollup.py`. `architecture-review-20261009-141333.html` lists the planning cases below as untested.
+
+**Scope:**
+- A subtask with a text-linked, non-epic parent still resolves to that parent's plan.
+- A story under an epic that has its own plan file returns its own plan.
+- A GitHub board parent without a column counts as an epic through `plan state`.
+- Optional: lowercase `epic` type and a Jira hierarchy-level parent, both through `plan state`.
+
+**Done when:** each case above has a test that fails without the `is_epic` guard in `owner()`, or that pins existing behavior.
+
+**Effort:** small; fakes exist in `tests/test_planning.py` and `tests/test_trackers.py`.
+
+---
+
+### [LOW] Configurable story size limit in aw-plan-story
+
+**Context:** Feedback from a real run. `skills/aw-plan-story/SKILL.md` (step 3) calls a story epic-sized when it has "more than about five session-sized slices". The rule fired on a plan with six sections whose last ones were small (docs, contract). A count treats a small slice like a large one.
+
+**Scope:**
+- Option A: add `max_story_sections` to `aw.toml` (`schema.toml`, default 5) and have the skill read it from `aw config`.
+- Option B: weight sections by size (small, medium, large) and compare the total to a limit.
+- Decide between A and B; A is the smaller change. Update the skill text and README to match.
+- Keep the other two epic-sized rules (more than one deployable outcome, two personas) unchanged.
+
+**Done when:** a project can raise the limit in `aw.toml`, and `aw-plan-story` uses it, or small sections no longer trigger the split on their own.
+
+**Effort:** small for A; medium for B (a size field in the plan template).
+
 ## Considered and not planned
 
 - **Personas and multi-agent roles** (BMAD), **spec-driven phases** (spec-kit), **label-based handoff queues** (zaks-io): full methods of their own; out of scope for a session-workflow standard.
