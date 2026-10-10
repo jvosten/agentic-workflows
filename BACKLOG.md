@@ -27,10 +27,9 @@ Deferred features and open checks. Each entry has enough context to be picked up
 
 ### [LOW] Project memory follow-ups
 
-**Context:** `aw memory add|supersede`, the two files under `memory_dir`, the `aw-remember` skill and the `aw-plan-story` / `aw-finalize` / `aw-start-task` hooks are in. What was scoped and not built:
+**Context:** project memory as one file per entry under `memory_dir`, `aw memory add|find|show|supersede`, the `aw-remember` skill and the `aw-plan-story` / `aw-finalize` / `aw-start-task` hooks are in. What was scoped and not built:
 
 - `aw init` adds a pointer to `memory_dir` in `instructions_file`, so a model that never loads a skill still finds it.
-- `.gitattributes` `merge=union` for both files, so two sessions appending in parallel merge without a conflict.
 - Option: `autoMemoryEnabled: false` in Claude Code project settings, so Claude keeps one project memory, not two.
 - Personal memory stays in each agent's native store; only project memory is committed. Confirm this split survives contact with a real multi-session week.
 
@@ -74,18 +73,6 @@ Deferred features and open checks. Each entry has enough context to be picked up
 
 **Scope:** keys `decision_dir` (or `decision_log` for a single-file log) and `glossary_file`; the skill reads them from `aw config` before writing. Keep the upstream text otherwise, so updates from mattpocock/skills stay easy to merge.
 
-### [MEDIUM] Schema migrations
-
-**Context:** From copier's answers file. `aw init` already asks new questions on re-run and warns about unknown keys, but a renamed or retyped key would drop the old value silently.
-
-**Scope:** a migrations list in `schema.toml` (`{from_version, rename, retype}`); `aw init` applies them and bumps `aw_version`; `aw doctor` points at them.
-
-### [MEDIUM] Vendor skills into a repo
-
-**Context:** From zaks-io/skills. CI agents (e.g. review bots in GitHub Actions) and cloud sessions have no `~/.agents`.
-
-**Scope:** `aw init --vendor` copies skills into `<repo>/.agents/skills` (Codex) and `.claude/skills` (Claude), pinned to an aw version; `aw doctor` reports drift from the installed version. Skills then need a path to `aw` that works without `~/.agents/bin` — decide (`uvx`, vendored script, or skip deterministic steps in CI).
-
 ### [MEDIUM] aw-setup skill
 
 **Context:** From zaks-io `ziw-setup`. Detection in `aw init` is static (files, remote URL, Make targets). An agent can inspect CI config, `package.json` scripts, or docs and propose better values.
@@ -114,17 +101,11 @@ Deferred features and open checks. Each entry has enough context to be picked up
 
 **Scope, if wanted:** a `--copy` install mode for Claude that renders `model:` from the user or local layer.
 
-### [LOW] More install targets and copy mode
+### [LOW] More install targets
 
-**Context:** From vercel `npx skills` (symlink or copy, `--agent` targets). Only `claude` needs links today. Windows and some sync tools handle symlinks badly.
+**Context:** From vercel `npx skills` (`--agent` targets). Only `claude` needs links today; agents that read `~/.agents/skills` natively need none.
 
-**Scope:** `--copy` mode with a marker file so `aw install` can safely replace its own copies; add agents to `AGENT_DIRS` as needed.
-
-### [LOW] Non-editable install and publishing
-
-**Context:** `pyproject.toml` force-includes `skills/` into the wheel as `aw/_skills`, and `install.skills_source()` falls back to it, but only the editable install is tested.
-
-**Scope:** test `uv tool install git+<url>`; check that `npx skills add <repo>` finds the skills (layout is spec-compliant).
+**Scope:** add agents to `AGENT_DIRS` as they need their own skill directory.
 
 ### [MEDIUM] Changelog fragments for shared repos
 
@@ -272,7 +253,7 @@ Deferred features and open checks. Each entry has enough context to be picked up
 - `aw doctor` lists the additions a project has, and flags one for a skill that does not exist.
 - README: when to use a hook, the instructions file, or an addition.
 
-**Open first:** whether additions are per step (a heading per skill step, inserted there) or per skill (read once at the start), and whether a full override (a project copy that shadows the global skill) is ever needed, with `aw doctor` reporting drift; that is related to [Vendor skills into a repo](#medium-vendor-skills-into-a-repo).
+**Open first:** whether additions are per step (a heading per skill step, inserted there) or per skill (read once at the start), and whether a full override (a project copy that shadows the global skill) is ever needed, with `aw doctor` reporting drift; that is related to vendoring the skills into a project (copies pinned to an `aw` version).
 
 **Done when:** a project adds a step to `aw-finalize` and a rule to `aw-start-task` through addition files, both are followed in a real session, and the global skills stay unchanged.
 
@@ -298,22 +279,6 @@ Deferred features and open checks. Each entry has enough context to be picked up
 - No `aw` code change is needed.
 
 **Effort:** small, one skill edit.
-
----
-
-### [LOW] Plan resolution tests for epic parents
-
-**Context:** `plan.owner()` now skips an epic parent (`tracker.is_epic`), so `aw plan state` on a story under an epic returns the story. One regression test covers the Jira path with an `Epic`-typed parent (`tests/test_planning.py`). `is_epic` itself is tested for case-insensitive types and Jira hierarchy levels in `tests/test_trackers.py`, and rollup diagnostics in `tests/test_rollup.py`. `architecture-review-20261009-141333.html` lists the planning cases below as untested.
-
-**Scope:**
-- A subtask with a text-linked, non-epic parent still resolves to that parent's plan.
-- A story under an epic that has its own plan file returns its own plan.
-- A GitHub board parent without a column counts as an epic through `plan state`.
-- Optional: lowercase `epic` type and a Jira hierarchy-level parent, both through `plan state`.
-
-**Done when:** each case above has a test that fails without the `is_epic` guard in `owner()`, or that pins existing behavior.
-
-**Effort:** small; fakes exist in `tests/test_planning.py` and `tests/test_trackers.py`.
 
 ---
 

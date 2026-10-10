@@ -1,0 +1,11 @@
+aw_version = 1
+main_branch = "main"
+forge = "none"
+tracker = "none"
+instructions_file = "AGENTS.md"
+direnv = false
+verify_cmd = "make check"
+changelog_file = "CHANGELOG.md"
+merge_method = "merge"
+merge_gate = "approve"
+plan_scope = "local"
