@@ -141,52 +141,6 @@ This repo's own hardening plan hit the second set right after it was written (20
 
 **Done when:** one home is the default, chosen against these cases (second machine, re-clone, sandbox, finished plan), and `aw` supports it end to end.
 
-### [MEDIUM] Republish the repo with a clean author history
-
-**Context:** Four commits on `main` (`02118ae` to `0089b86`) were made under a work identity instead of `jvo <21955156+jvosten@users.noreply.github.com>`. Only commit metadata carries it; no file in any commit mentions it, and this item does not name it either, so it never lands in a file. A rewrite plus force-push is not enough: GitHub keeps the commits of every pull request for good (PR #6 is built on top of the four), so the old commits stay reachable until the repository is recreated. Do this before the repo goes public.
-
-**Steps:**
-
-1. Find the identity to replace: `git log --all --format='%an <%ae> | %cn <%ce>' | sort | uniq -c`.
-2. Start from a clean, current `main` with nothing unmerged worth keeping: `git switch main && git pull --ff-only`.
-3. Rewrite every ref, keeping the commit dates:
-
-   ```bash
-   export OLD_EMAIL='<work email from step 1>'
-   export NEW_NAME='jvo' NEW_EMAIL='21955156+jvosten@users.noreply.github.com'
-   git filter-branch -f --env-filter '
-     if [ "$GIT_AUTHOR_EMAIL" = "$OLD_EMAIL" ]; then
-       export GIT_AUTHOR_NAME="$NEW_NAME" GIT_AUTHOR_EMAIL="$NEW_EMAIL"
-     fi
-     if [ "$GIT_COMMITTER_EMAIL" = "$OLD_EMAIL" ]; then
-       export GIT_COMMITTER_NAME="$NEW_NAME" GIT_COMMITTER_EMAIL="$NEW_EMAIL"
-     fi' -- --all
-   ```
-
-4. Check: step 1 again shows only the personal identity.
-5. Drop the old commits locally:
-
-   ```bash
-   git for-each-ref --format='%(refname)' refs/original | xargs -rn1 git update-ref -d
-   git reflog expire --expire=now --all && git gc --prune=now
-   ```
-
-6. Recreate the GitHub repo. First note what lives only there (issues, pull requests, settings, secrets); everything goes with the delete.
-
-   ```bash
-   gh auth refresh -s delete_repo
-   gh repo delete jvosten/agentic-workflows --yes
-   gh repo create jvosten/agentic-workflows --private --source . --remote origin
-   git push -u origin main && git push origin --tags
-   ```
-
-7. Re-clone every other checkout. Pushing from an old clone would bring the old commits back.
-8. Keep it from happening again: `git config user.email '21955156+jvosten@users.noreply.github.com'` in each clone, or an `includeIf "gitdir:~/projects/"` block in `~/.gitconfig` that sets the personal identity.
-
-**Done when:** a fresh clone shows only the personal identity in `git log --all`, and the GitHub repo has no pull request that references the old commits.
-
----
-
 ### [MEDIUM] Jira status checks in aw doctor
 
 **Context:** On GitHub with `github_project`, `aw doctor` checks that every board column `aw` uses exists. On Jira it checks only credentials, the `/myself` login and `jira_project`. A `status_map` entry that names no status in the project's workflow surfaces only when it is used: `set-status` fails with "no transition to 'Backlog' (available: …)". The likely first hit: a new Jira issue starts in the workflow's initial status (often "To Do"), and `aw-backlog-item` then runs `aw issue set-status <id> backlog`, which looks for a status named "Backlog". Settle the details once Jira is tested live (see [Verify v1 in live agent sessions](#high-verify-v1-in-live-agent-sessions)).
