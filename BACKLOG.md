@@ -123,17 +123,23 @@ Deferred features and open checks. Each entry has enough context to be picked up
 
 **Context:** From agent-issue-tracker. Set the agent session title to `<slug> (#issue)` so parallel sessions are distinguishable. Claude Code hook; other agents vary.
 
-### [LOW] Mark finished plans as history
+### [MEDIUM] Where plans live, and when they stop being current
 
-**Context:** With `plan_scope = repo`, plans stay in `.agents/plans/` after their story is done. A later session that finds one cannot tell a live plan from a finished one, and may read old steps as current requirements. [encephalon](https://github.com/isaachinman/encephalon) keeps its old plans and specs for the record but marks them as history, "not current requirements".
+**Context:** `plan_scope` offers two homes, and each has a cost that surfaced in practice:
+- `repo` (committed): finished plans stay in `.agents/plans/`; a later session cannot tell a live plan from a finished one and may read old steps as current requirements. [encephalon](https://github.com/isaachinman/encephalon) keeps old plans but marks them as history, "not current requirements".
+- `local` (gitignored, primary checkout): the plan exists on one machine in one clone. Another machine never sees it, a re-clone (e.g. a history rewrite and republish) loses it unless copied by hand, and a sandboxed session with a fresh clone has no plan at all.
 
-**Scope:**
+This repo's own hardening plan hit the second set right after it was written (2026-10-10).
 
-- `aw-finalize`, when the merged work closes the last subtask of a story, sets the plan's `**Status:**` line to `done` and adds the merge date, in the same PR.
-- `aw plan state` reports the status; `aw-plan` routes a `done` plan to "nothing pending" instead of offering to cut subtasks.
-- Plans are not moved or deleted; the path that subtasks and comments cite keeps working.
+**Options to weigh:**
+- `repo` plus a lifecycle: `aw-finalize` sets `**Status:** done` and the merge date when the story's last subtask closes; `aw plan state` reports it; `aw-plan` treats `done` as finished; plans are not moved or deleted, so cited paths keep working.
+- A dedicated branch for plans (e.g. an orphan `aw-plans` branch): versioned and pushed, so every clone and sandbox can fetch it, but never part of `main`'s tree or its reviews.
+- The tracker: the plan as the story's description or an attached document; needs a tracker.
+- A plans directory outside the repo, keyed by project: survives re-clones, but is machine-bound and depends on `$HOME`, which conflicts with sandboxed sessions.
 
-**Done when:** a finished story's plan reads `Status: done` without a manual edit, and `aw-plan` treats it as finished.
+**Open first:** whether plans need review in pull requests at all, and how a sandboxed session receives its plan.
+
+**Done when:** one home is the default, chosen against these cases (second machine, re-clone, sandbox, finished plan), and `aw` supports it end to end.
 
 ### [MEDIUM] Republish the repo with a clean author history
 

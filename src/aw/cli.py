@@ -353,6 +353,11 @@ def _finish(args: argparse.Namespace) -> None:
         print(line)
 
 
+def _abandon(args: argparse.Namespace) -> None:
+    for line in finish.abandon(load(), session.read(), args.discard, args.status):
+        print(line)
+
+
 def _merge(args: argparse.Namespace) -> None:
     for line in finish.merge(load(), session.read(), args.pr):
         print(line)
@@ -686,6 +691,13 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--close-parent", action="store_true",
                    help="also close the issue's parent story, unless another child or a plan section keeps it open")
     s.set_defaults(func=_finish)
+
+    s = sub.add_parser("abandon", help="end the session without a merge: issue back, worktree and branch removed")
+    s.add_argument("--discard", action="store_true",
+                   help="also drop uncommitted changes and commits main lacks (refused without it)")
+    s.add_argument("--status", choices=["backlog", "ready"], default="backlog",
+                   help="where an issue in progress goes back to (default: backlog)")
+    s.set_defaults(func=_abandon)
 
     s = sub.add_parser("doctor", help="check installation and project configuration")
     s.add_argument("-v", "--verbose", action="store_true", help="list passing checks too, not only problems")

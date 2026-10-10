@@ -176,6 +176,8 @@ Later layers win. `aw config --sources` shows which layer set each value. All ke
 
 A session is one worktree on one branch, from `aw start-task` to `aw finish`, and implements one subtask: one vertical slice that is verifiable on its own. Its number is counted per clone (`.git/aw-last-session`) and never committed. It names the worktree and nothing else, so in a shared repo nobody's numbers collide. Session metadata (branch, worktree, issue) lives in the worktree's private git dir and disappears with it.
 
+A session that should not land (parked, or superseded) ends with `aw abandon`, never with `aw finish`: on a branch without changes, `aw finish` takes the nothing-left path and closes the issue.
+
 The committed record of a session is its pull request and its changelog entry. Projects moving from their own numbering start once with `aw start-task ... --number N`; the counter continues from there.
 
 ## Issue trackers
@@ -228,6 +230,7 @@ How states, boards and the hook fit together on each tracker: [docs/boards.md](d
 | `aw verify` | Run `verify_cmd` in the current checkout (through direnv if enabled) |
 | `aw merge [--pr N]` | Merge one part; the branch catches up with main, worktree and issue stay, `on_merge` runs |
 | `aw finish [--pr N] [--close-parent]` | Last merge with `merge_method` (skipped when nothing is left), remove worktree, update main, delete local + remote branch; `--close-parent` also closes the parent story (see [Parent rollup](#issue-trackers)) |
+| `aw abandon [--discard] [--status backlog\|ready]` | End the session without a merge: an issue still in progress goes back (default backlog), worktree and branch (also on origin) are removed; refuses while the branch holds work main lacks or has an open merge request, unless `--discard` drops that work |
 | `aw issue view\|children\|list\|search\|create\|update\|set-parent\|comment\|set-status\|rollup\|ref\|pr-text` | Tracker operations; see [Issue trackers](#issue-trackers) |
 | `aw plan path <ref> [--slug S]` | Plan file of a story or subtask (subtask: through its parent); `--slug` composes the path to write |
 | `aw plan state <ref>` | What exists for the issue: plan file, subtasks |

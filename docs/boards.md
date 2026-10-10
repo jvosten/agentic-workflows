@@ -29,6 +29,7 @@ status_map = { backlog = "To Do", in_review = "Code Review" }
 | `aw issue set-status <id> <status>` | any | no: someone chose that state |
 | `aw start-task … --issue <id>` | `in_progress` | yes |
 | `aw finish` | `done` | no: merged work is done, from any state |
+| `aw abandon` | `backlog`, or `--status ready` | yes: only an issue still in progress goes back |
 | `aw start-task … --issue <subtask>` | parent story `in_progress` | yes, like the subtask |
 | `aw finish --close-parent`, `aw issue rollup <subtask> --close` | parent story `done` | refuses while a child is open or a plan section has no subtask |
 | `aw issue create` | `backlog`, or `--status` | GitHub with a board: the column (`--status none`: on the board without one, e.g. an epic). Jira: transitions right after the create when `--status` is given. Elsewhere the tracker's own default applies |

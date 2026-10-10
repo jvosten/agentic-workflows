@@ -2,6 +2,7 @@
 
 aw merge   one merge of a multi-merge session: the branch catches up with main and the session goes on
 aw finish  the last merge (or none, when every change already went through aw merge), then cleanup
+aw abandon end the session without a merge: the issue goes back, worktree and branch go
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from typing import Any
 
 from aw import backlog, forge, rollup, trackers
 from aw.config import AwError, Config, fast_forward, git
+from aw.trackers import canonical
 
 PREFIX = {"github": "#", "gitlab": "!"}
 
@@ -202,4 +204,54 @@ def run(cfg: Config, meta: dict[str, Any], pr: str | None, close_parent: bool = 
         git("push", "--quiet", "origin", "--delete", branch, cwd=root)
         log.append(f"deleted origin/{branch}")
     git("remote", "prune", "origin", cwd=root)
+    return log
+
+
+def abandon(cfg: Config, meta: dict[str, Any], discard: bool = False, status: str = "backlog") -> list[str]:
+    """End a session without merging: the issue goes back to status, the worktree and branch are removed.
+
+    Work that exists only on this branch (uncommitted changes, commits main lacks, locally or on origin) is
+    never dropped silently: it refuses unless discard. An open merge request is never left dangling.
+    """
+    root, main, branch = cfg.root, cfg.get("main_branch"), meta["branch"]
+    worktree, kind = Path(meta["worktree"]), cfg.get("forge")
+    git("fetch", "--quiet", "origin", main, cwd=worktree)
+    remote = bool(git("ls-remote", "--heads", "origin", branch, cwd=root))
+    if remote:
+        git("fetch", "--quiet", "origin", branch, cwd=worktree)
+    heads = ["HEAD", *([f"origin/{branch}"] if remote else [])]
+    ahead = int(git("rev-list", "--count", *heads, "--not", f"origin/{main}", cwd=worktree))
+    dirty = bool(git("status", "--porcelain", cwd=worktree))
+    if (ahead or dirty) and not discard:
+        what = " and ".join(filter(None, (f"{ahead} commit(s) {main} lacks" if ahead else "",
+                                          "uncommitted changes" if dirty else "")))
+        raise AwError(f"{branch} has {what}; pass --discard to drop them, or keep the session")
+    if kind != "none" and (request := forge.find_open(kind, branch, worktree)):
+        raise AwError(f"{branch} has an open merge request {PREFIX[kind]}{request.number}; close it first")
+
+    log: list[str] = []
+    if kind != "none" and (parts := forge.merged(kind, branch, worktree)):
+        log.append(f"note: {len(parts)} part(s) of this session are already in {main}")
+    issue = meta.get("issue")
+    tracker = trackers.get(cfg)
+    if issue and cfg.get("sync_issue_status") and tracker.has_states():
+        try:  # the start moved it to in progress; anything else someone chose, so it stays
+            current = tracker.current_status(issue)
+            if current is None or canonical(cfg, current) != "in_progress":
+                log.append(f"{tracker.ref(issue)} stays at {current or 'no status'}: "
+                           "only an issue in progress goes back")
+            else:
+                log.append(tracker.set_status(issue, status))
+                if hook := trackers.status_hook(cfg, issue, status):
+                    log.append(hook)
+        except AwError as e:
+            log.append(f"warning: issue status not updated: {e}")
+
+    if remote:
+        git("push", "--quiet", "origin", "--delete", branch, cwd=root)
+        log.append(f"deleted origin/{branch}")
+    git("worktree", "remove", *(["--force"] if dirty else []), str(worktree), cwd=root)
+    log.append(f"removed {worktree}")
+    git("branch", "-D", branch, cwd=root)
+    log.append(f"deleted branch {branch}")
     return log
