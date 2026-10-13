@@ -11,8 +11,8 @@ from dataclasses import asdict
 from pathlib import Path
 
 from aw import (
-    __version__, backlog, doctor, finish, forge, init, install, memory, plan, rollup, session, start_task, templates,
-    trackers, ui,
+    __version__, backlog, doctor, finish, forge, init, install, memory, plan, restack, rollup, session, start_task,
+    templates, trackers, ui,
 )
 from aw.config import PROJECT_FILE, AwError, git, load, toml_value
 from aw.trackers import STATUSES
@@ -33,7 +33,7 @@ def _config(args: argparse.Namespace) -> None:
 
 
 def _start_task(args: argparse.Namespace) -> None:
-    for key, value in start_task.run(load(), args.type, args.slug, args.issue, args.number).items():
+    for key, value in start_task.run(load(), args.type, args.slug, args.issue, args.number, args.base).items():
         print(f"{key}={value}")
 
 
@@ -162,6 +162,14 @@ def _issue_lines(cfg, body: str, part: int | None, earlier: list[str]) -> list[s
     return lines
 
 
+def _target(cfg) -> str:
+    """The session's base while it is stacked, else main_branch."""
+    try:
+        return session.read().get("base") or cfg.get("main_branch")
+    except AwError:
+        return cfg.get("main_branch")
+
+
 def _mr(args: argparse.Namespace) -> int:
     cfg = load()
     kind = cfg.get("forge")
@@ -174,12 +182,13 @@ def _mr(args: argparse.Namespace) -> int:
         if branch == cfg.get("main_branch"):
             raise AwError(f"on {branch}: create the merge request from the session branch")
         body = _body(args.body_file)
+        target = _target(cfg)
         done = [f"{mark}{r.number}" for r in forge.merged(kind, branch, cwd)]
         part = len(done) + 1 if args.part else None
         if lines := _issue_lines(cfg, body, part, done):
             body = body.rstrip() + "\n\n" + "\n".join(lines) + "\n"
         if args.dry_run:
-            print(f"DRY RUN ({kind}): {branch} → {cfg.get('main_branch')} title={args.title!r} draft={args.draft}"
+            print(f"DRY RUN ({kind}): {branch} → {target} title={args.title!r} draft={args.draft}"
                   + (f" part={part}" if part else ""))
             print(body, end="" if body.endswith("\n") else "\n")
             return 0
@@ -192,7 +201,7 @@ def _mr(args: argparse.Namespace) -> int:
         if existing := forge.find_open(kind, branch, cwd):
             print(f"{mark}{existing.number} already open: {existing.url} (aw mr update changes it)")
             return 0
-        made = forge.create(kind, branch, cfg.get("main_branch"), args.title, body, args.draft, cwd)
+        made = forge.create(kind, branch, target, args.title, body, args.draft, cwd)
         print(f"{mark}{made.number} {made.url}")
     elif args.op == "update":
         body = _body(args.body_file) if args.body_file else None
@@ -361,6 +370,17 @@ def _abandon(args: argparse.Namespace) -> None:
 def _merge(args: argparse.Namespace) -> None:
     for line in finish.merge(load(), session.read(), args.pr):
         print(line)
+
+
+def _restack(args: argparse.Namespace) -> int:
+    result = restack.run(load(), session.read(), args.dry_run)
+    if args.json:
+        data = {k: v for k, v in asdict(result).items() if k != "log"}
+        print(json.dumps(data | {"summary": result.summary}, indent=2))
+    else:
+        for line in [*result.log, result.summary]:
+            print(line)
+    return 1 if result.state == "conflict" else 0
 
 
 def _init(args: argparse.Namespace) -> None:
@@ -534,6 +554,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("slug")
     s.add_argument("--issue")
     s.add_argument("--number", type=int, help="session number (default: next in this clone)")
+    s.add_argument("--base", help="start on this pending branch instead of main_branch (a stacked session)")
     s.set_defaults(func=_start_task)
 
     s = sub.add_parser("issue", help="issue tracker operations (tracker from config)")
@@ -599,7 +620,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("mr", aliases=["pr"], help="merge/pull request operations (forge from config)")
     mr_ops = s.add_subparsers(dest="op", required=True)
-    o = mr_ops.add_parser("create", help="open a merge request for the current branch against main_branch")
+    o = mr_ops.add_parser("create", help="open a merge request for the current branch against main_branch, "
+                          "or a stacked session's base")
     o.add_argument("--title", required=True)
     o.add_argument("--body-file", required=True, help="Markdown file, or - for stdin")
     o.add_argument("--draft", action="store_true")
@@ -685,6 +707,11 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("merge", help="merge one part of the session; the branch catches up with main and goes on")
     s.add_argument("--pr", help="merge request number (default: the branch's open one; forge = none: after a manual merge)")
     s.set_defaults(func=_merge)
+
+    s = sub.add_parser("restack", help="stacked session: rebase onto the base's tip, or onto main once it merged")
+    s.add_argument("--dry-run", action="store_true", help="show the rebase without running it")
+    s.add_argument("--json", action="store_true", help="the result as JSON")
+    s.set_defaults(func=_restack)
 
     s = sub.add_parser("finish", help="last merge (skipped when nothing is left), remove the worktree, delete the branch")
     s.add_argument("--pr", help="merge request number (default: the branch's open one; forge = none: after a manual merge)")

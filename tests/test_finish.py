@@ -212,3 +212,25 @@ def test_finish_updates_main_while_the_primary_checkout_is_on_another_branch(sta
     assert "updated main" in log
     assert git("rev-parse", "main", cwd=repo) == git("rev-parse", "origin/main", cwd=repo)
     assert git("branch", "--show-current", cwd=repo) == "look-around"
+
+
+def stack_on(started, monkeypatch):
+    monkeypatch.setenv("AW_FORGE", "github")
+    return start_task.run(load(), "feat", "next", None, base=started["branch"])
+
+
+def test_merge_and_finish_refuse_in_a_stacked_session(started, monkeypatch):
+    out = stack_on(started, monkeypatch)
+    monkeypatch.chdir(out["worktree"])
+    for end in (lambda: finish.merge(load(), session.read(), None), lambda: finish.run(load(), session.read(), None)):
+        with pytest.raises(AwError, match=r"stacked on .*; run `aw restack`"):
+            end()
+
+
+def test_merge_warns_about_sessions_stacked_on_the_branch(started, repo, monkeypatch):
+    out = stack_on(started, monkeypatch)
+    monkeypatch.delenv("AW_FORGE")
+    monkeypatch.chdir(started["worktree"])
+    merge_by_hand(repo, started["branch"])
+    log = finish.merge(load(), session.read(), None)
+    assert f"warning: {out['branch']} is stacked on {started['branch']}; run `aw restack` in {out['worktree']}" in log

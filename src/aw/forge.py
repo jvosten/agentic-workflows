@@ -133,6 +133,24 @@ def head(kind: str, ref: str, cwd: Path) -> str:
     raise _unsupported(kind)
 
 
+def target(kind: str, ref: str, cwd: Path) -> str:
+    """The branch the request merges into."""
+    if kind == "github":
+        return _json(["gh", "pr", "view", ref, "--json", "baseRefName"], cwd)["baseRefName"]
+    if kind == "gitlab":
+        return _json(["glab", "mr", "view", ref, "--output", "json"], cwd)["target_branch"]
+    raise _unsupported(kind)
+
+
+def retarget(kind: str, ref: str, branch: str, cwd: Path) -> None:
+    if kind == "github":
+        _run(["gh", "pr", "edit", ref, "--base", branch], cwd)
+    elif kind == "gitlab":
+        _run(["glab", "mr", "update", ref, "--target-branch", branch], cwd)
+    else:
+        raise _unsupported(kind)
+
+
 def create(kind: str, branch: str, base: str, title: str, body: str, draft: bool, cwd: Path) -> MergeRequest:
     if kind == "github":
         args = ["gh", "pr", "create", "--head", branch, "--base", base, "--title", title, "--body-file", "-"]
