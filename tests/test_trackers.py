@@ -1166,3 +1166,14 @@ def test_jira_rollup_reads_every_page_of_children(repo, monkeypatch):
     monkeypatch.setattr(tracker, "request", request)
     result = rollup.check(load(), tracker, "PROJ-12")
     assert rollup.report(tracker, "PROJ-12", result) == "PROJ-1 stays open: PROJ-300 open"
+
+
+def test_hook_placeholders_arrive_as_one_argument_each(repo, tmp_path):
+    (repo / ".agents").mkdir(exist_ok=True)
+    (repo / ".agents/aw.toml").write_text(
+        f"on_issue_status = \"printf '%s|' {{issue}} {{status_name}} > {tmp_path}/args\"\n"
+        f'status_map = {{ in_progress = "In Progress; touch {tmp_path}/injected" }}\n'
+    )
+    trackers.status_hook(load(), "12", "in_progress")
+    assert (tmp_path / "args").read_text() == f"12|In Progress; touch {tmp_path}/injected|"
+    assert not (tmp_path / "injected").exists()

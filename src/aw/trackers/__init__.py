@@ -215,7 +215,7 @@ def status_hook(cfg: Config, issue: str, status: str) -> str | None:
     """Run on_issue_status after a status change, e.g. to move the issue on a project board."""
     if not cfg.values["on_issue_status"]:
         return None
-    cmd = cfg.get("on_issue_status", issue=issue, status=status, status_name=status_name(cfg, status))
+    cmd = cfg.command("on_issue_status", issue=issue, status=status, status_name=status_name(cfg, status))
     r = subprocess.run(cmd, shell=True, cwd=cfg.checkout, stdout=sys.stderr, check=False)  # noqa: S602 - hooks are shell commands the user configured
     if r.returncode:
         raise AwError(f"on_issue_status exited {r.returncode}: {cmd}")

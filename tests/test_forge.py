@@ -256,7 +256,8 @@ def test_github_comments_and_view(repo, monkeypatch, capsys):
     )
     assert cli.main(["mr", "view", "5"]) == 0
     assert capsys.readouterr().out == (
-        "#5 feat: retries\nhttps://x/pull/5\nstate    open · mergeable: mergeable\nchecks   1 passed\n"
+        "#5 feat: retries\nhttps://x/pull/5\nstate    open · mergeable: mergeable\ncloses   nothing\n"
+        "checks   1 passed\n"
         "review   changes requested · 1 unresolved thread\ndiff     3 files · +40 −2\n"
     )
 
@@ -371,3 +372,98 @@ def test_gitlab_jobs_and_discussions_are_read_from_every_page(repo, monkeypatch)
     checks = forge.checks("gitlab", "9", repo)
     assert len(checks) == 21 and ("late", "fail") in [(c.name, c.bucket) for c in checks]
     assert fake.calls[-1][:3] == ["glab", "api", "--paginate"]
+
+
+# --- what a request closes -------------------------------------------------------------
+
+
+def test_the_closing_line_needs_a_closing_phrase_for_exactly_this_issue(branch, tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(session, "read", lambda: {"issue": "12"})
+    body = tmp_path / "body.md"
+    for text, appended in (
+        ("Follow-up to #123.\n", True),  # #12 is not #123
+        ("See #12 for the background.\n", True),  # a mention closes nothing
+        ("Closes #12 already.\n", False),
+        ("fixed: #12\n", False),
+    ):
+        body.write_text(text)
+        assert cli.main(["mr", "create", "--title", "t", "--body-file", str(body), "--dry-run"]) == 0
+        assert capsys.readouterr().out.endswith("\nFixes #12\n") is appended, text
+
+
+def test_update_keeps_the_closing_line_or_the_part_reference(branch, tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(session, "read", lambda: {"issue": "12"})
+    sent = []
+    monkeypatch.setattr(forge, "update", lambda kind, ref, title, text, cwd: sent.append(text))
+    monkeypatch.setattr(forge, "closes", lambda kind, ref, cwd: ["12"])
+    body = tmp_path / "body.md"
+    body.write_text("## Summary\n\nRewritten.\n")
+    monkeypatch.setattr(forge, "body", lambda kind, ref, cwd: "Old.\n\nFixes #12\n")
+    assert cli.main(["mr", "update", "--body-file", str(body)]) == 0
+    assert sent[-1].endswith("Rewritten.\n\nFixes #12\n")
+
+    monkeypatch.setattr(forge, "body", lambda kind, ref, cwd: "Old.\n\nRefs #12 (part 2)\n")
+    monkeypatch.setattr(forge, "closes", lambda kind, ref, cwd: [])
+    assert cli.main(["mr", "update", "--body-file", str(body)]) == 0
+    assert sent[-1].endswith("Rewritten.\n\nRefs #12 (part 2)\n") and "Fixes" not in sent[-1]
+
+
+def test_create_and_update_check_what_the_request_closes(branch, tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(session, "read", lambda: {"issue": "12"})
+    git("push", "-qu", "origin", "feat/retries", cwd=branch)
+    monkeypatch.setattr(forge, "find_open", lambda kind, b, cwd: None)
+    monkeypatch.setattr(forge, "create", lambda *a: forge.MergeRequest("8", "https://x/pull/8"))
+    body = tmp_path / "body.md"
+    body.write_text("Closed: #162, with a comment.\n")
+    closes = {"now": ["12", "162"]}
+    monkeypatch.setattr(forge, "closes", lambda kind, ref, cwd: closes["now"])
+    assert cli.main(["mr", "create", "--title", "t", "--body-file", str(body)]) == 0
+    captured = capsys.readouterr()
+    assert captured.out.startswith("#8 https://x/pull/8\n")
+    assert "warning: #8 also closes #162; reword the phrase that names it" in captured.err
+
+    closes["now"] = ["162"]
+    monkeypatch.setattr(forge, "body", lambda kind, ref, cwd: "Old.\n")
+    monkeypatch.setattr(forge, "update", lambda *a: None)
+    assert cli.main(["mr", "update", "8", "--body-file", str(body)]) == 1
+    assert "8 does not close #12" in capsys.readouterr().err
+
+
+def test_view_shows_what_the_request_closes(repo, monkeypatch, capsys):
+    project(repo, 'forge = "github"\n')
+    view = {
+        "number": 5,
+        "url": "https://x/pull/5",
+        "title": "fix: retries",
+        "state": "OPEN",
+        "isDraft": False,
+        "reviewDecision": "",
+        "changedFiles": 1,
+        "additions": 1,
+        "deletions": 0,
+        "mergeable": "MERGEABLE",
+        "closingIssuesReferences": [{"number": 12}, {"number": 162}],
+    }
+    empty = {"data": {"repository": {"pullRequest": {"reviewThreads": {"nodes": []}, "comments": {"nodes": []}}}}}
+    fake = FakeProcess(
+        {
+            ("gh", "api", "graphql"): (0, json.dumps(empty), ""),
+            ("gh", "pr", "view"): (0, json.dumps(view), ""),
+            ("gh", "pr", "checks"): (0, "[]", ""),
+        }
+    )
+    monkeypatch.setattr(forge.subprocess, "run", fake)
+    assert cli.main(["mr", "view", "5"]) == 0
+    assert "\ncloses   #12, #162\n" in capsys.readouterr().out
+
+
+def test_a_missing_forge_tool_is_an_aw_error(repo, tmp_path, monkeypatch):
+    monkeypatch.setenv("PATH", str(tmp_path / "nothing-here"))
+    for call in (
+        lambda: forge.is_merged("github", "1", repo),
+        lambda: forge.checks("github", "1", repo),
+        lambda: forge.create("github", "b", "main", "t", "body", False, repo),
+        lambda: forge.update("github", "1", "t", "body", repo),
+    ):
+        with pytest.raises(AwError, match="gh not found"):
+            call()

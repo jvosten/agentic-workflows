@@ -61,6 +61,7 @@ Fill the template following [Sections](#sections). Do not add the issue's closin
 - Stacked session: the request targets the base; the dry run shows it as `<branch> → <base>`. Say in the description that it builds on the base's merge request.
 - `--draft` when the rules ask for it, or the work is not ready for review.
 - `already open` → this branch has a merge request. Show the old and new description and update it on a go: `~/.agents/bin/aw mr update --title "<title>" --body-file -` (`--dry-run` first).
+- After create and update, `aw` reads what the request will close. `does not close <issue>` (an error; the request exists) → add the closing line with `aw mr update`. `also closes #N` (a warning) → reword the phrase that names #N (`Closed: #N` counts as a closing keyword), then `aw mr update`.
 - Print the merge request link.
 
 ## Sections

@@ -13,6 +13,9 @@ from aw.config import PROJECT_FILE, AwError, Config, load, load_schema, repo_roo
 from aw.trackers.github import GitHub
 from aw.trackers.jira import CREDENTIALS, Jira
 
+# A quoted string with a placeholder in it, "text {x}": the migration only rewrites a placeholder quoted alone.
+QUOTED_TEXT_WITH_PLACEHOLDER = re.compile(r"""(["'])[^"']*\{\w+\}[^"']*\1""")
+
 NAME = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 TRACKER_CLI = {"github": "gh", "gitlab": "glab"}
 
@@ -122,7 +125,9 @@ def check_config(cfg: Config) -> list[Result]:
     else:
         results.append(("ok", f"{PROJECT_FILE}: aw_version {current}"))
     results += [("warn", f"{layer}: unknown key {key!r}") for layer, key in cfg.unknown]
-    results += [("warn", f"{layer}: {old!r} is now {new!r}; `aw init` renames it") for layer, old, new in cfg.renamed]
+    for layer, note in cfg.migrated:
+        fix = "`aw init` applies it" if layer == "project" else "edit that file"
+        results.append(("warn", f"{layer}: pending migration {note}; {fix}"))
     untracked = [
         name
         for name in (PROJECT_FILE, ".agents/.gitignore")
@@ -145,6 +150,14 @@ def check_config(cfg: Config) -> list[Result]:
     for hook in ("on_start", "on_issue_status", "on_merge"):
         if cfg.values[hook]:
             results.append(("ok", f"hook {hook}: {cfg.values[hook]}"))
+        if QUOTED_TEXT_WITH_PLACEHOLDER.search(cfg.values[hook]):
+            results.append(
+                (
+                    "warn",
+                    f"{hook}: a placeholder inside quotes; aw quotes placeholder values itself, so the quotes "
+                    "become part of the value. Move the placeholder out of the quoted text",
+                )
+            )
 
     results.append(
         ("ok", f"instructions_file {cfg.get('instructions_file')}")
@@ -249,6 +262,11 @@ def check_memory(cfg: Config) -> list[Result]:
                 + (f" and {len(unknown) - 5} more" if len(unknown) > 5 else ""),
             )
         )
+    kinds: dict[str, set[str]] = {}
+    for e in every:
+        kinds.setdefault(e.slug, set()).add(e.kind)
+    if clashes := sorted(slug for slug, held in kinds.items() if len(held) > 1):
+        results.append(("fail", f"memory: slugs used by a decision and a gotcha: {', '.join(clashes)}"))
     dangling = [e.slug for e in every if e.superseded_by and e.superseded_by not in slugs]
     if dangling:
         results.append(("fail", f"memory: superseded_by points nowhere in {', '.join(dangling)}"))

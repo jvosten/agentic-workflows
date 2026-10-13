@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import subprocess
 import tomllib
 from dataclasses import dataclass, field
@@ -158,7 +159,7 @@ class Config:
     sources: dict[str, str] = field(default_factory=dict)
     file_version: int | None = None
     unknown: list[tuple[str, str]] = field(default_factory=list)
-    renamed: list[tuple[str, str, str]] = field(default_factory=list)  # layer, old key, new key
+    migrated: list[tuple[str, str]] = field(default_factory=list)  # layer, note: migrations applied in memory only
 
     @property
     def project(self) -> str:
@@ -167,6 +168,11 @@ class Config:
     def get(self, key: str, **placeholders: str) -> Any:
         value = self.values[key]
         return self.expand(value, **placeholders) if isinstance(value, str) else value
+
+    def command(self, key: str, **placeholders: str) -> str:
+        """A hook's shell command: every placeholder value shell-quoted, so each arrives as one argument."""
+        base = {"project": self.project, "repo_parent": str(self.root.parent)}
+        return expand(self.values[key], {k: shlex.quote(v) for k, v in (base | placeholders).items()})
 
     def expand(self, template: str, **placeholders: str) -> str:
         base = {"project": self.project, "repo_parent": str(self.root.parent)}
@@ -180,9 +186,39 @@ def read_toml(path: Path) -> dict[str, Any]:
         raise AwError(f"{path}: {e}") from None
 
 
+QUOTED_PLACEHOLDER = re.compile(r"""(["'])(\{\w+\})\1""")  # "{x}" or '{x}' in a hook
+
+
+def migrate(data: dict[str, Any], migrations: list[dict[str, Any]]) -> tuple[dict[str, Any], list[str]]:
+    """One config file's data with the pending migrations applied, and a note for each one applied.
+
+    A step renames a key (optionally rewriting its value), or unquotes placeholders in hooks. A new key already set
+    in the same file wins over a renamed old one: the old one is dropped.
+    """
+    data, notes = dict(data), []
+    for step in migrations:
+        if "unquote" in step:
+            for key in step["unquote"]:
+                value = data.get(key)
+                if isinstance(value, str) and (bare := QUOTED_PLACEHOLDER.sub(r"\2", value)) != value:
+                    data[key] = bare
+                    notes.append(f"{key}: quotes around placeholders removed, {step['note']}")
+            continue
+        old, new = step["rename"], step["to"]
+        if old not in data:
+            continue
+        value = data.pop(old)
+        notes.append(f"{old} → {new}" + (f", {step['note']}" if step.get("note") else ""))
+        if new in data:
+            continue
+        rewrite = step.get("rewrite")
+        data[new] = rewrite.replace("{value}", value) if rewrite and isinstance(value, str) else value
+    return data, notes
+
+
 def load(cwd: Path | str | None = None) -> Config:
     full = load_schema()
-    schema, renamed = full["keys"], full.get("renamed", {})
+    schema, migrations = full["keys"], full.get("migrations", [])
     cfg = Config(root=repo_root(cwd), checkout=checkout_root(cwd), schema=schema)
     for key, spec in schema.items():
         cfg.values[key] = spec["default"]
@@ -196,17 +232,13 @@ def load(cwd: Path | str | None = None) -> Config:
     for layer, path in layers:
         if not path.is_file():
             continue
-        data = read_toml(path)
+        data, notes = migrate(read_toml(path), migrations)
+        cfg.migrated += [(layer, note) for note in notes]
         if layer == "project":
             cfg.file_version = data.get("aw_version")
-        for raw_key, value in data.items():
-            if raw_key == "aw_version":
+        for key, value in data.items():
+            if key == "aw_version":
                 continue
-            key = renamed.get(raw_key, raw_key)
-            if raw_key in renamed:
-                cfg.renamed.append((layer, raw_key, key))
-                if key in data:  # the new name, set in the same file, wins
-                    continue
             if key not in schema:
                 cfg.unknown.append((layer, key))
                 continue

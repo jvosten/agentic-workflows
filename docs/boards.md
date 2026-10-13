@@ -63,7 +63,7 @@ Epics are never moved or closed this way; they carry no status of their own and 
 on_issue_status = "scripts/notify.sh {issue} {status} {status_name}"
 ```
 
-`{status}` is the canonical status, `{status_name}` its `status_map` name. It runs in the current checkout. A failing hook makes `aw issue set-status` exit non-zero; at session start and finish it is a warning, because the session itself succeeded. A guarded start that does not move the issue does not run the hook either.
+`{status}` is the canonical status, `{status_name}` its `status_map` name. `aw` shell-quotes each value, so `In Progress` reaches the script as one argument: write placeholders without quotes. `aw init` removes quotes around a placeholder in older configs, and `aw doctor` warns about a placeholder inside a longer quoted text. It runs in the current checkout. A failing hook makes `aw issue set-status` exit non-zero; at session start and finish it is a warning, because the session itself succeeded. A guarded start that does not move the issue does not run the hook either.
 
 Use it for what `aw` does not do itself: a notification, a board on another system.
 

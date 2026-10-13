@@ -84,16 +84,16 @@ What the project learned is committed under `memory_dir` (default `.agents/memor
 | `decisions/<slug>.md` | What the project settled, and why it won |
 | `tags.toml` | The tag vocabulary: `flux = "Flux CD: kustomizations, HelmReleases"` |
 
-Each file has a small frontmatter (title, tags, status, aliases, date, issue). The slug comes from the title and is the entry's permanent id; numbers from an older numbering live on as aliases (`aw memory show 95`). Titles are claims (`boto3 is pinned below 1.36`): plans list entries by title alone. Entries are retired, never deleted. Parallel sessions write different files, so they never conflict. A workflow pitfall that bites whatever the tool is not a gotcha but a rule for `instructions_file`.
+Each file has a small frontmatter (title, tags, status, aliases, date, issue). The slug comes from the title and is the entry's permanent id, unique across decisions and gotchas; numbers from an older numbering live on as aliases (`aw memory show 95`). Titles are claims (`boto3 is pinned below 1.36`): plans list entries by title alone. Entries are retired, never deleted. Parallel sessions write different files, so they never conflict. A workflow pitfall that bites whatever the tool is not a gotcha but a rule for `instructions_file`.
 
 | Command | Does |
 |---|---|
-| `aw memory add <gotcha\|decision> --title T --tags a,b --body-file F [--ref ID]` | Writes one entry; unknown tags are refused, and a gotcha needs one |
+| `aw memory add <gotcha\|decision> --title T --tags a,b --body-file F [--ref ID]` | Writes one entry; unknown tags are refused, a gotcha needs one, and a slug taken by either kind is refused |
 | `aw memory find [--kind K] [--tags a,b] [--text terms…] [--compact]` | Entries with any of the tags and all of the terms; `--compact` prints `id · title` |
 | `aw memory show <id\|alias>` | One entry |
 | `aw memory tags [-v]` | The vocabulary with the number of active gotchas per tag |
 | `aw memory supersede <id> --reason R [--by ID]` | Retires an entry |
-| `aw memory import --json F` | Writes entries from JSON lines (`kind`, `title`, `tags`, `aliases`, `date`, `issue`, `body` or `sections`); every line is checked before any file is written |
+| `aw memory import --json F` | Writes entries from JSON lines (`kind`, `title`, `slug`, `tags`, `aliases`, `date`, `issue`, `body` or `sections`); every line is checked before any file is written: a `slug` must look like one made from a title, and an existing entry is never overwritten |
 | `aw memory load [--plan]` | What a session start reads |
 | `aw memory log --relevant IDS --missed IDS` | One line for the gotchas experiment (gitignored) |
 
@@ -128,9 +128,9 @@ Pushing an item to the tracker: `aw issue dupes <backlog_parent> --terms ...` sh
 
 | Command | Does |
 |---|---|
-| `aw mr create --title T --body-file F [--draft] [--dry-run]` | Opens the request from the current branch against `main_branch` (a stacked session: its base); refuses unpushed work; an open request for the branch is reported, never duplicated; appends the issue's closing line (`Fixes #12`) when the body does not reference the issue |
-| `aw mr update [ref] --title T --body-file F` | Replaces title and description |
-| `aw mr view [ref]` | State, CI, review, unresolved threads, files and lines changed: what the merge gate shows |
+| `aw mr create --title T --body-file F [--draft] [--dry-run]` | Opens the request from the current branch against `main_branch` (a stacked session: its base); refuses unpushed work; an open request for the branch is reported, never duplicated; appends the issue's closing line (`Fixes #12`) unless the body already closes exactly that issue (a closing keyword before `#12`; `see #12` or `#123` does not count); then checks what the request will close: the session issue missing is an error, any other issue a warning |
+| `aw mr update [ref] --title T --body-file F` | Replaces title and description; keeps the closing line or the part reference `create` appended, and checks what the request closes, as `create` does |
+| `aw mr view [ref]` | State, the issues it closes, CI, review, unresolved threads, files and lines changed: what the merge gate shows |
 | `aw mr checks [ref] [--watch]` | One line of counts plus the failing and pending checks; `--watch` waits without streaming progress. Exit 0 passed, 1 failed, 2 pending |
 | `aw mr comments [ref]` | Unresolved review threads with file and line, then general comments |
 
@@ -193,6 +193,8 @@ aw doctor
 
 Later layers win. `aw config --sources` shows which layer set each value. All keys, types and help texts are in [`src/aw/schema.toml`](src/aw/schema.toml).
 
+When a key changes shape, `schema.toml` lists a migration (rename, and a rewrite of the value where its meaning changed). A config file in the old shape keeps working: loading applies the migration in memory, `aw doctor` reports it as pending, and `aw init` writes it into `.agents/aw.toml`. Example: `on_issue_start = "make setup"` becomes `on_start = "[ -n {issue} ] && make setup"`, which still runs only when the session has an issue. Since `aw` quotes hook placeholder values itself, a second migration removes quotes written around a placeholder (`sync.sh "{status_name}"` becomes `sync.sh {status_name}`); a placeholder inside a longer quoted text (`"merged {pr}"`) cannot be rewritten safely, and `aw doctor` warns about it until it is moved out of the quotes.
+
 ## Sessions
 
 A session is one worktree on one branch, from `aw start-task` to `aw finish`, and implements one subtask: one vertical slice that is verifiable on its own. Its number is counted per clone (`.git/aw-last-session`) and never committed. It names the worktree and nothing else, so in a shared repo nobody's numbers collide. Session metadata (branch, worktree, issue) lives in the worktree's private git dir and disappears with it.
@@ -235,7 +237,7 @@ How states, boards and the hook fit together on each tracker: [docs/boards.md](d
 - `aw doctor` checks the token's `project` scope (`gh auth refresh -s project`), the board, the field and the columns, and notes board workflows that are off. It never changes board settings; board workflows can only be switched on in the GitHub UI.
 - `status_field` names the field when it is not `Status`. Nothing touches a board without `github_project`.
 
-**Hook:** `on_issue_status` runs after every status change (`aw issue set-status`, session start, `aw finish`) with `{issue}`, `{status}` (canonical) and `{status_name}` (from `status_map`), for anything beyond the board: a notification, a board on another system. A failing hook makes `set-status` exit non-zero; at session start and finish it is a warning.
+**Hook:** `on_issue_status` runs after every status change (`aw issue set-status`, session start, `aw finish`) with `{issue}`, `{status}` (canonical) and `{status_name}` (from `status_map`), for anything beyond the board: a notification, a board on another system. A failing hook makes `set-status` exit non-zero; at session start and finish it is a warning. In every hook (`on_start`, `on_merge`, `on_issue_status`) `aw` shell-quotes each placeholder value, so `In Progress` arrives as one argument and an empty `{issue}` as an empty one: write placeholders without quotes.
 
 **Jira setup:** `aw init` asks for `jira_base_url` and `jira_project` when `tracker = jira`. Credentials come from the environment only: `JIRA_USER_EMAIL`, `JIRA_API_TOKEN`, and optionally `JIRA_CLOUD_ID` for scoped tokens (routes through `api.atlassian.com`). Instance-specific fields go into `jira_fields`, e.g. `aw init --set jira_fields=acceptance_criteria=customfield_10000`. `aw doctor` checks that the variables are set, never their values, and runs a one-issue search.
 
