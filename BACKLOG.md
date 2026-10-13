@@ -184,22 +184,17 @@ This repo's own hardening plan hit the second set right after it was written (20
 
 ---
 
-### [MEDIUM] Stacked branches: start a session on a pending branch
+### [LOW] Stacked sessions: cases not covered
 
-**Context:** The start-task skill of an earlier project (before `aw`) had `--base <branch>`: a session forked from a branch whose merge request was still in review, so dependent work did not wait for the merge. `aw start-task` always branches from `main_branch`, and `aw mr create` and `aw finish` assume `main_branch` as the target. Work that builds on an unmerged change has to wait, or is cut from `main` and conflicts later.
+**Context:** `aw start-task --base` and `aw restack` cover one level of stacking with a forge, for `merge`, `squash` and `rebase` (README "Stacked sessions"). Cut on purpose:
 
-**Scope:**
-- `aw start-task <type> <slug> --base <branch>`: fetch the base, create the worktree from `origin/<base>`, and record the base in the session metadata (the old skill used `git config branch.<branch>.stacked-on <base>`; the session file is the `aw` place for it).
-- `aw mr create` targets the base branch while it is unmerged, and `main_branch` once it has merged.
-- The base updated while the stacked session runs: rebase onto `origin/<base>`, through `aw` or as documented skill steps.
-- The base merged first: rebase onto `origin/<main_branch>` (`push --force-with-lease`) and retarget the open merge request to `main_branch`. With squash or rebase merges, the base's commits are in main under other ids, so a plain rebase replays them; decide between `rebase --onto` and the reset `aw merge` already does.
-- The stacked branch ready first: merge it into the base, so both land together.
-- `aw finish` and `aw merge` know the target: the base, or main once the base has merged. `aw-start-task`, `aw-checkpoint`, `aw-finalize` and `aw-merge-request` name the base wherever they say `main_branch` now.
-- Out of scope unless needed: stacks deeper than two.
+- **Stacked branch ready before its base:** merge the stacked request into the base, so both land together. `aw merge` / `aw finish` refuse in a stacked session today.
+- **Part merges in the base session:** with `squash` or `rebase`, `aw merge` resets the base branch to `main` and deletes `origin/<base>`. The stacked session only gets a warning; whether `aw restack` should then treat the base as merged, or keep following the recreated branch, is open.
+- **`forge = none`:** a squash merged by hand is invisible to git; `--base` refuses.
+- **Stacks deeper than two;** `glab stack` and GitHub equivalents.
+- **Live check:** `gh pr edit --base` and `glab mr update --target-branch` are taken from docs; add to "[HIGH] Verify v1 in live agent sessions".
 
-**Open first:** whether `aw` does the rebase and retarget itself, or detects that the base merged and tells the agent the steps; and how GitHub and GitLab differ when the base branch is deleted after its merge (GitHub retargets the open pull request to main automatically, GitLab does not).
-
-**Done when:** a session started with `--base` opens its merge request against the base, survives the base merging first (rebased, retargeted, merged into `main_branch` by `aw finish`) and the stacked branch merging first, covered by tests for both paths.
+**Done when:** each case is supported with tests, or moved to "Considered and not planned" with the reason.
 
 ---
 
@@ -331,6 +326,53 @@ In every case the entry is in the commits that exist when the PR opens, and the 
 - Existing text-linked trees (`## Items` lists) are still found by `--text-only`.
 
 **Effort:** small. One pattern and its tests in the GitHub adapter.
+
+---
+
+### [MEDIUM] Clear error when gh or glab is missing
+
+**Context:** With `forge = "github"` and no `gh` on the machine, `aw mr create --dry-run` ends in a Python traceback. Found while finalizing the stacked-sessions session (0.2.0).
+
+**Problem:** `forge._run` and `forge._json` call `subprocess.run` without catching `FileNotFoundError`; the tracker adapters already turn it into an error (`trackers/__init__.py`). Agents and users see a stack trace instead of the next step.
+
+**Scope:**
+
+- One place turns a missing `gh` / `glab` into an `AwError`: "gh is not installed; install it and run `gh auth login`" (glab likewise).
+- Reuse the trackers' wording, so both say the same.
+- A test per CLI with the binary absent from PATH (the test fixture already puts failing stand-ins first on PATH; this case needs them absent).
+
+**Acceptance criteria:**
+
+- Any `aw` command that needs `gh` or `glab` exits 1 with that message and no traceback when the binary is missing.
+- `aw doctor` reports the missing CLI for the configured forge and tracker (check whether it already does).
+
+**Effort:** small — one wrapper and its callers.
+
+---
+
+### [MEDIUM] Repo-scoped forge token in aw init
+
+**Context:** `gh auth login` and `glab auth login` default to account-wide tokens: GitHub's OAuth token carries `repo` (every repository the account reaches), GitLab's personal access token with `api` covers every project. `aw` needs far less for one repository: push, merge requests, checks, and issues when the forge is also the tracker. Found while finalizing 0.2.0 in this repo.
+
+**Problem:** Setting up a project with `aw init` never asks how the forge CLI is authenticated, so most users run `aw` with a token that can write everywhere. The safe setup exists on both forges but takes several manual steps in a web UI that nobody remembers.
+
+**Scope:**
+
+- `aw init` (and `aw doctor`) reports the current `gh` / `glab` login and whether it is limited to this repository, without printing any token.
+- An optional step in `aw init` that guides the user to a repository-scoped token and lists the permissions `aw` needs, derived from `forge`, `tracker` and `github_project`:
+  - GitHub: fine-grained personal access token, "Only select repositories" → this repo; Contents RW, Pull requests RW, Commit statuses R, Actions R, Issues RW (tracker `github`), Projects (with `github_project`).
+  - GitLab: project access token (or a personal token with the smallest scopes the project allows); `api` is the narrowest scope `glab mr` works with, so project-level is the limiting factor.
+- It opens or prints the token creation URL with the repository preselected where the forge supports it; the user creates the token and logs in themselves (`gh auth login` / `glab auth login`, paste). `aw` never reads, stores or prints the token.
+- Per-repo login without touching the global one: document `GH_TOKEN` / `GITLAB_TOKEN` from a secret manager in the repo's `.envrc` as the alternative to replacing the CLI's global login.
+- Check which `aw` operations fail under a fine-grained token (e.g. check runs in `gh pr checks`), and list them.
+
+**Acceptance criteria:**
+
+- `aw doctor` says whether the forge login is repository-scoped, account-wide, or unknown, and never prints a token.
+- `aw init` offers the token step with the permission list for the configured forge and tracker, and skips it on request.
+- Every `aw mr` and `aw issue` operation used by the skills works with the suggested token, or the docs name the exception.
+
+**Effort:** medium — no token handling in `aw`, but per-forge permission lists and a live check against both forges.
 
 ## Considered and not planned
 

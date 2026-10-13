@@ -1,6 +1,6 @@
 aw_version = 1
 main_branch = "main"
-forge = "none"
+forge = "github"
 tracker = "none"
 instructions_file = "AGENTS.md"
 direnv = false

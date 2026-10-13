@@ -2,7 +2,7 @@
 name: aw-finalize
 description: Finish an implementation session - document, verify, commit, open the pull request, add the changelog entry, wait for CI, then merge after your approval (or directly with merge_gate = auto) and clean up the worktree. Use only when the user invokes it.
 disable-model-invocation: true
-allowed-tools: Bash(~/.agents/bin/aw session) Bash(~/.agents/bin/aw config) Bash(~/.agents/bin/aw verify) Bash(~/.agents/bin/aw issue ref:*) Bash(~/.agents/bin/aw template mr) Bash(~/.agents/bin/aw mr create:*) Bash(~/.agents/bin/aw mr update:*) Bash(~/.agents/bin/aw mr view:*) Bash(~/.agents/bin/aw mr checks:*) Bash(~/.agents/bin/aw mr comments:*) Bash(~/.agents/bin/aw memory add:*) Bash(~/.agents/bin/aw memory log:*) Bash(~/.agents/bin/aw memory find:*) Bash(~/.agents/bin/aw memory show:*) Bash(~/.agents/bin/aw memory tags:*) Bash(~/.agents/bin/aw backlog add:*) Bash(~/.agents/bin/aw backlog list) Bash(~/.agents/bin/aw backlog pop:*) Bash(~/.agents/bin/aw issue dupes:*) Bash(~/.agents/bin/aw issue children:*) Bash(~/.agents/bin/aw issue create:*) Bash(~/.agents/bin/aw issue set-parent:*) Bash(~/.agents/bin/aw issue set-status:*) Bash(~/.agents/bin/aw issue rollup:*)
+allowed-tools: Bash(~/.agents/bin/aw session) Bash(~/.agents/bin/aw config) Bash(~/.agents/bin/aw verify) Bash(~/.agents/bin/aw issue ref:*) Bash(~/.agents/bin/aw template mr) Bash(~/.agents/bin/aw mr create:*) Bash(~/.agents/bin/aw mr update:*) Bash(~/.agents/bin/aw mr view:*) Bash(~/.agents/bin/aw mr checks:*) Bash(~/.agents/bin/aw mr comments:*) Bash(~/.agents/bin/aw memory add:*) Bash(~/.agents/bin/aw memory log:*) Bash(~/.agents/bin/aw memory find:*) Bash(~/.agents/bin/aw memory show:*) Bash(~/.agents/bin/aw memory tags:*) Bash(~/.agents/bin/aw backlog add:*) Bash(~/.agents/bin/aw backlog list) Bash(~/.agents/bin/aw backlog pop:*) Bash(~/.agents/bin/aw issue dupes:*) Bash(~/.agents/bin/aw issue children:*) Bash(~/.agents/bin/aw issue create:*) Bash(~/.agents/bin/aw issue set-parent:*) Bash(~/.agents/bin/aw issue set-status:*) Bash(~/.agents/bin/aw issue rollup:*) Bash(~/.agents/bin/aw restack:*)
 metadata:
   package: agentic-workflows
 ---
@@ -24,7 +24,7 @@ On error, show it and stop. `session` gives `branch`, `worktree`, `issue`; all p
 
 ## 2. Review the work
 
-- `git -C <worktree> status` and `git -C <worktree> diff <main_branch>...HEAD`.
+- `git -C <worktree> status` and `git -C <worktree> diff <target>...HEAD`. `<target>` is the session's `base` while it is stacked, else `main_branch`.
 - List what changed and why, in a few lines. You need this for docs, the PR, and the changelog.
 - After checkpoints (`/aw-checkpoint`), earlier parts are already in `main`: the diff holds only what came after the last one, and may be empty. Fill only what is missing below; never redo what a part already merged.
 
@@ -78,7 +78,7 @@ Non-zero exit → fix the cause and re-run. Do not continue on a failing check.
 ## 7. Commit and open the merge request
 
 - Commit in logical units, using the project's commit conventions: `contributing_file` (default `CONTRIBUTING.md`) first, then `instructions_file`, else conventional commits. Push with `git -C <worktree> push -u origin <branch>`.
-- Load the `aw-merge-request` skill to write and open the merge request against `main_branch`. It follows the contribution rules and the merge request template, and `aw mr create` adds the issue's closing line.
+- Load the `aw-merge-request` skill to write and open the merge request against `main_branch`, or against the base while the session is stacked. It follows the contribution rules and the merge request template, and `aw mr create` adds the issue's closing line.
 - `forge = none`: no merge request; tell the user to merge by hand.
 - Nothing left to commit after checkpoints → no merge request; go to step 11. `aw finish` sees that nothing is left to merge, skips the merge and the gate does not apply, and closes the issue itself.
 
@@ -113,6 +113,14 @@ Then ask whether to merge, and wait for an explicit go ("merge", "go", "yes"). W
 `merge_gate = auto`: continue without asking.
 
 ## 11. Merge and clean up
+
+Stacked session (`aw session` shows a non-empty `base`) → `aw finish` refuses until the base merged. Base not merged yet → stop and report: the session waits for the base, and `/aw-finalize` resumes here. Base merged:
+
+```bash
+~/.agents/bin/aw restack      # rebases onto main_branch, force-pushes, retargets the merge request, clears base
+```
+
+Tell the user its summary line. A conflict → name the files to the user, resolve them, `git add`, `git rebase --continue`, then `aw restack` again. The push restarts CI: back to step 9, then the gate.
 
 ```bash
 ~/.agents/bin/aw finish      # the branch's open request; forge = none: after the manual merge

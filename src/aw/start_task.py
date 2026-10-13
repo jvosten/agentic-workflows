@@ -54,7 +54,8 @@ def _fill(cfg: Config, key: str, ph: dict[str, str]) -> str:
     return cfg.expand(template, **ph)
 
 
-def run(cfg: Config, kind: str, slug: str, issue: str | None, number: int | None = None) -> dict[str, str]:
+def run(cfg: Config, kind: str, slug: str, issue: str | None, number: int | None = None,
+        base: str | None = None) -> dict[str, str]:
     tracker = trackers.get(cfg)
     issue = tracker.normalize(issue) if issue else ""
     types = cfg.get("branch_types")
@@ -64,6 +65,12 @@ def run(cfg: Config, kind: str, slug: str, issue: str | None, number: int | None
         raise AwError(f"slug must be kebab-case: {slug!r}")
 
     root, main = cfg.root, cfg.get("main_branch")
+    if base and cfg.get("forge") == "none":
+        raise AwError("--base needs a forge: aw restack follows the base through its merge request")
+    if base == main:
+        raise AwError(f"--base {main}: a session already starts from {main}")
+    if base and not git("ls-remote", "--heads", "origin", base, cwd=root):
+        raise AwError(f"origin has no branch {base}; push it first")
     # The worktree starts from the main ref, so the primary checkout may have any branch checked out.
     if "origin" in git("remote", cwd=root).split():
         fast_forward(root, main)
@@ -83,7 +90,11 @@ def run(cfg: Config, kind: str, slug: str, issue: str | None, number: int | None
         raise AwError(f"path exists: {worktree}")
 
     worktree.parent.mkdir(parents=True, exist_ok=True)
-    git("worktree", "add", "--quiet", "-b", branch, str(worktree), main, cwd=root)
+    start = main
+    if base:
+        git("fetch", "--quiet", "origin", base, cwd=root)
+        start = git("rev-parse", f"origin/{base}", cwd=root)
+    git("worktree", "add", "--quiet", "-b", branch, str(worktree), start, cwd=root)
     if not (worktree / PROJECT_FILE).is_file():
         print(f"warning: {PROJECT_FILE} is not committed on {main}, so this worktree has none and aw runs here "
               "with defaults (no tracker, no hooks); commit .agents/ on main", file=sys.stderr)
@@ -91,7 +102,8 @@ def run(cfg: Config, kind: str, slug: str, issue: str | None, number: int | None
     previous = int(counter.read_text()) if counter.is_file() else 0
     counter.write_text(f"{max(n, previous)}\n")
     session.write(worktree, {"session": n, "issue": issue, "type": kind, "slug": slug,
-                             "started": date.today().isoformat()})
+                             "started": date.today().isoformat(),
+                             **({"base": base, "fork_point": start} if base else {})})
 
     if cfg.get("direnv"):
         (worktree / ".envrc").write_text(ENVRC)

@@ -109,6 +109,22 @@ def test_create_never_opens_a_second_request(branch, tmp_path, monkeypatch, caps
     assert capsys.readouterr().out == "#8 https://x/pull/8\n"
 
 
+def test_create_in_a_stacked_session_targets_the_base(branch, tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(session, "read", lambda: {"issue": "", "base": "feat/a"})
+    body = tmp_path / "body.md"
+    body.write_text("x\n")
+    assert cli.main(["mr", "create", "--title", "t", "--body-file", str(body), "--dry-run"]) == 0
+    assert capsys.readouterr().out.startswith("DRY RUN (github): feat/retries → feat/a ")
+
+    git("push", "-qu", "origin", "feat/retries", cwd=branch)
+    targets = []
+    monkeypatch.setattr(forge, "find_open", lambda kind, b, cwd: None)
+    monkeypatch.setattr(forge, "create", lambda kind, b, base, title, text, draft, cwd:
+                        targets.append(base) or forge.MergeRequest("9", "u"))
+    assert cli.main(["mr", "create", "--title", "t", "--body-file", str(body)]) == 0
+    assert targets == ["feat/a"]
+
+
 def test_mr_needs_a_forge(repo, capsys):
     project(repo, 'forge = "none"\n')
     assert cli.main(["mr", "view"]) == 1
@@ -224,3 +240,16 @@ def test_parts_reference_the_issue_without_closing_it(branch, tmp_path, monkeypa
 
     assert cli.main(["mr", "create", "--title", "t", "--body-file", str(body), "--dry-run"]) == 0
     assert capsys.readouterr().out.endswith("Part three.\n\nFixes #12\nEarlier parts: #314, #315\n")
+
+
+@pytest.mark.parametrize("kind, view, answer, edit", [
+    ("github", ("gh", "pr", "view", "5"), {"baseRefName": "feat/a"}, ["gh", "pr", "edit", "5", "--base", "main"]),
+    ("gitlab", ("glab", "mr", "view", "5"), {"target_branch": "feat/a"},
+     ["glab", "mr", "update", "5", "--target-branch", "main"]),
+])
+def test_target_and_retarget(repo, monkeypatch, kind, view, answer, edit):
+    fake = FakeProcess({view: (0, json.dumps(answer), ""), tuple(edit[:3]): (0, "", "")})
+    monkeypatch.setattr(forge.subprocess, "run", fake)
+    assert forge.target(kind, "5", repo) == "feat/a"
+    forge.retarget(kind, "5", "main", repo)
+    assert fake.calls[-1] == edit

@@ -13,7 +13,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from aw import backlog, forge, rollup, trackers
+from aw import backlog, forge, rollup, session, trackers
 from aw.config import AwError, Config, fast_forward, git
 from aw.trackers import canonical
 
@@ -82,6 +82,24 @@ def _merged_by_hand(root: Path, main: str, branch: str) -> None:
         raise AwError(f"{branch} is not merged into origin/{main}; merge it first")
 
 
+def _refuse_stacked(meta: dict[str, Any]) -> None:
+    if base := meta.get("base"):
+        raise AwError(f"{meta['branch']} is stacked on {base}; run `aw restack` once {base} has merged")
+
+
+def _warn_stacked(root: Path, branch: str, log: list[str]) -> None:
+    """Sessions in other worktrees stacked on branch have to restack."""
+    for line in git("worktree", "list", "--porcelain", cwd=root).splitlines():
+        if not line.startswith("worktree "):
+            continue
+        try:
+            other = session.read(line.removeprefix("worktree "))
+        except AwError:
+            continue
+        if other.get("base") == branch:
+            log.append(f"warning: {other['branch']} is stacked on {branch}; run `aw restack` in {other['worktree']}")
+
+
 def _update_main(root: Path, main: str, log: list[str]) -> None:
     try:
         log.append(fast_forward(root, main))
@@ -104,6 +122,7 @@ def merge(cfg: Config, meta: dict[str, Any], pr: str | None) -> list[str]:
     worktree, kind = Path(meta["worktree"]), cfg.get("forge")
     if branch == main:
         raise AwError(f"on {main}: aw merge runs in a session worktree")
+    _refuse_stacked(meta)
     _preflight(cfg, worktree, branch, ignore_inbox=True)
     head = git("rev-parse", "HEAD", cwd=worktree)
     log: list[str] = []
@@ -127,6 +146,7 @@ def merge(cfg: Config, meta: dict[str, Any], pr: str | None) -> list[str]:
             git("push", "--quiet", "origin", "--delete", branch, cwd=root)
             log.append(f"deleted origin/{branch}; the next `git push -u` recreates it")
     log.append(f"{branch} is at {main}'s tip; the session goes on")
+    _warn_stacked(root, branch, log)
 
     issue = meta.get("issue")
     if issue and cfg.get("tracker") != "none":
@@ -153,6 +173,7 @@ def run(cfg: Config, meta: dict[str, Any], pr: str | None, close_parent: bool = 
     worktree = Path(meta["worktree"])
     kind = cfg.get("forge")
     log: list[str] = []
+    _refuse_stacked(meta)
 
     if backlog.home(cfg) == "tracker" and cfg.get("backlog_file") and (left := backlog.titles(cfg, worktree)):
         raise AwError(f"{cfg.get('backlog_file')} still holds {len(left)} item(s): {'; '.join(left)}. "
@@ -204,6 +225,7 @@ def run(cfg: Config, meta: dict[str, Any], pr: str | None, close_parent: bool = 
         git("push", "--quiet", "origin", "--delete", branch, cwd=root)
         log.append(f"deleted origin/{branch}")
     git("remote", "prune", "origin", cwd=root)
+    _warn_stacked(root, branch, log)
     return log
 
 

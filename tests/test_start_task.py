@@ -120,3 +120,36 @@ def test_existing_branch(configured):
 
 def test_custom_name_pattern(repo, tmp_path):
     assert start_task._name_pattern("{project}-{n}-{slug}").match("proj-7-abc").group(1) == "7"
+
+
+def push_base(repo, name="feat/a"):
+    """A pending base branch on origin with one commit main lacks; returns its tip."""
+    git("checkout", "-q", "-b", name, cwd=repo)
+    (repo / "base.txt").write_text("base\n")
+    git("add", "base.txt", cwd=repo)
+    git("commit", "-qm", "base", cwd=repo)
+    git("push", "-q", "-u", "origin", name, cwd=repo)
+    git("checkout", "-q", "main", cwd=repo)
+    return git("rev-parse", name, cwd=repo)
+
+
+def test_stacked_start_forks_from_the_base_and_records_it(configured, tmp_path, monkeypatch):
+    monkeypatch.setenv("AW_FORGE", "github")
+    tip = push_base(configured)
+    out = start_task.run(load(), "feat", "b", None, base="feat/a")
+    assert git("rev-parse", "HEAD", cwd=out["worktree"]) == tip
+    meta = session.read(out["worktree"])
+    assert (meta["base"], meta["fork_point"]) == ("feat/a", tip)
+
+
+@pytest.mark.parametrize("forge_kind, base, message", [
+    ("none", "feat/a", "--base needs a forge"),
+    ("github", "main", "already starts from main"),
+    ("github", "feat/missing", "origin has no branch feat/missing"),
+])
+def test_stacked_start_refuses(configured, monkeypatch, forge_kind, base, message):
+    monkeypatch.setenv("AW_FORGE", forge_kind)
+    push_base(configured)
+    with pytest.raises(AwError, match=message):
+        start_task.run(load(), "feat", "b", None, base=base)
+    assert not (configured.parent / "wt").exists()
