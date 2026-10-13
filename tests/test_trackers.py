@@ -402,8 +402,8 @@ class FakeGh:
             response = self.graphql[op]
             return json.dumps({"data": response(fields) if callable(response) else response})
         self.calls.append((None, args, stdin))
-        if args[0] == "api":
-            return json.dumps(self.subs.get(args[1].rsplit("/", 2)[-2], []))
+        if args[0] == "api":  # the URL comes last, after flags such as --paginate
+            return json.dumps(self.subs.get(args[-1].rsplit("/", 2)[-2], []))
         if args[:2] == ("issue", "view"):
             data = self.issues[args[2]]
             return json.dumps({k: data[k] for k in args[4].split(",") if k in data})
@@ -1087,3 +1087,82 @@ def test_jira_create_moves_to_the_requested_status(repo, monkeypatch):
     monkeypatch.setattr(Jira, "set_status", refuse)
     with pytest.raises(AwError, match=r"created PROJ-20, but not moved to ready: .*aw issue set-status PROJ-20 ready"):
         tracker.create("T", "", None, None, status="ready")
+
+
+# --- complete observations ------------------------------------------------------
+
+
+def test_github_rollup_never_closes_when_the_sub_issue_lookup_fails(repo, monkeypatch):
+    """A failed sub-issue request is not an empty list: the story's close is refused, its status unknown."""
+    from aw import rollup
+
+    github_cfg(repo)
+    story = {"number": 4, "title": "Story", "state": "OPEN", "issueType": {"name": "Story"}}
+    fake = FakeGh(graphql={"body issueType": gh_meta(story)}, issues={"4": gh_issue(4)})
+
+    def gh(self, *args, stdin=None):
+        if args[0] == "api" and "sub_issues" in args[-1]:
+            raise AwError("gh api: HTTP 502 Bad Gateway")
+        return fake(*args, stdin=stdin)
+
+    monkeypatch.setattr(GitHub, "gh", gh)
+    tracker = trackers.get(load())
+    result = rollup.check(load(), tracker, "5")
+    assert rollup.report(tracker, "5", result) == "#4: children unknown (gh api: HTTP 502 Bad Gateway)"
+    with pytest.raises(AwError, match=r"children unknown .*; nothing closed"):
+        rollup.close(load(), tracker, "5")
+
+
+def test_github_sub_issues_are_read_from_every_page(repo, monkeypatch):
+    github_cfg(repo)
+    pages = [
+        [{"number": n, "title": f"S{n}", "state": "CLOSED"} for n in range(10, 40)],
+        [{"number": 41, "state": "OPEN"}],
+    ]
+    calls = []
+
+    def gh(self, *args, stdin=None):
+        calls.append(args)
+        if args[0] == "api":
+            return "".join(json.dumps(page) for page in pages)  # gh --paginate prints one array per page
+        return json.dumps({"body": ""})
+
+    monkeypatch.setattr(GitHub, "gh", gh)
+    rows = trackers.get(load()).native_children("4")
+    assert len(rows) == 31 and rows[-1].id == "41"
+    assert "--paginate" in calls[0]
+
+
+def test_github_sub_issues_unavailable_on_the_server_count_as_none(repo, monkeypatch):
+    """HTTP 404 on the sub-issues endpoint: the server has no sub-issues for this issue, a complete answer."""
+    github_cfg(repo)
+
+    def gh(self, *args, stdin=None):
+        raise AwError("gh api: Not Found (HTTP 404)")
+
+    monkeypatch.setattr(GitHub, "gh", gh)
+    assert trackers.get(load()).native_children("4") == []
+
+
+def test_jira_rollup_reads_every_page_of_children(repo, monkeypatch):
+    """100 closed children on the first page and an open one on the second: the story stays open."""
+    from aw import rollup
+
+    tracker = Jira(jira_cfg(repo))
+    story = {"key": "PROJ-1", "fields": {"summary": "Story", "issuetype": {"name": "Story", "hierarchyLevel": 0}}}
+
+    def child(key, category):
+        return {"key": key, "fields": {"status": {"name": category, "statusCategory": {"key": category}}}}
+
+    first = {"issues": [child(f"PROJ-{n}", "done") for n in range(100, 200)], "nextPageToken": "t2", "isLast": False}
+    second = {"issues": [child("PROJ-300", "indeterminate")], "isLast": True}
+
+    def request(method, path, params=None, body=None):
+        if path == "/rest/api/3/issue/PROJ-12":
+            return {"fields": {"parent": story}}
+        assert params
+        return second if params.get("nextPageToken") == "t2" else first
+
+    monkeypatch.setattr(tracker, "request", request)
+    result = rollup.check(load(), tracker, "PROJ-12")
+    assert rollup.report(tracker, "PROJ-12", result) == "PROJ-1 stays open: PROJ-300 open"

@@ -8,7 +8,7 @@ import sys
 from functools import cached_property
 from typing import Any
 
-from aw.config import AwError
+from aw.config import AwError, json_pages
 from aw.trackers import STATUSES, Issue, Row, Tracker, run, status_name
 
 PART_OF = re.compile(r"\bPart of #(\d+)", re.IGNORECASE)
@@ -130,12 +130,18 @@ class GitHub(Tracker):
         )
 
     def native_children(self, issue: str) -> list[Row]:
-        """Sub-issues only: one call, no lookups of task-list refs that would be dropped anyway."""
+        """Sub-issues only, from every page; no lookups of task-list refs that would be dropped anyway.
+
+        A failed request raises: decisions such as the parent rollup must never read it as "no children". HTTP 404
+        is the one complete empty answer: the server has no sub-issues for this issue.
+        """
         try:
-            subs = self.gh_json("api", f"repos/{{owner}}/{{repo}}/issues/{issue}/sub_issues") or []
-        except AwError:
-            subs = []
-        return [self._row(s, "native") for s in subs]
+            text = self.gh("api", "--paginate", f"repos/{{owner}}/{{repo}}/issues/{issue}/sub_issues")
+        except AwError as e:
+            if "HTTP 404" in str(e):
+                return []
+            raise
+        return [self._row(s, "native") for page in json_pages(text) for s in page or []]
 
     def children(self, issue: str, body: str | None = None) -> list[Row]:
         rows = self.native_children(issue)

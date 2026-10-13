@@ -110,7 +110,9 @@ def test_a_plan_section_without_a_subtask_keeps_the_story_open(cfg, repo):
         "### S2 — Two\n\n**Subtask:** #3\n\n### S3 — Three\n\n**Subtask:** none yet\n\n"
         "### S4 — Four\n\n**Steps**\n\n1. x\n\n## Session order\n"
     )
-    assert rollup.check(cfg, board, "3").left == ["plan section S3 has no subtask", "plan section S4 has no subtask"]
+    result = rollup.check(cfg, board, "3")
+    assert isinstance(result, rollup.Blocked)
+    assert result.left == ("plan section S3 has no subtask", "plan section S4 has no subtask")
 
 
 def test_close_closes_the_story_with_a_comment_and_runs_the_hook(repo, tmp_path):

@@ -155,7 +155,16 @@ class Jira(Tracker):
         return replace(self._row(parent), link="native") if parent else None
 
     def children(self, issue: str) -> list[Row]:
-        return [replace(row, link="native") for row in self._search(f"parent = {issue} ORDER BY created ASC", 100)]
+        """Every child, page by page: the parent rollup decides on this list."""
+        jql = f"parent = {issue} ORDER BY created ASC"
+        rows, token = [], None
+        while True:
+            params = {"jql": jql, "maxResults": 100, "fields": "summary,status,issuetype,parent"}
+            data = self.request("GET", "/rest/api/3/search/jql", params | ({"nextPageToken": token} if token else {}))
+            rows += [replace(self._row(i), link="native") for i in data.get("issues", [])]
+            token = data.get("nextPageToken")
+            if data.get("isLast", True) or not token:
+                return rows
 
     def set_parent(self, issue: str, parent: str | None) -> str:
         target = self.normalize(parent) if parent else None

@@ -286,7 +286,7 @@ def test_gitlab_discussions_split_into_threads_and_comments(repo, monkeypatch):
     threads, general, resolved = forge.comments("gitlab", "9", repo)
     assert [(t.path, t.line, t.comments) for t in threads] == [("app.py", 4, [("bob", "Rename?")])]
     assert (general, resolved) == ([("ann", "Thanks!")], 1)
-    assert fake.calls[0] == ["glab", "api", "projects/:id/merge_requests/9/discussions"]
+    assert fake.calls[0] == ["glab", "api", "--paginate", "projects/:id/merge_requests/9/discussions"]
 
 
 def test_gitlab_checks_report_jobs_of_the_head_pipeline(repo, monkeypatch):
@@ -333,3 +333,41 @@ def test_target_and_retarget(repo, monkeypatch, kind, view, answer, edit):
     assert forge.target(kind, "5", repo) == "feat/a"
     forge.retarget(kind, "5", "main", repo)
     assert fake.calls[-1] == edit
+
+
+def page(threads, has_next):
+    return {
+        "data": {
+            "repository": {
+                "pullRequest": {
+                    "reviewThreads": {"pageInfo": {"hasNextPage": has_next, "endCursor": "c"}, "nodes": threads},
+                    "comments": {"nodes": [{"author": {"login": "ann"}, "body": "general"}]},
+                }
+            }
+        }
+    }
+
+
+def test_github_review_threads_are_read_from_every_page(repo, monkeypatch):
+    """An unresolved thread on the second page of review threads still stops the merge gate."""
+    resolved = [{"isResolved": True, "path": "a.py", "line": n, "comments": {"nodes": []}} for n in range(100)]
+    late = {"isResolved": False, "path": "z.py", "line": 1, "comments": {"nodes": [{"body": "Still wrong"}]}}
+    pages = json.dumps(page(resolved, True)) + json.dumps(page([late], False))  # gh --paginate: one object per page
+    fake = FakeProcess({("gh", "api", "graphql"): (0, pages, "")})
+    monkeypatch.setattr(forge.subprocess, "run", fake)
+    threads, general, resolved_count = forge.comments("github", "5", repo)
+    assert [(t.path, t.comments) for t in threads] == [("z.py", [("?", "Still wrong")])]
+    assert (general, resolved_count) == ([("ann", "general")], 100)
+    assert "--paginate" in fake.calls[0]
+
+
+def test_gitlab_jobs_and_discussions_are_read_from_every_page(repo, monkeypatch):
+    """A failing job on the second page of jobs makes the checks fail."""
+    mr = {"iid": 9, "head_pipeline": {"id": 77, "status": "running"}}
+    jobs = json.dumps([{"name": f"job{n}", "status": "success"} for n in range(20)])
+    jobs += json.dumps([{"name": "late", "status": "failed"}])
+    fake = FakeProcess({("glab", "mr", "view"): (0, json.dumps(mr), ""), ("glab", "api"): (0, jobs, "")})
+    monkeypatch.setattr(forge.subprocess, "run", fake)
+    checks = forge.checks("gitlab", "9", repo)
+    assert len(checks) == 21 and ("late", "fail") in [(c.name, c.bucket) for c in checks]
+    assert fake.calls[-1][:3] == ["glab", "api", "--paginate"]

@@ -246,9 +246,15 @@ def run(cfg: Config, meta: dict[str, Any], pr: str | None, close_parent: bool = 
         try:  # the story closes only when asked: work never cut into a subtask is the user's call
             if close_parent:
                 log += rollup.close(cfg, tracker, issue)
-            elif (result := rollup.check(cfg, tracker, issue)).parent:
+            else:
+                result = rollup.check(cfg, tracker, issue)
                 hint = rollup.report(tracker, issue, result)
-                log.append(hint if result.left else f"{hint}; `aw issue rollup {issue} --close` closes it")
+                if isinstance(result, rollup.CanClose):
+                    log.append(f"{hint}; `aw issue rollup {issue} --close` closes it")
+                elif isinstance(result, rollup.Unknown):
+                    log.append(f"warning: {hint}")
+                elif isinstance(result, rollup.Blocked):
+                    log.append(hint)
         except AwError as e:
             log.append(f"warning: parent story: {e}")
 

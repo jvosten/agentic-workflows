@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.4 — 2026-10-13 (#4)
+
+### Fixed
+
+- The parent rollup never closes a story on an incomplete list of its children. A failed sub-issue request on GitHub
+  is no longer read as "no children", and Jira children beyond the first 100 are read: `aw finish` warns
+  `#N: children unknown (…)`, and `--close-parent` and `aw issue rollup --close` refuse. HTTP 404 on GitHub's
+  sub-issues endpoint still counts as none.
+- `aw mr comments` reads every page of review threads, so an unresolved thread beyond the first 100 still stops the
+  merge gate. GitLab jobs and discussions are paginated too.
+
+### Changed
+
+- `aw issue rollup` can print a fourth line, `#N: children unknown (<reason>)`, next to `can close` and `stays open`.
+
 ## 0.1.3 — 2026-10-13 (#3)
 
 ### Fixed
