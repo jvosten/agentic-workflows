@@ -374,6 +374,21 @@ In every case the entry is in the commits that exist when the PR opens, and the 
 
 **Effort:** medium — no token handling in `aw`, but per-forge permission lists and a live check against both forges.
 
+---
+
+### [LOW] forge = none: a final merge by hand runs on_merge
+
+**Context:** `aw finish` decides "nothing left to merge" when `main` holds every commit of the branch. With a forge, a merge outside `aw` is recognised by the merged request's head and handled as the last merge (`on_merge` runs with `final = true`). With `forge = none` there is no request to look at: a branch merged by hand into `main` and a branch whose every change already went in through `aw merge` look the same, and both take the nothing-left path. Found while fixing the nothing-left rule (hardening plan, S3, 2026-10-13); the behaviour predates it.
+
+**Problem:** after a final merge by hand with `forge = none`, `on_merge` does not run, so a deploy or reconcile hook that should follow the last merge is skipped silently.
+
+**Scope:**
+- Tell the two cases apart with what git knows: the session's last `aw merge` records the main commit it left the branch at (session metadata); a branch head that `main` gained after that point was merged by hand.
+- When it was merged by hand, run `on_merge` with `final = true` and log "merged by hand".
+- Test both paths with `forge = none`.
+
+**Done when:** `aw finish` after a final merge by hand with `forge = none` runs `on_merge` once with `final = true`, and after a last part merged through `aw merge` it still skips it.
+
 ## Considered and not planned
 
 - **Personas and multi-agent roles** (BMAD), **spec-driven phases** (spec-kit), **label-based handoff queues** (zaks-io): full methods of their own; out of scope for a session-workflow standard.

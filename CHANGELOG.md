@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.3 — 2026-10-13 (#3)
+
+### Fixed
+
+- `aw finish --pr N` with a request merged before later commits no longer removes the worktree and deletes the
+  branch: it refuses and names the commits that would be lost. A request given with `--pr` that is not at the
+  branch's head (another branch's) is never merged; `aw merge` checks the same before merging, not after.
+- `aw finish` after `main` moved on since the last part no longer fails with "no open merge request": nothing is
+  left once `main` holds every commit of the branch.
+
 ## 0.1.2 — 2026-10-13 (#2)
 
 ### Added
