@@ -1,7 +1,10 @@
 from datetime import date
 
+import pytest
+
 from aw import cli, doctor, start_task, trackers
 from aw.config import git, load
+from aw.trackers.github import GitHub
 from aw.trackers.jira import Jira
 
 TODAY = date.today().isoformat()
@@ -135,3 +138,82 @@ def test_plan_state_of_a_story_under_an_epic_stays_on_the_story(repo, capsys, mo
     monkeypatch.setattr(Jira, "children", lambda self, i: [trackers.Row("PROJ-13")] if i == "PROJ-12" else [])
     assert cli.main(["plan", "state", "proj-12"]) == 0
     assert capsys.readouterr().out == "issue=PROJ-12\nplan=none\nsubtasks=PROJ-13\n"
+
+
+def test_plan_state_on_a_tracker_without_children_reports_none(repo, capsys):
+    (repo / ".agents").mkdir()
+    (repo / ".agents/aw.toml").write_text('tracker = "gitlab"\n')
+    (repo / ".agents/plans").mkdir()
+    plan = repo / ".agents/plans/12-retries-2026-10-01.md"
+    plan.write_text("# plan\n")
+    assert cli.main(["plan", "state", "12"]) == 0
+    assert capsys.readouterr().out == f"issue=12\nplan={plan}\nsubtasks=\n"
+
+
+def test_several_plans_for_one_issue_are_refused_and_listed(repo, capsys):
+    project(repo, 'plan_dir = "docs/planning"\n')
+    (repo / "docs/planning/epic-1").mkdir(parents=True)
+    first = repo / "docs/planning/PROJ-12-retries-2026-10-01.md"
+    second = repo / "docs/planning/epic-1/PROJ-12-retry-failed-runs.md"
+    first.write_text("# plan\n")
+    second.write_text("# plan\n")
+    assert cli.main(["plan", "path", "PROJ-12"]) == 1
+    err = capsys.readouterr().err
+    assert "several plans for PROJ-12" in err and str(first) in err and str(second) in err
+
+
+# --- plan resolution through parents: an epic's plan is never a story's ----------------------------------------
+
+
+def github_project(repo, extra=""):
+    (repo / ".agents").mkdir(exist_ok=True)
+    (repo / ".agents/aw.toml").write_text('tracker = "github"\n' + extra)
+    (repo / ".agents/plans").mkdir()
+
+
+def test_a_text_linked_story_parent_resolves_to_its_plan(repo, capsys, monkeypatch):
+    github_project(repo)
+    plan = repo / ".agents/plans/12-retries-2026-10-01.md"
+    plan.write_text("# plan\n")
+    monkeypatch.setattr(GitHub, "parent", lambda self, i: trackers.Row("12", link="text"))
+    assert cli.main(["plan", "path", "13"]) == 0
+    assert capsys.readouterr().out.strip() == str(plan)
+
+
+def test_a_story_with_its_own_plan_under_a_planned_epic_returns_its_own(repo, capsys, monkeypatch):
+    project(repo)
+    (repo / ".agents/plans").mkdir(parents=True)
+    (repo / ".agents/plans/PROJ-1-the-epic-2026-10-01.md").write_text("# epic plan\n")
+    own = repo / ".agents/plans/PROJ-12-retries-2026-10-02.md"
+    own.write_text("# plan\n")
+    monkeypatch.setattr(Jira, "parent", lambda self, i: trackers.Row("PROJ-1", type="Epic", link="native"))
+    assert cli.main(["plan", "path", "PROJ-12"]) == 0
+    assert capsys.readouterr().out.strip() == str(own)
+
+
+def test_a_board_parent_without_a_column_counts_as_an_epic(repo, capsys, monkeypatch):
+    github_project(repo, 'github_project = "owner/1"\n')
+    (repo / ".agents/plans/1-the-epic-2026-10-01.md").write_text("# epic plan\n")
+    monkeypatch.setattr(GitHub, "parent", lambda self, i: trackers.Row("1", link="native"))
+    monkeypatch.setattr(GitHub, "_card", lambda self, i: ("node", {"fieldValueByName": None}))
+    monkeypatch.setattr(GitHub, "children", lambda self, i, body=None: [])
+    assert cli.main(["plan", "state", "12"]) == 0
+    assert capsys.readouterr().out == "issue=12\nplan=none\nsubtasks=\n"
+
+
+@pytest.mark.parametrize(
+    "parent",
+    [
+        {"key": "PROJ-1", "fields": {"issuetype": {"name": "epic"}}},
+        {"key": "PROJ-1", "fields": {"issuetype": {"name": "Initiative", "hierarchyLevel": 1}}},
+    ],
+    ids=["lowercase-epic", "hierarchy-level"],
+)
+def test_a_jira_epic_parent_is_known_by_name_or_level(repo, capsys, monkeypatch, parent):
+    project(repo)
+    (repo / ".agents/plans").mkdir(parents=True)
+    (repo / ".agents/plans/PROJ-1-the-epic-2026-10-01.md").write_text("# epic plan\n")
+    monkeypatch.setattr(Jira, "request", lambda self, method, path, *a, **k: {"fields": {"parent": parent}})
+    monkeypatch.setattr(Jira, "children", lambda self, i: [])
+    assert cli.main(["plan", "state", "PROJ-12"]) == 0
+    assert capsys.readouterr().out == "issue=PROJ-12\nplan=none\nsubtasks=\n"

@@ -184,7 +184,7 @@ def _closes_in(tracker: trackers.Tracker, issue: str, body: str) -> bool:
 def _session_issue(cfg: Config) -> str:
     try:
         issue = session.read().get("issue") or ""
-    except AwError:
+    except session.NoSession:
         return ""
     return issue if cfg.get("tracker") != "none" else ""
 
@@ -236,7 +236,7 @@ def _target(cfg: Config) -> str:
     """The session's base while it is stacked, else main_branch."""
     try:
         return session.read().get("base") or cfg.get("main_branch")
-    except AwError:
+    except session.NoSession:
         return cfg.get("main_branch")
 
 
@@ -300,12 +300,13 @@ def _mr(args: argparse.Namespace) -> int:
             _check_closes(cfg, kind, f"{mark}{ref}" if ref.isdigit() else ref, ref, part)
     elif args.op == "checks":
         results = forge.checks(kind, ref, cwd, args.watch)
-        print(_checks_line(results))
+        expected = None if results else forge.ci_file(kind, cwd)
+        print(_checks_line(results, expected))
         for c in results:
             if c.bucket in ("fail", "pending") or args.verbose:
                 print(f"  {c.bucket:<8}{c.name}")
         buckets = {c.bucket for c in results}
-        return 1 if "fail" in buckets else 2 if "pending" in buckets else 0
+        return 1 if "fail" in buckets else 2 if "pending" in buckets or expected else 0
     elif args.op == "comments":
         threads, general, resolved = forge.comments(kind, ref, cwd)
         print(
@@ -328,16 +329,17 @@ def _mr(args: argparse.Namespace) -> int:
         state = [s.request.state, "draft" if s.draft else "", f"mergeable: {mergeable}" if mergeable else ""]
         print("state    " + " · ".join(filter(None, state)))
         print("closes   " + (", ".join(f"#{n}" for n in s.closes) or "nothing"))
-        print("checks   " + _checks_line(s.checks))
+        print("checks   " + _checks_line(s.checks, None if s.checks else forge.ci_file(kind, cwd)))
         print(f"review   {s.review} · {ui.plural(s.unresolved, 'unresolved thread')}")
         diff = f" · +{s.additions} −{s.deletions}" if s.additions is not None else ""
         print(f"diff     {ui.plural(s.files, 'file')}{diff}")
     return 0
 
 
-def _checks_line(results: list) -> str:
+def _checks_line(results: list, expected: str | None = None) -> str:
+    """expected: the CI configuration that should have reported checks; none reported is then not final."""
     if not results:
-        return "no checks"
+        return f"no checks yet: {expected} is configured, none reported" if expected else "no checks"
     counts = {b: [c.name for c in results if c.bucket == b] for b in ("pass", "fail", "pending", "skip")}
     parts = [f"{len(counts['pass'])} passed"]
     if counts["fail"]:

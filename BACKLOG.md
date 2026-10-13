@@ -10,12 +10,11 @@ Deferred features and open checks. Each entry has enough context to be picked up
 
 ### [HIGH] Verify v1 in live agent sessions
 
-**Context:** v1 is tested with pytest and the CLI, but not yet from inside an agent. Unconfirmed:
+**Context:** v1 is tested with pytest and the CLI. Confirmed from inside Claude Code: `disable-model-invocation: true` hides `aw-start-task` and `aw-finalize` from the model while `/aw-start-task` works; the model goes on into implementation after the handover; the GitHub forge path ran end to end on this repository's pull requests #2–#5 (`aw mr create`, `checks --watch`, `comments`, `view`, a go in chat, `aw finish` merging and cleaning up). Unconfirmed:
 
 - Claude Code accepts `~` in `allowed-tools: Bash(~/.agents/bin/aw start-task:*)`. If not, every `aw` call prompts for permission; fallback is a permission rule in `~/.claude/settings.json`.
-- `disable-model-invocation: true` hides `aw-start-task` from the model while `/aw-start-task` still works.
-- The model continues into implementation in the same turn after the handover.
-- `aw-finalize` end to end on a real PR, including the permission prompt on `aw finish`.
+- The permission prompt on `aw finish` without an allowlist (not observed: the sessions so far ran with automatic approval).
+- A stacked session on GitHub through `aw restack` after its base merged, and `gh pr edit --base`.
 - `forge = gitlab` / `tracker = gitlab`: `glab` JSON fields and flags are taken from docs, not tested.
 - `tracker = jira` against a real instance: `aw doctor`, `aw issue view|children|list|comment|set-status`, status sync on start and finish, and ADF rendering of real descriptions (tested only with recorded responses).
 - Native parent links, mutations tested only with recorded responses: GitHub `aw issue create --parent --type` (one `createIssue` call with `parentIssueId`, `issueTypeId`) on an org-owned repo, `aw issue set-parent` link, re-parent and `--none` (`addSubIssue` with `replaceParent`, `removeSubIssue`); Jira `aw issue set-parent` including `--none` (`fields.parent = null`) and a refused hierarchy. Then move one text-linked GitHub project (homelab) until `aw issue children <root> --text-only` is empty.
@@ -296,6 +295,8 @@ This repo's own hardening plan hit the second set right after it was written (20
 
 **Problem:** the PR number is unknown until the PR exists, so the entry comes late, and every reviewer that looks at the opening diff sees an incomplete change.
 
+**Evidence for "number up front":** this repository's PRs #2–#5 had their changelog entry, `(#N)` included, in the commit pushed before `aw mr create`: the number was the expected next one, and it held each time. Nothing checked it.
+
 **Scope:** decide one of these, then make `aw-finalize` follow it:
 - **Draft first:** `aw mr create --draft`, write the entry with the real number into the same commit series, push, then `aw mr ready`. Needs the project's review trigger to fire on `ready_for_review` and skip drafts; `aw doctor` could detect a review workflow that triggers only on `opened` and say so.
 - **Entry without the PR number:** the entry names the issue only; the PR is reachable from the issue's closing reference. A format change for projects whose changelog names PRs.
@@ -326,27 +327,6 @@ In every case the entry is in the commits that exist when the PR opens, and the 
 - Existing text-linked trees (`## Items` lists) are still found by `--text-only`.
 
 **Effort:** small. One pattern and its tests in the GitHub adapter.
-
----
-
-### [MEDIUM] Clear error when gh or glab is missing
-
-**Context:** With `forge = "github"` and no `gh` on the machine, `aw mr create --dry-run` ends in a Python traceback. Found while finalizing the stacked-sessions session (0.2.0).
-
-**Problem:** `forge._run` and `forge._json` call `subprocess.run` without catching `FileNotFoundError`; the tracker adapters already turn it into an error (`trackers/__init__.py`). Agents and users see a stack trace instead of the next step.
-
-**Scope:**
-
-- One place turns a missing `gh` / `glab` into an `AwError`: "gh is not installed; install it and run `gh auth login`" (glab likewise).
-- Reuse the trackers' wording, so both say the same.
-- A test per CLI with the binary absent from PATH (the test fixture already puts failing stand-ins first on PATH; this case needs them absent).
-
-**Acceptance criteria:**
-
-- Any `aw` command that needs `gh` or `glab` exits 1 with that message and no traceback when the binary is missing.
-- `aw doctor` reports the missing CLI for the configured forge and tracker (check whether it already does).
-
-**Effort:** small — one wrapper and its callers.
 
 ---
 

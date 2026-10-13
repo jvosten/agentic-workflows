@@ -202,6 +202,53 @@ def test_github_checks_watch_quietly_and_sort_into_buckets(repo, monkeypatch, ca
     assert capsys.readouterr().out.endswith("no checks\n")
 
 
+def test_gh_reporting_no_checks_on_a_repo_with_workflows_is_not_green(repo, monkeypatch, capsys):
+    project(repo, 'forge = "github"\n')
+    (repo / ".github/workflows").mkdir(parents=True)
+    (repo / ".github/workflows/ci.yml").write_text("on: pull_request\n")
+    fake = FakeProcess({("gh", "pr", "checks"): (1, "", "no checks reported on the 'x' branch")})
+    monkeypatch.setattr(forge.subprocess, "run", fake)
+    assert cli.main(["mr", "checks", "5"]) == 2
+    assert capsys.readouterr().out == "no checks yet: .github/workflows is configured, none reported\n"
+
+
+@pytest.mark.parametrize("kind", ["github", "gitlab"])
+def test_no_checks_yet_with_ci_configured_is_not_green(repo, monkeypatch, capsys, kind):
+    """Right after a request opens, CI may not have reported its first check: that is no green light."""
+    project(repo, f'forge = "{kind}"\n')
+    ci = ".github/workflows" if kind == "github" else ".gitlab-ci.yml"
+    if kind == "github":
+        (repo / ci).mkdir(parents=True)
+        (repo / ci / "ci.yml").write_text("on: pull_request\n")
+    else:
+        (repo / ci).write_text("test:\n  script: make check\n")
+    answers = [[], [], [forge.Check("test", "pass")]]
+    monkeypatch.setattr(forge, "_checks", lambda kind, ref, cwd, watch: answers.pop(0) if answers else [])
+    sleeps = []
+    monkeypatch.setattr(forge.time, "sleep", sleeps.append)
+
+    assert cli.main(["mr", "checks", "5", "--watch"]) == 0
+    assert capsys.readouterr().out == "1 passed\n"
+    assert len(sleeps) == 2
+
+    sleeps.clear()
+    assert cli.main(["mr", "checks", "5", "--watch"]) == 2
+    assert capsys.readouterr().out == f"no checks yet: {ci} is configured, none reported\n"
+    assert len(sleeps) == forge.CHECKS_APPEAR
+
+    sleeps.clear()
+    assert cli.main(["mr", "checks", "5"]) == 2
+    assert sleeps == []
+
+
+def test_no_checks_without_ci_configured_is_final(repo, monkeypatch, capsys):
+    project(repo, 'forge = "github"\n')
+    monkeypatch.setattr(forge, "_checks", lambda kind, ref, cwd, watch: [])
+    monkeypatch.setattr(forge.time, "sleep", lambda s: pytest.fail("no CI configured: nothing to wait for"))
+    assert cli.main(["mr", "checks", "5", "--watch"]) == 0
+    assert capsys.readouterr().out == "no checks\n"
+
+
 def test_github_comments_and_view(repo, monkeypatch, capsys):
     project(repo, 'forge = "github"\n')
     threads = {

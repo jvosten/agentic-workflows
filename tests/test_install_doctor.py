@@ -143,3 +143,13 @@ def test_doctor_lists_hooks(repo):
     (repo / ".agents").mkdir()
     (repo / ".agents/aw.toml").write_text('on_merge = "flux reconcile source git flux-system"\n')
     assert ("ok", "hook on_merge: flux reconcile source git flux-system") in doctor.check_project()
+
+
+def test_doctor_names_a_template_outside_the_checkout(env, repo, tmp_path):
+    shared = tmp_path / "shared/mr.md"
+    shared.parent.mkdir()
+    shared.write_text("## Summary\n")
+    (repo / ".agents").mkdir()
+    (repo / ".agents/aw.toml").write_text(f'forge = "github"\ntemplates = {{ mr = "{shared}" }}\n')
+    results = {msg: level for level, msg in doctor.run()}
+    assert results[f"merge request template: {shared}"] == "ok"

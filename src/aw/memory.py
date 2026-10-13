@@ -81,6 +81,45 @@ def slugify(title: str) -> str:
     return slug
 
 
+def _entry(kind: str, slug: str, meta: dict[str, Any], body: str) -> Entry:
+    """An entry from decoded frontmatter or an import line. A field of the wrong type raises ValueError naming it:
+    a YAML list (`tags: [git, gh]`) is text, and read as a list it would split into characters."""
+
+    def text(key: str, numbers: bool = False) -> str:
+        value = meta.get(key)
+        if value is None:
+            return ""
+        if numbers and isinstance(value, int) and not isinstance(value, bool):
+            return str(value)
+        if not isinstance(value, str):
+            raise ValueError(f"{key} must be a string, not {value!r}")
+        return value
+
+    def strings(key: str, numbers: bool = False) -> list[str]:
+        value = meta.get(key) or []
+        kinds = (str, int) if numbers else (str,)
+        if not isinstance(value, list) or not all(isinstance(v, kinds) and not isinstance(v, bool) for v in value):
+            raise ValueError(f'{key} must be a JSON list of strings, like ["git", "gh"], not {value!r}')
+        return [str(v) for v in value]
+
+    title = text("title") or slug
+    status = text("status") or "active"
+    if status not in STATUSES:
+        raise ValueError(f"status must be one of {', '.join(STATUSES)}, not {status!r}")
+    return Entry(
+        kind=kind,
+        slug=slug,
+        title=title,
+        tags=strings("tags"),
+        status=status,
+        superseded_by=text("superseded_by"),
+        aliases=strings("aliases", numbers=True),
+        date=text("date"),
+        issue=text("issue", numbers=True),
+        body=body.strip(),
+    )
+
+
 def parse(path: Path, kind: str) -> Entry:
     text = path.read_text()
     if not text.startswith("---\n") or "\n---\n" not in text[4:]:
@@ -93,19 +132,11 @@ def parse(path: Path, kind: str) -> Entry:
             try:
                 meta[key.strip()] = json.loads(value.strip())
             except json.JSONDecodeError:
-                meta[key.strip()] = value.strip()
-    return Entry(
-        kind=kind,
-        slug=path.stem,
-        title=meta.get("title", path.stem),
-        tags=list(meta.get("tags", [])),
-        status=meta.get("status", "active"),
-        superseded_by=meta.get("superseded_by", ""),
-        aliases=[str(a) for a in meta.get("aliases", [])],
-        date=str(meta.get("date", "")),
-        issue=str(meta.get("issue", "")),
-        body=body.strip(),
-    )
+                meta[key.strip()] = value.strip()  # an unquoted title is text; the field check catches a YAML list
+    try:
+        return _entry(kind, path.stem, meta, body)
+    except ValueError as e:
+        raise AwError(f"{path}: {e}") from None
 
 
 def entries(cfg: Config, kind: str | None = None) -> list[Entry]:
@@ -223,6 +254,8 @@ def import_json(cfg: Config, lines: list[str]) -> list[Path]:
             kind, title = d["kind"], d["title"]
             if kind not in KINDS:
                 raise ValueError(f"kind must be one of {', '.join(KINDS)}")
+            if not isinstance(title, str):
+                raise ValueError(f"title must be a string, not {title!r}")
             slug = d.get("slug") or slugify(title)
             if not isinstance(slug, str) or not SLUG.match(slug):
                 raise ValueError(f"slug {slug!r} must be lowercase words joined by '-', like a title's slug")
@@ -230,20 +263,7 @@ def import_json(cfg: Config, lines: list[str]) -> list[Path]:
             if not isinstance(sections, dict):
                 raise ValueError("sections must map a heading to its text")
             body = d.get("body") or "\n\n".join(f"## {k}\n\n{str(v).strip()}" for k, v in sections.items() if v)
-            entry = Entry(
-                kind,
-                slug,
-                title,
-                list(d.get("tags", [])),
-                d.get("status", "active"),
-                d.get("superseded_by", ""),
-                [str(a) for a in d.get("aliases", [])],
-                str(d.get("date", "")),
-                str(d.get("issue", "")),
-                body,
-            )
-            if entry.status not in STATUSES:
-                raise ValueError(f"status must be one of {', '.join(STATUSES)}")
+            entry = _entry(kind, slug, {key: d.get(key) for key in FIELDS}, str(body))
             _check_tags(cfg, kind, entry.tags)
             new.append(entry)
         except (KeyError, ValueError, TypeError, AwError) as e:

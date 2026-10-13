@@ -22,7 +22,7 @@ class NoStory:
 
 @dataclass(frozen=True)
 class Unknown:
-    """The story's children could not be read completely; nothing may close on this."""
+    """The story's children, or which plan is its own, could not be read completely; nothing may close on this."""
 
     parent: Row
     reason: str
@@ -86,7 +86,11 @@ def check(cfg: Config, tracker: Tracker, issue: str) -> Decision:
     except AwError as e:
         return Unknown(parent, str(e))
     left = [f"{tracker.ref(row.id)} open" for row in children if row.id != issue and not tracker.closed(row)]
-    if path := plan.find(cfg, parent.id):
+    try:
+        path = plan.find(cfg, parent.id)
+    except AwError as e:
+        return Unknown(parent, str(e))
+    if path:
         left += [f"plan section {name} has no subtask" for name in plan.unsplit(path)]
     return Blocked(parent, children, tuple(left)) if left else CanClose(parent, children)
 

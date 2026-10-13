@@ -87,6 +87,52 @@ def test_backlog_handles_a_flat_file_with_separators(repo, tmp_path):
     assert "\n\n\n" not in text
 
 
+NESTED = """# Backlog
+
+## Items
+
+### [HIGH] First item
+
+#### Scope
+
+- one
+
+#### Done when
+
+Done.
+
+### [LOW] Second item
+
+#### Scope
+
+- two
+
+## Considered and not planned
+
+- Nothing yet.
+"""
+
+
+def test_backlog_items_are_the_headings_under_items_not_their_sub_headings(repo, tmp_path, capsys):
+    (repo / "BACKLOG.md").write_text(NESTED)
+    assert cli.main(["backlog", "list"]) == 0
+    assert capsys.readouterr().out.splitlines() == ["[HIGH] First item", "[LOW] Second item"]
+    cli.main(["backlog", "add", "--title", "[LOW] Third item", "--body-file", body(tmp_path, "Context: three.\n")])
+    text = (repo / "BACKLOG.md").read_text()
+    assert "- two\n\n### [LOW] Third item\n\nContext: three.\n\n## Considered" in text
+    assert cli.main(["backlog", "pop", "--title", "[HIGH] First item"]) == 0
+    text = (repo / "BACKLOG.md").read_text()
+    assert "First item" not in text and "- one" not in text and "Done when" not in text
+    assert "## Items\n\n### [LOW] Second item\n\n#### Scope\n\n- two" in text
+
+
+def test_backlog_without_an_items_heading_uses_the_shallowest_repeating_level(repo, tmp_path):
+    flat = NESTED.replace("## Items\n\n", "").replace("## Considered and not planned\n\n- Nothing yet.\n", "")
+    (repo / "BACKLOG.md").write_text(flat)
+    cli.main(["backlog", "add", "--title", "[LOW] Third item", "--body-file", body(tmp_path, "Context: three.\n")])
+    assert (repo / "BACKLOG.md").read_text().endswith("- two\n\n### [LOW] Third item\n\nContext: three.\n")
+
+
 def test_inbox_lists_items_and_disappears_when_emptied(repo, tmp_path, capsys):
     (repo / ".agents").mkdir()
     (repo / ".agents/aw.toml").write_text('tracker = "github"\nbacklog_home = "tracker"\n')

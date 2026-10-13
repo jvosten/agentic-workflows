@@ -23,6 +23,9 @@ from typing import Any
 
 PROJECT_FILE = ".agents/aw.toml"
 LOCAL_FILE = ".agents/aw.local.toml"
+# Where hooks and direnv print: the process's stderr by descriptor. sys.stderr as stdout= needs its fileno(), which
+# a replaced sys.stderr (pytest capsys, an embedding host) lacks. stdout stays free for the key=value contract.
+STDERR_FD = 2
 
 
 class AwError(Exception):

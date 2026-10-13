@@ -115,6 +115,17 @@ def test_a_plan_section_without_a_subtask_keeps_the_story_open(cfg, repo):
     assert result.left == ("plan section S3 has no subtask", "plan section S4 has no subtask")
 
 
+def test_several_plans_for_the_story_make_the_rollup_unknown(cfg, repo):
+    board = Board(cfg, story("In Progress", **{"2": "Done", "3": "Done"}))
+    plans = repo / ".agents/plans"
+    plans.mkdir(parents=True)
+    (plans / "1-story-2026-10-06.md").write_text("# plan\n")
+    (plans / "1-story-again-2026-10-07.md").write_text("# plan\n")
+    result = rollup.check(cfg, board, "3")
+    assert isinstance(result, rollup.Unknown)
+    assert "several plans for 1" in result.reason
+
+
 def test_close_closes_the_story_with_a_comment_and_runs_the_hook(repo, tmp_path):
     (repo / ".agents").mkdir()
     (repo / ".agents/aw.toml").write_text(f'on_issue_status = "echo {{issue}} {{status}} >> {tmp_path}/hook"\n')

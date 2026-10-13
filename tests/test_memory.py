@@ -215,3 +215,36 @@ def test_slugs_are_unique_across_decisions_and_gotchas(vocab, tmp_path, capsys):
         memory.resolve(load(), "flux-owns-deploys")
     (vocab / ".agents/aw.toml").write_text("aw_version = 1\n")
     assert ("fail", "memory: slugs used by a decision and a gotcha: flux-owns-deploys") in doctor.check_memory(load())
+
+
+# --- malformed records name the file and the field ------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("line", "message"),
+    [
+        ("tags: [flux, sops]", 'tags must be a JSON list of strings, like ["git", "gh"]'),
+        ('tags: "flux"', 'tags must be a JSON list of strings, like ["git", "gh"]'),
+        ('status: "gone"', "status must be one of active, retired"),
+        ("title: 12", "title must be a string"),
+        ('aliases: [{"n": 1}]', "aliases must be a JSON list of strings"),
+        ('superseded_by: ["other"]', "superseded_by must be a string"),
+    ],
+)
+def test_a_malformed_entry_names_its_file_and_field(vocab, capsys, line, message):
+    gotchas = vocab / ".agents/memory/gotchas"
+    gotchas.mkdir()
+    head = {"title": 'title: "Odd entry"', "tags": 'tags: ["flux"]', "status": 'status: "active"'}
+    head[line.split(":")[0]] = line
+    (gotchas / "odd-entry.md").write_text("---\n" + "\n".join(head.values()) + "\n---\n\nBody.\n")
+    assert cli.main(["memory", "find", "--tags", "flux"]) == 1
+    err = capsys.readouterr().err
+    assert str(gotchas / "odd-entry.md") in err and message in err
+
+
+def test_an_imported_line_meets_the_same_rules_as_a_file(vocab, capsys):
+    path = vocab / "import.jsonl"
+    path.write_text(json.dumps({"kind": "gotcha", "title": "Split tags", "tags": "flux"}) + "\n")
+    assert cli.main(["memory", "import", "--json", str(path)]) == 1
+    assert 'line 1: tags must be a JSON list of strings, like ["git", "gh"]' in capsys.readouterr().err
+    assert not (vocab / ".agents/memory/gotchas").exists()

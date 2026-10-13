@@ -9,7 +9,7 @@ from datetime import date
 from pathlib import Path
 
 from aw import rollup, session, trackers
-from aw.config import PROJECT_FILE, AwError, Config, fast_forward, git
+from aw.config import PROJECT_FILE, STDERR_FD, AwError, Config, fast_forward, git
 
 SLUG = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 
@@ -50,6 +50,21 @@ def _fill(cfg: Config, key: str, ph: dict[str, str]) -> str:
         for part in ("{issue}-", "-{issue}", "{issue}/", "{issue}"):
             template = template.replace(part, "")
     return cfg.expand(template, **ph)
+
+
+def _direnv(worktree: Path) -> None:
+    """Delegate to the primary checkout's .envrc unless the project tracks its own; trouble with direnv is a warning,
+    since the worktree and branch exist already and the rest of the start still runs."""
+    envrc = worktree / ".envrc"
+    if not envrc.exists():
+        envrc.write_text(ENVRC)
+    try:
+        r = subprocess.run(["direnv", "allow", str(worktree)], stdout=STDERR_FD, check=False)
+    except FileNotFoundError:
+        print("warning: direnv allow: direnv not found; install it or set direnv = false", file=sys.stderr)
+        return
+    if r.returncode:
+        print(f"warning: direnv allow exited {r.returncode}; run it in {worktree}", file=sys.stderr)
 
 
 def run(
@@ -119,8 +134,7 @@ def run(
     )
 
     if cfg.get("direnv"):
-        (worktree / ".envrc").write_text(ENVRC)
-        subprocess.run(["direnv", "allow", str(worktree)], check=True, stdout=sys.stderr)
+        _direnv(worktree)
 
     if issue and cfg.get("sync_issue_status"):
         try:
@@ -135,7 +149,7 @@ def run(
             print(f"warning: parent status not updated: {e}", file=sys.stderr)
 
     if cfg.values["on_start"] and (hook := cfg.command("on_start", **ph)):
-        r = subprocess.run(hook, shell=True, cwd=worktree, stdout=sys.stderr, check=False)  # noqa: S602 - hooks are shell commands the user configured
+        r = subprocess.run(hook, shell=True, cwd=worktree, stdout=STDERR_FD, check=False)  # noqa: S602 - hooks are shell commands the user configured
         if r.returncode:
             print(f"warning: on_start exited {r.returncode}", file=sys.stderr)
 

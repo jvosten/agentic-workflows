@@ -171,7 +171,7 @@ def _parse_list(lines: list[str]) -> dict:
         if m and len(m.group(1)) == base:
             items.append([m.group(3)])
         else:
-            items[-1].append(line[base:] if line[:base].isspace() else line.lstrip())
+            items[-1].append(line[base:] if not line[:base].strip() else line.lstrip())  # base 0: ''.isspace() is False
     content = []
     for first, *rest in items:
         sub = _blocks("\n".join(line.removeprefix("  ") for line in rest)) if rest else []

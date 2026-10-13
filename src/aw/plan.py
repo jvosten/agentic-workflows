@@ -47,9 +47,12 @@ def _name_pattern(cfg: Config, issue: str) -> re.Pattern[str]:
 
 
 def find(cfg: Config, issue: str) -> Path | None:
-    """The plan whose file name carries this issue id, if it is written already."""
+    """The plan whose file name carries this issue id, if it is written already. Several are refused: which one
+    is current is not decided by sort order."""
     pattern = _name_pattern(cfg, issue)
     matches = sorted(p for p in directory(cfg).rglob("*.md") if pattern.match(p.name))
+    if len(matches) > 1:
+        raise AwError(f"several plans for {issue}; keep one:\n" + "\n".join(f"  {p}" for p in matches))
     return matches[0] if matches else None
 
 
@@ -78,7 +81,7 @@ def locate(cfg: Config, tracker: Tracker, ref: str, slug: str | None = None) -> 
 
 def state(cfg: Config, tracker: Tracker, ref: str) -> dict[str, str]:
     issue, found = owner(cfg, tracker, ref)
-    subtasks = tracker.children(issue) if tracker.name != "none" else []
+    subtasks = tracker.children(issue) if tracker.scoped() else []
     return {"issue": issue, "plan": str(found) if found else "none", "subtasks": " ".join(row.id for row in subtasks)}
 
 

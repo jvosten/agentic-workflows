@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import re
 import subprocess
-import sys
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from aw.config import AwError, Config
+from aw.config import STDERR_FD, AwError, Config
 
 STATUSES = ("backlog", "ready", "in_progress", "in_review", "done")
 
@@ -216,7 +215,7 @@ def status_hook(cfg: Config, issue: str, status: str) -> str | None:
     if not cfg.values["on_issue_status"]:
         return None
     cmd = cfg.command("on_issue_status", issue=issue, status=status, status_name=status_name(cfg, status))
-    r = subprocess.run(cmd, shell=True, cwd=cfg.checkout, stdout=sys.stderr, check=False)  # noqa: S602 - hooks are shell commands the user configured
+    r = subprocess.run(cmd, shell=True, cwd=cfg.checkout, stdout=STDERR_FD, check=False)  # noqa: S602 - hooks are shell commands the user configured
     if r.returncode:
         raise AwError(f"on_issue_status exited {r.returncode}: {cmd}")
     return f"on_issue_status: {cmd}"

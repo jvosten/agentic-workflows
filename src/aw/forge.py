@@ -96,6 +96,7 @@ THREADS = """query($owner:String!,$repo:String!,$number:Int!,$endCursor:String){
   comments(first:20){nodes{author{login} body}}}} comments(last:30){nodes{author{login} body}}}}}"""
 GITHUB_BUCKETS = {"pass": "pass", "fail": "fail", "cancel": "fail", "pending": "pending", "skipping": "skip"}
 GITLAB_PIPELINE = {"success": "pass", "failed": "fail", "canceled": "fail", "skipped": "skip", "manual": "skip"}
+CHECKS_APPEAR = 8  # polls, 15 s apart: how long configured CI may take to report the first check of a new request
 
 
 def _unsupported(kind: str) -> AwError:
@@ -250,8 +251,33 @@ def update(kind: str, ref: str, title: str | None, body: str | None, cwd: Path) 
         raise _unsupported(kind)
 
 
+def ci_file(kind: str, checkout: Path) -> str | None:
+    """The CI configuration in this checkout that reports checks on a request, or None when there is none."""
+    if kind == "github":
+        workflows = checkout / ".github/workflows"
+        return ".github/workflows" if any(workflows.glob("*.yml")) or any(workflows.glob("*.yaml")) else None
+    if kind == "gitlab":
+        return ".gitlab-ci.yml" if (checkout / ".gitlab-ci.yml").is_file() else None
+    return None
+
+
 def checks(kind: str, ref: str, cwd: Path, watch: bool = False) -> list[Check]:
-    """CI results; with watch, wait until nothing is pending. Progress output is discarded, only results return."""
+    """CI results; with watch, wait until nothing is pending. Progress output is discarded, only results return.
+
+    With CI configured in the checkout, no checks right after a request opened means none reported yet: a watch
+    waits for the first one (CHECKS_APPEAR polls) before it watches them.
+    """
+    results = _checks(kind, ref, cwd, watch)
+    if watch and ci_file(kind, cwd):
+        for _ in range(CHECKS_APPEAR):
+            if results:
+                break
+            time.sleep(15)
+            results = _checks(kind, ref, cwd, watch)
+    return results
+
+
+def _checks(kind: str, ref: str, cwd: Path, watch: bool) -> list[Check]:
     if kind == "github":
         if watch:
             _proc(["gh", "pr", "checks", ref, "--watch", "--interval", "15"], cwd, quiet=True)

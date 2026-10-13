@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from aw import backlog, forge, rollup, session, trackers
-from aw.config import AwError, Config, fast_forward, git
+from aw.config import STDERR_FD, AwError, Config, fast_forward, git
 from aw.trackers import canonical
 
 PREFIX = {"github": "#", "gitlab": "!"}
@@ -126,7 +126,10 @@ def _warn_stacked(root: Path, branch: str, log: list[str]) -> None:
             continue
         try:
             other = session.read(line.removeprefix("worktree "))
-        except AwError:
+        except session.NoSession:
+            continue
+        except AwError as e:
+            log.append(f"warning: cannot tell whether a session is stacked on {branch}: {e}")
             continue
         if other.get("base") == branch:
             log.append(f"warning: {other['branch']} is stacked on {branch}; run `aw restack` in {other['worktree']}")
@@ -151,7 +154,7 @@ def _on_merge(cfg: Config, meta: dict[str, Any], pr: str, final: bool, log: list
         type=meta.get("type", ""),
         date=date.today().strftime("%Y%m%d"),
     )
-    r = subprocess.run(cmd, shell=True, cwd=cfg.root, stdout=sys.stderr, check=False)  # noqa: S602 - hooks are shell commands the user configured
+    r = subprocess.run(cmd, shell=True, cwd=cfg.root, stdout=STDERR_FD, check=False)  # noqa: S602 - hooks are shell commands the user configured
     log.append(f"on_merge: {cmd}" if r.returncode == 0 else f"warning: on_merge exited {r.returncode}: {cmd}")
 
 

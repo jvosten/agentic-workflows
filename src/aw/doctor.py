@@ -8,7 +8,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from aw import install, memory, plan, templates, trackers
+from aw import install, memory, plan, templates, trackers, ui
 from aw.config import PROJECT_FILE, AwError, Config, load, load_schema, repo_root
 from aw.trackers.github import GitHub
 from aw.trackers.jira import CREDENTIALS, Jira
@@ -170,9 +170,12 @@ def check_config(cfg: Config) -> list[Result]:
     if cfg.get("forge") != "none":
         try:
             source = templates.source(cfg, "mr")
-            results.append(
-                ("ok", f"merge request template: {source.relative_to(cfg.checkout) if source else 'bundled'}")
+            shown = (
+                (source.relative_to(cfg.checkout) if source.is_relative_to(cfg.checkout) else ui.home(source))
+                if source
+                else None
             )
+            results.append(("ok", f"merge request template: {shown or 'bundled'}"))
         except AwError as e:
             results.append(("fail", str(e)))
     if cfg.get("plan_scope") == "local" and not plan.ignored(cfg):

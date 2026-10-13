@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.1.6 — 2026-10-13 (#6)
+
+### Fixed
+
+- `aw mr checks` no longer reads "no checks" as green when the checkout has CI (`.github/workflows/*.yml`,
+  `.gitlab-ci.yml`): right after a request opens it prints `no checks yet: … is configured, none reported` and exits
+  2, and `--watch` waits up to two minutes for the first check.
+- Backlog items are the headings under `## Items`, so sub-headings inside an item no longer split it.
+- A list at column 0 keeps its nested levels in Jira descriptions (ADF).
+- `aw start-task` keeps a tracked `.envrc`; a missing or failing `direnv` is a warning and the start goes on.
+- `aw plan state` on a tracker without parent links (GitLab) reports no subtasks instead of failing.
+- `aw doctor` shows a merge request template outside the checkout instead of crashing.
+- Several plans for one issue are refused and listed; the parent rollup counts them as unknown and closes nothing.
+- A malformed memory entry or import line (a YAML list such as `tags: [git, gh]`, a wrong status) is an error naming
+  the file or line and the field; files on disk and imports share one check.
+- A malformed session file names the file and the field, and is never mistaken for "outside a session": a stacked
+  session's merge request no longer falls back to `main` on it.
+- Hooks and `direnv` print to file descriptor 2 instead of through `sys.stderr`, so they run when the host replaced
+  `sys.stderr` (pytest's `capsys`, an embedding program) instead of failing with `fileno`.
+
+### Changed
+
+- README notes that the GitHub path runs this repository's own pull requests; the backlog keeps only what is still
+  unconfirmed live.
+
 ## 0.1.5 — 2026-10-13 (#5)
 
 ### Fixed

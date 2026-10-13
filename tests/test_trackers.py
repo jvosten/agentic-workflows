@@ -136,6 +136,17 @@ def test_ordered_list_and_quote():
     assert [n["type"] for n in doc["content"]] == ["orderedList", "blockquote"]
 
 
+def test_a_list_at_column_zero_keeps_its_nested_levels():
+    doc = adf.from_markdown("- a\n  - b\n    - c\n- d\n")
+
+    def depth(node):
+        lists = [n for item in node["content"] for n in item["content"] if n["type"] == "bulletList"]
+        return 1 + max((depth(n) for n in lists), default=0)
+
+    assert depth(doc["content"][0]) == 3
+    assert adf.to_markdown(doc) == "- a\n  - b\n    - c\n- d\n"
+
+
 # --- Jira ---------------------------------------------------------------------
 
 
