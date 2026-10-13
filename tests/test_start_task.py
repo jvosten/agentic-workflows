@@ -159,3 +159,12 @@ def test_stacked_start_refuses(configured, monkeypatch, forge_kind, base, messag
     with pytest.raises(AwError, match=message):
         start_task.run(load(), "feat", "b", None, base=base)
     assert not (configured.parent / "wt").exists()
+
+
+def test_on_start_placeholders_are_quoted(repo, tmp_path):
+    (repo / ".agents").mkdir()
+    (repo / ".agents/aw.toml").write_text(
+        f'worktree_root = "{tmp_path}/wt"\non_start = "printf \'%s|\' {{issue}} {{slug}} > hook.txt"\n'
+    )
+    out = start_task.run(load(), "docs", "quoted", None)
+    assert (Path(out["worktree"]) / "hook.txt").read_text() == "|quoted|"  # the empty issue is still an argument

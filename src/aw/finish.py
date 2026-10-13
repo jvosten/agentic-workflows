@@ -142,7 +142,7 @@ def _update_main(root: Path, main: str, log: list[str]) -> None:
 def _on_merge(cfg: Config, meta: dict[str, Any], pr: str, final: bool, log: list[str]) -> None:
     if not cfg.values["on_merge"]:
         return
-    cmd = cfg.get(
+    cmd = cfg.command(
         "on_merge",
         pr=pr,
         final=str(final).lower(),

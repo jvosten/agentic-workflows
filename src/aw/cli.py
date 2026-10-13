@@ -166,22 +166,70 @@ def _issue(args: argparse.Namespace) -> None:
 MR_PREFIX = {"github": "#", "gitlab": "!"}
 
 
+CLOSING = r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?\s+"  # GitHub's and GitLab's closing keywords
+
+
+def _closes_in(tracker: trackers.Tracker, issue: str, body: str) -> bool:
+    """Whether the body already closes exactly this issue: a closing keyword right before its reference.
+
+    Trackers whose reference itself links (pr_text == ref, Jira) need the exact reference. A bare mention
+    (`see #12`) or a longer number (`#123`) does not count.
+    """
+    ref = re.escape(tracker.ref(issue)) + r"(?![\w-])"
+    if tracker.pr_text(issue) == tracker.ref(issue):
+        return re.search(r"(?<![\w-])" + ref, body) is not None
+    return re.search(CLOSING + ref, body, re.IGNORECASE) is not None
+
+
+def _session_issue(cfg: Config) -> str:
+    try:
+        issue = session.read().get("issue") or ""
+    except AwError:
+        return ""
+    return issue if cfg.get("tracker") != "none" else ""
+
+
 def _issue_lines(cfg: Config, body: str, part: int | None, earlier: list[str]) -> list[str]:
     """Lines that tie the request to the session: the issue (closing it only on the last part), earlier parts."""
     lines = []
-    try:
-        issue = session.read().get("issue")
-    except AwError:
-        issue = None
-    if issue and cfg.get("tracker") != "none":
+    if issue := _session_issue(cfg):
         tracker = trackers.get(cfg)
         if part:
             lines.append(f"Refs {tracker.ref(issue)} (part {part})")
-        elif tracker.ref(issue) not in body:
+        elif not _closes_in(tracker, issue, body):
             lines.append(tracker.pr_text(issue))
     if earlier and not part:
         lines.append(f"Earlier parts: {', '.join(earlier)}")
-    return lines
+    return [line for line in lines if line not in body]
+
+
+def _check_closes(cfg: Config, kind: str, shown: str, number: str, part: int | None) -> None:
+    """Compare what the request will close with the session issue: missing is an error, any other a warning.
+
+    Only where the forge closes the tracker's issues (both GitHub, or both GitLab). The request exists either way.
+    """
+    issue = _session_issue(cfg)
+    if not issue or cfg.get("tracker") != kind:
+        return
+    tracker = trackers.get(cfg)
+    closed = forge.closes(kind, number, cfg.checkout)
+    for other in closed:
+        if other != issue:
+            print(
+                f"warning: {shown} also closes #{other}; reword the phrase that names it "
+                f'("Closed: #{other}" counts as a closing keyword)',
+                file=sys.stderr,
+            )
+    if part and issue in closed:
+        print(
+            f"warning: {shown} is part {part} but closes {tracker.ref(issue)}; only the last part closes it",
+            file=sys.stderr,
+        )
+    if not part and issue not in closed:
+        raise AwError(
+            f"{shown} does not close {tracker.ref(issue)}: its description needs '{tracker.pr_text(issue)}' "
+            "(aw mr update adds it)"
+        )
 
 
 def _target(cfg: Config) -> str:
@@ -227,16 +275,29 @@ def _mr(args: argparse.Namespace) -> int:
             return 0
         made = forge.create(kind, branch, target, args.title, body, args.draft, cwd)
         print(f"{mark}{made.number} {made.url}")
+        _check_closes(cfg, kind, f"{mark}{made.number}", made.number, part)
     elif args.op == "update":
         body = _body(args.body_file) if args.body_file else None
         if args.title is None and body is None:
             raise AwError("mr update: pass --title, --body-file, or both")
+        part = None
+        if body is not None and (issue := _session_issue(cfg)):
+            # keep what create appended: the part reference of a part request, else the closing line
+            refs = re.search(
+                rf"^Refs {re.escape(trackers.get(cfg).ref(issue))} \(part (\d+)\)", forge.body(kind, ref, cwd), re.M
+            )
+            part = int(refs.group(1)) if refs else None
+            done = [] if part else [f"{mark}{r.number}" for r in forge.merged(kind, branch, cwd)]
+            if lines := _issue_lines(cfg, body, part, done):
+                body = body.rstrip() + "\n\n" + "\n".join(lines) + "\n"
         if args.dry_run:
             print(f"DRY RUN ({kind}): update {ref} title={args.title!r}")
             print(body if body is not None else "body: unchanged", end="" if body else "\n")
             return 0
         forge.update(kind, ref, args.title, body, cwd)
         print(f"updated {ref}")
+        if body is not None:
+            _check_closes(cfg, kind, f"{mark}{ref}" if ref.isdigit() else ref, ref, part)
     elif args.op == "checks":
         results = forge.checks(kind, ref, cwd, args.watch)
         print(_checks_line(results))
@@ -266,6 +327,7 @@ def _mr(args: argparse.Namespace) -> int:
         mergeable = s.mergeable if s.request.state in ("open", "opened") and s.mergeable not in ("", "unknown") else ""
         state = [s.request.state, "draft" if s.draft else "", f"mergeable: {mergeable}" if mergeable else ""]
         print("state    " + " · ".join(filter(None, state)))
+        print("closes   " + (", ".join(f"#{n}" for n in s.closes) or "nothing"))
         print("checks   " + _checks_line(s.checks))
         print(f"review   {s.review} · {ui.plural(s.unresolved, 'unresolved thread')}")
         diff = f" · +{s.additions} −{s.deletions}" if s.additions is not None else ""

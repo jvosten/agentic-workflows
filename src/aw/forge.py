@@ -5,11 +5,12 @@ from __future__ import annotations
 import json
 import subprocess
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from aw.config import AwError, json_pages
+from aw.trackers import run as _run  # one runner: a missing gh or glab is an AwError, not a traceback
 
 MERGE_FLAGS = {
     "github": {"merge": "--merge", "squash": "--squash", "rebase": "--rebase"},
@@ -17,11 +18,14 @@ MERGE_FLAGS = {
 }
 
 
-def _run(args: list[str], cwd: Path) -> str:
-    r = subprocess.run(args, cwd=cwd, capture_output=True, text=True, check=False)
-    if r.returncode:
-        raise AwError(f"{' '.join(args[:3])}: {r.stderr.strip() or r.stdout.strip()}")
-    return r.stdout.strip()
+def _proc(args: list[str], cwd: Path, quiet: bool = False) -> subprocess.CompletedProcess:
+    """For calls whose exit code carries a result (gh pr checks); quiet discards the output (a watch)."""
+    try:
+        if quiet:
+            return subprocess.run(args, cwd=cwd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        return subprocess.run(args, cwd=cwd, capture_output=True, text=True, check=False)
+    except FileNotFoundError:
+        raise AwError(f"{args[0]} not found") from None
 
 
 def is_merged(forge: str, pr: str, cwd: Path) -> bool:
@@ -82,6 +86,7 @@ class Summary:
     additions: int | None
     deletions: int | None
     mergeable: str = ""
+    closes: list[str] = field(default_factory=list)  # issue numbers the request closes when it merges
 
 
 # $endCursor and pageInfo let `gh api graphql --paginate` walk every page of review threads.
@@ -154,6 +159,27 @@ def head(kind: str, ref: str, cwd: Path) -> str:
     raise _unsupported(kind)
 
 
+def body(kind: str, ref: str, cwd: Path) -> str:
+    """The request's description as it is now."""
+    if kind == "github":
+        return _json(["gh", "pr", "view", ref, "--json", "body"], cwd)["body"] or ""
+    if kind == "gitlab":
+        return _json(["glab", "mr", "view", ref, "--output", "json"], cwd).get("description") or ""
+    raise _unsupported(kind)
+
+
+def closes(kind: str, ref: str, cwd: Path) -> list[str]:
+    """Issue numbers the request closes when it merges, as the forge parsed them from its description."""
+    if kind == "github":
+        refs = _json(["gh", "pr", "view", ref, "--json", "closingIssuesReferences"], cwd)["closingIssuesReferences"]
+        return [str(i["number"]) for i in refs or []]
+    if kind == "gitlab":  # from the API documentation, not tested against a live instance
+        iid = ref if ref.isdigit() else str(_json(["glab", "mr", "view", ref, "--output", "json"], cwd)["iid"])
+        issues = _json(["glab", "api", f"projects/:id/merge_requests/{iid}/closes_issues"], cwd) or []
+        return [str(i["iid"]) for i in issues]
+    raise _unsupported(kind)
+
+
 def target(kind: str, ref: str, cwd: Path) -> str:
     """The branch the request merges into."""
     if kind == "github":
@@ -175,12 +201,7 @@ def retarget(kind: str, ref: str, branch: str, cwd: Path) -> None:
 def create(kind: str, branch: str, base: str, title: str, body: str, draft: bool, cwd: Path) -> MergeRequest:
     if kind == "github":
         args = ["gh", "pr", "create", "--head", branch, "--base", base, "--title", title, "--body-file", "-"]
-        r = subprocess.run(
-            [*args, *(["--draft"] if draft else [])], cwd=cwd, input=body, capture_output=True, text=True, check=False
-        )
-        if r.returncode:
-            raise AwError(f"gh pr create: {r.stderr.strip() or r.stdout.strip()}")
-        url = r.stdout.strip().splitlines()[-1]
+        url = _run([*args, *(["--draft"] if draft else [])], cwd, body).splitlines()[-1]
     elif kind == "gitlab":
         out = _run(
             [
@@ -212,11 +233,7 @@ def update(kind: str, ref: str, title: str | None, body: str | None, cwd: Path) 
         if body is None:
             _run(args, cwd)
             return
-        r = subprocess.run(
-            [*args, "--body-file", "-"], cwd=cwd, input=body, capture_output=True, text=True, check=False
-        )
-        if r.returncode:
-            raise AwError(f"gh pr edit: {r.stderr.strip() or r.stdout.strip()}")
+        _run([*args, "--body-file", "-"], cwd, body)
     elif kind == "gitlab":
         _run(
             [
@@ -237,16 +254,8 @@ def checks(kind: str, ref: str, cwd: Path, watch: bool = False) -> list[Check]:
     """CI results; with watch, wait until nothing is pending. Progress output is discarded, only results return."""
     if kind == "github":
         if watch:
-            subprocess.run(
-                ["gh", "pr", "checks", ref, "--watch", "--interval", "15"],
-                cwd=cwd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False,
-            )
-        r = subprocess.run(
-            ["gh", "pr", "checks", ref, "--json", "name,bucket"], cwd=cwd, capture_output=True, text=True, check=False
-        )
+            _proc(["gh", "pr", "checks", ref, "--watch", "--interval", "15"], cwd, quiet=True)
+        r = _proc(["gh", "pr", "checks", ref, "--json", "name,bucket"], cwd)
         if r.returncode not in (0, 1, 8):  # 1: a check failed, 8: pending; both still print the JSON
             raise AwError(f"gh pr checks: {r.stderr.strip()}")
         if not r.stdout.strip():
@@ -342,7 +351,8 @@ def summary(kind: str, ref: str, cwd: Path) -> Summary:
                 "view",
                 ref,
                 "--json",
-                "number,url,title,state,isDraft,reviewDecision,changedFiles,additions,deletions,mergeable",
+                "number,url,title,state,isDraft,reviewDecision,changedFiles,additions,deletions,mergeable,"
+                "closingIssuesReferences",
             ],
             cwd,
         )
@@ -362,6 +372,7 @@ def summary(kind: str, ref: str, cwd: Path) -> Summary:
             d["additions"],
             d["deletions"],
             (d.get("mergeable") or "").lower(),
+            [str(i["number"]) for i in d.get("closingIssuesReferences") or []],
         )
     if kind == "gitlab":
         d = _json(["glab", "mr", "view", ref, "--output", "json"], cwd)
@@ -380,5 +391,6 @@ def summary(kind: str, ref: str, cwd: Path) -> Summary:
             None,
             None,
             status.replace("_", " "),
+            closes(kind, iid, cwd),
         )
     raise _unsupported(kind)

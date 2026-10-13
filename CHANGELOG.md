@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.1.5 — 2026-10-13 (#5)
+
+### Fixed
+
+- `aw memory import` refuses an unsafe or existing slug and malformed fields before writing anything; it never
+  overwrites an entry. Slugs are unique across decisions and gotchas: `aw memory add` refuses a clash, a lookup
+  refuses an ambiguous slug, and `aw doctor` lists existing clashes.
+- The closing line (`Fixes #12`) is added unless a closing phrase for exactly this issue is in the body: a mention of
+  `#123` or a bare `#12` no longer suppresses it. `aw mr update` keeps it, and after create and update `aw` checks what
+  the request will close: the session issue missing is an error, another closed issue a warning.
+- Hook placeholders are shell-quoted, so `In Progress` reaches a script as one argument and shell characters in values
+  are inert.
+- A missing `gh` or `glab` is an `aw` error, not a traceback.
+
+### Changed
+
+- Config migrations replace the rename table. `on_issue_start` becomes `on_start = "[ -n {issue} ] && <old>"`, keeping
+  its behaviour; quotes written around hook placeholders are removed (`"{status_name}"` becomes `{status_name}`), and
+  `aw doctor` warns about a placeholder inside a longer quoted text. `aw init` applies pending migrations.
+- `aw mr view` prints a `closes` line with the issues the request will close.
+
 ## 0.1.4 — 2026-10-13 (#4)
 
 ### Fixed

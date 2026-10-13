@@ -134,7 +134,7 @@ def run(
         except AwError as e:
             print(f"warning: parent status not updated: {e}", file=sys.stderr)
 
-    if hook := cfg.get("on_start", **ph):
+    if cfg.values["on_start"] and (hook := cfg.command("on_start", **ph)):
         r = subprocess.run(hook, shell=True, cwd=worktree, stdout=sys.stderr, check=False)  # noqa: S602 - hooks are shell commands the user configured
         if r.returncode:
             print(f"warning: on_start exited {r.returncode}", file=sys.stderr)

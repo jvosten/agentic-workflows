@@ -173,3 +173,45 @@ def test_doctor_checks_tags_successors_and_aliases(vocab, tmp_path):
     assert ("fail", "memory: aliases claimed twice: 7 (a, b)") in results
     with pytest.raises(AwError, match="claimed by a, b"):
         memory.resolve(load(), "7")
+
+
+def test_import_refuses_unsafe_slugs_and_never_overwrites(vocab, tmp_path, capsys):
+    escaped = tmp_path / "escaped"
+    assert memory.add(load(), "decision", "Plans live in git", "Original.\n", [], None)
+    original = (vocab / ".agents/memory/decisions/plans-live-in-git.md").read_text()
+    lines = [
+        {"kind": "decision", "title": "Absolute", "slug": str(escaped)},
+        {"kind": "decision", "title": "Relative", "slug": "../../outside"},
+        {"kind": "decision", "title": "Plans live in git", "body": "Overwritten."},
+        {"kind": "gotcha", "title": "Sections as a list", "tags": ["flux"], "sections": ["Symptom"]},
+    ]
+    path = vocab / "import.jsonl"
+    path.write_text("\n".join(json.dumps(line) for line in lines) + "\n")
+    assert cli.main(["memory", "import", "--json", str(path)]) == 1
+    err = capsys.readouterr().err
+    assert "nothing written" in err
+    assert "line 1: slug" in err and "line 2: slug" in err
+    assert "plans-live-in-git exists" in err
+    assert "line 4:" in err  # a malformed field is a refusal, not a traceback
+    assert not escaped.with_suffix(".md").exists()
+    assert not (vocab.parent / "outside.md").exists()
+    assert (vocab / ".agents/memory/decisions/plans-live-in-git.md").read_text() == original
+
+
+def test_slugs_are_unique_across_decisions_and_gotchas(vocab, tmp_path, capsys):
+    assert add(tmp_path, "decision", "Flux owns deploys", "x\n") == 0
+    assert add(tmp_path, "gotcha", "Flux owns deploys", "y\n", "flux") == 1
+    assert "flux-owns-deploys exists as a decision" in capsys.readouterr().err
+
+    path = vocab / "import.jsonl"
+    path.write_text(json.dumps({"kind": "gotcha", "title": "Flux owns deploys", "tags": ["flux"]}) + "\n")
+    assert cli.main(["memory", "import", "--json", str(path)]) == 1
+    assert "flux-owns-deploys exists" in capsys.readouterr().err
+
+    gotchas = vocab / ".agents/memory/gotchas"
+    gotchas.mkdir(parents=True, exist_ok=True)
+    (gotchas / "flux-owns-deploys.md").write_text('---\ntitle: "Hand-made clash"\ntags: ["flux"]\n---\n\nz\n')
+    with pytest.raises(AwError, match="flux-owns-deploys is both a decision and a gotcha"):
+        memory.resolve(load(), "flux-owns-deploys")
+    (vocab / ".agents/aw.toml").write_text("aw_version = 1\n")
+    assert ("fail", "memory: slugs used by a decision and a gotcha: flux-owns-deploys") in doctor.check_memory(load())

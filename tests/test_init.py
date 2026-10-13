@@ -1,8 +1,9 @@
 import tomllib
+from pathlib import Path
 
 import pytest
 
-from aw import init
+from aw import doctor, init, start_task
 from aw.config import AwError, load
 
 
@@ -128,14 +129,56 @@ def test_init_reports_what_it_wrote(repo, capsys):
     assert rows["changelog_file"] == ["CHANGELOG.md", "kept"]
 
 
-def test_a_renamed_key_keeps_working_and_init_rewrites_it(repo):
+def test_a_migration_renames_rewrites_and_keeps_the_old_behaviour(repo, tmp_path):
     (repo / ".agents").mkdir()
-    (repo / ".agents/aw.toml").write_text('aw_version = 1\non_issue_start = "make setup"\n')
+    (repo / ".agents/aw.toml").write_text(
+        f'aw_version = 1\nworktree_root = "{tmp_path}/wt"\non_issue_start = "touch started"\n'
+    )
     cfg = load()
-    assert cfg.get("on_start") == "make setup" and cfg.renamed == [("project", "on_issue_start", "on_start")]
+    assert cfg.get("on_start") == "[ -n {issue} ] && touch started"
+    assert cfg.migrated == [("project", "on_issue_start → on_start, run only with an issue as before")]
     assert cfg.unknown == []
+    assert (
+        "warn",
+        "project: pending migration on_issue_start → on_start, run only with an issue as before; `aw init` applies it",
+    ) in doctor.check_config(cfg)
+
+    without = start_task.run(load(), "docs", "no-issue", None)
+    assert not (Path(without["worktree"]) / "started").exists()  # the old hook ran only with an issue
+    with_issue = start_task.run(load(), "docs", "with-issue", "7")
+    assert (Path(with_issue["worktree"]) / "started").exists()
+
     report = init.run(True, [])
-    assert "renamed 'on_issue_start' to 'on_start'" in report.warnings
+    assert "migrated on_issue_start → on_start, run only with an issue as before" in report.warnings
     data = read(repo)
-    assert data["on_start"] == "make setup" and "on_issue_start" not in data
-    assert load().renamed == []
+    assert data["on_start"] == "[ -n {issue} ] && touch started" and "on_issue_start" not in data
+    assert load().migrated == []
+
+
+def test_quotes_around_placeholders_are_migrated_away(repo, tmp_path):
+    """aw quotes placeholder values itself: quotes written around a placeholder would become part of the value."""
+    (repo / ".agents").mkdir()
+    (repo / ".agents/aw.toml").write_text(
+        "aw_version = 1\n"
+        "on_issue_status = 'sync.sh \"{status_name}\" {issue}'\n"
+        "on_merge = \"deploy '{pr}'\"\n"
+        "on_issue_start = 'touch \"{slug}\"'\n"
+    )
+    cfg = load()
+    assert cfg.values["on_issue_status"] == "sync.sh {status_name} {issue}"
+    assert cfg.values["on_merge"] == "deploy {pr}"
+    assert cfg.values["on_start"] == "[ -n {issue} ] && touch {slug}"  # renamed first, then unquoted
+    assert len(cfg.migrated) == 4
+    assert cfg.command("on_issue_status", status_name="In Progress", issue="7") == "sync.sh 'In Progress' 7"
+
+    init.run(True, [])
+    data = read(repo)
+    assert (data["on_issue_status"], data["on_merge"]) == ("sync.sh {status_name} {issue}", "deploy {pr}")
+    assert load().migrated == []  # applied once, nothing pending
+
+
+def test_doctor_flags_a_placeholder_inside_a_quoted_string(repo):
+    (repo / ".agents").mkdir()
+    (repo / ".agents/aw.toml").write_text("aw_version = 1\non_merge = 'notify \"merged {pr} into main\"'\n")
+    warnings = [message for level, message in doctor.check_config(load()) if level == "warn"]
+    assert any("on_merge: a placeholder inside quotes" in m for m in warnings)

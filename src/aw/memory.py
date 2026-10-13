@@ -24,6 +24,7 @@ KINDS = {"gotcha": "gotchas", "decision": "decisions"}
 STATUSES = ("active", "retired")
 FIELDS = ("title", "tags", "status", "superseded_by", "aliases", "date", "issue")
 LOG = ".agents/gotchas-experiment.log"
+SLUG = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")  # what slugify produces: the file name, so never a path
 KNOWN_GOTCHAS = "## Known gotchas"
 
 
@@ -127,12 +128,14 @@ def vocabulary(cfg: Config) -> dict[str, str]:
 
 
 def resolve(cfg: Config, ref: str) -> Entry:
-    """An entry by slug or alias (a number like 95, an id like D15)."""
+    """An entry by slug or alias (a number like 95, an id like D15). A slug in both kinds is refused, never picked."""
     wanted = ref.strip().removeprefix("#").casefold()
     every = entries(cfg)
-    for entry in every:
-        if entry.slug.casefold() == wanted:
-            return entry
+    same = sorted((e for e in every if e.slug.casefold() == wanted), key=lambda e: e.kind)
+    if len(same) > 1:
+        raise AwError(f"{same[0].slug} is both a {same[0].kind} and a {same[1].kind}; rename one, aw doctor lists it")
+    if same:
+        return same[0]
     hits = [e for e in every if wanted in (a.casefold() for a in e.aliases)]
     if not hits:
         raise AwError(f"no memory entry {ref!r} (slug or alias)")
@@ -151,14 +154,23 @@ def _check_tags(cfg: Config, kind: str, tags: list[str]) -> None:
         raise AwError(f"unknown tag(s): {', '.join(unknown)}; add them to {where} first, with a one-line description")
 
 
+def _taken(cfg: Config, slug: str) -> str | None:
+    """The kind that already holds this slug: slugs are unique across decisions and gotchas."""
+    return next((kind for kind in KINDS if (directory(cfg, kind) / f"{slug}.md").exists()), None)
+
+
 def add(cfg: Config, kind: str, title: str, text: str, tags: list[str], issue: str | None) -> Path:
     _check_tags(cfg, kind, tags)
     slug = slugify(title)
     path = directory(cfg, kind) / f"{slug}.md"
-    if path.exists():
+    if (taken := _taken(cfg, slug)) == kind:
         raise AwError(f"{path.name} exists: same subject? `aw memory supersede {slug}`, or a more specific title")
+    if taken:
+        raise AwError(f"{slug} exists as a {taken}; slugs are unique across kinds: a more specific title")
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(Entry(kind, slug, title, tags, date=date.today().isoformat(), issue=issue or "", body=text).text())
+    entry = Entry(kind, slug, title, tags, date=date.today().isoformat(), issue=issue or "", body=text)
+    with path.open("x") as handle:  # exclusive: never overwrite an entry written in the meantime
+        handle.write(entry.text())
     return path
 
 
@@ -211,11 +223,16 @@ def import_json(cfg: Config, lines: list[str]) -> list[Path]:
             kind, title = d["kind"], d["title"]
             if kind not in KINDS:
                 raise ValueError(f"kind must be one of {', '.join(KINDS)}")
+            slug = d.get("slug") or slugify(title)
+            if not isinstance(slug, str) or not SLUG.match(slug):
+                raise ValueError(f"slug {slug!r} must be lowercase words joined by '-', like a title's slug")
             sections = d.get("sections") or {}
+            if not isinstance(sections, dict):
+                raise ValueError("sections must map a heading to its text")
             body = d.get("body") or "\n\n".join(f"## {k}\n\n{str(v).strip()}" for k, v in sections.items() if v)
             entry = Entry(
                 kind,
-                d.get("slug") or slugify(title),
+                slug,
                 title,
                 list(d.get("tags", [])),
                 d.get("status", "active"),
@@ -232,15 +249,18 @@ def import_json(cfg: Config, lines: list[str]) -> list[Path]:
         except (KeyError, ValueError, TypeError, AwError) as e:
             problems.append(f"line {n}: {e}")
     existing = entries(cfg)
-    slugs: dict[tuple[str, str], int] = {}
+    held = {e.slug: e.kind for e in existing}
+    counts: dict[str, int] = {}
     aliases: dict[str, list[str]] = {}
+    for entry in new:
+        counts[entry.slug] = counts.get(entry.slug, 0) + 1
     for entry in existing + new:
-        slugs[(entry.kind, entry.slug)] = slugs.get((entry.kind, entry.slug), 0) + 1
         for alias in entry.aliases:
             aliases.setdefault(alias.casefold(), []).append(entry.slug)
+    problems += [f"{slug} exists as a {held[slug]}; import never overwrites" for slug in counts if slug in held]
     problems += [
-        f'slug {slug!r} ({kind}) used {n} times; give the entries a "slug" or distinct titles'
-        for (kind, slug), n in slugs.items()
+        f'slug {slug!r} used {n} times in the import; give the entries a "slug" or distinct titles'
+        for slug, n in counts.items()
         if n > 1
     ]
     problems += [f"alias {a!r} claimed by {', '.join(owners)}" for a, owners in aliases.items() if len(owners) > 1]
@@ -255,9 +275,13 @@ def import_json(cfg: Config, lines: list[str]) -> list[Path]:
         raise AwError("import refused, nothing written:\n  " + "\n  ".join(shown))
     written = []
     for entry in new:
-        path = directory(cfg, entry.kind) / f"{entry.slug}.md"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(entry.text())
+        root = directory(cfg, entry.kind)
+        path = root / f"{entry.slug}.md"
+        if not path.resolve().is_relative_to(root.resolve()):  # SLUG already rules it out; the write must not trust it
+            raise AwError(f"{entry.slug}: outside {root}")
+        root.mkdir(parents=True, exist_ok=True)
+        with path.open("x") as handle:
+            handle.write(entry.text())
         written.append(path)
     return written
 
