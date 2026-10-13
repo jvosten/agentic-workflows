@@ -348,6 +348,32 @@ In every case the entry is in the commits that exist when the PR opens, and the 
 
 **Effort:** small — one wrapper and its callers.
 
+---
+
+### [MEDIUM] Repo-scoped forge token in aw init
+
+**Context:** `gh auth login` and `glab auth login` default to account-wide tokens: GitHub's OAuth token carries `repo` (every repository the account reaches), GitLab's personal access token with `api` covers every project. `aw` needs far less for one repository: push, merge requests, checks, and issues when the forge is also the tracker. Found while finalizing 0.2.0 in this repo.
+
+**Problem:** Setting up a project with `aw init` never asks how the forge CLI is authenticated, so most users run `aw` with a token that can write everywhere. The safe setup exists on both forges but takes several manual steps in a web UI that nobody remembers.
+
+**Scope:**
+
+- `aw init` (and `aw doctor`) reports the current `gh` / `glab` login and whether it is limited to this repository, without printing any token.
+- An optional step in `aw init` that guides the user to a repository-scoped token and lists the permissions `aw` needs, derived from `forge`, `tracker` and `github_project`:
+  - GitHub: fine-grained personal access token, "Only select repositories" → this repo; Contents RW, Pull requests RW, Commit statuses R, Actions R, Issues RW (tracker `github`), Projects (with `github_project`).
+  - GitLab: project access token (or a personal token with the smallest scopes the project allows); `api` is the narrowest scope `glab mr` works with, so project-level is the limiting factor.
+- It opens or prints the token creation URL with the repository preselected where the forge supports it; the user creates the token and logs in themselves (`gh auth login` / `glab auth login`, paste). `aw` never reads, stores or prints the token.
+- Per-repo login without touching the global one: document `GH_TOKEN` / `GITLAB_TOKEN` from a secret manager in the repo's `.envrc` as the alternative to replacing the CLI's global login.
+- Check which `aw` operations fail under a fine-grained token (e.g. check runs in `gh pr checks`), and list them.
+
+**Acceptance criteria:**
+
+- `aw doctor` says whether the forge login is repository-scoped, account-wide, or unknown, and never prints a token.
+- `aw init` offers the token step with the permission list for the configured forge and tracker, and skips it on request.
+- Every `aw mr` and `aw issue` operation used by the skills works with the suggested token, or the docs name the exception.
+
+**Effort:** medium — no token handling in `aw`, but per-forge permission lists and a live check against both forges.
+
 ## Considered and not planned
 
 - **Personas and multi-agent roles** (BMAD), **spec-driven phases** (spec-kit), **label-based handoff queues** (zaks-io): full methods of their own; out of scope for a session-workflow standard.
