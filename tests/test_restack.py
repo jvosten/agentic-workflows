@@ -71,7 +71,9 @@ def merge_base_into_main(repo, method):
             git("cherry-pick", sha, cwd=repo)
     git("push", "-q", "origin", "main", cwd=repo)
     if method != "merge":
-        assert subprocess.run(["git", "merge-base", "--is-ancestor", "origin/feat/a", "main"], cwd=repo).returncode
+        assert subprocess.run(
+            ["git", "merge-base", "--is-ancestor", "origin/feat/a", "main"], cwd=repo, check=False
+        ).returncode
 
 
 @pytest.mark.parametrize("method", ["merge", "squash", "rebase"])
@@ -118,8 +120,9 @@ def test_conflict_leaves_the_rebase_and_a_rerun_finishes_it(stacked, repo):
 
     (stacked / "base.txt").write_text("resolved\n")
     git("add", "base.txt", cwd=stacked)
-    subprocess.run(["git", "-c", "core.editor=true", "rebase", "--continue"], cwd=stacked, check=True,
-                   capture_output=True)
+    subprocess.run(
+        ["git", "-c", "core.editor=true", "rebase", "--continue"], cwd=stacked, check=True, capture_output=True
+    )
     result = restack.run(load(), session.read())
     assert result.state == "restacked"
     meta = session.read()
@@ -162,5 +165,5 @@ def test_cli_conflict_names_files_and_next_step(stacked, repo, capsys):
 
 def test_restack_refuses_a_fork_point_outside_the_branch(stacked, repo):
     session.update(stacked, fork_point=base_commit(repo, "more.txt"))
-    with pytest.raises(Exception, match="fork point .* is not in"):
+    with pytest.raises(Exception, match=r"fork point .* is not in"):
         restack.run(load(), session.read())

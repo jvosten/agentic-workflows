@@ -6,6 +6,7 @@ from aw.trackers.jira import Jira
 
 TODAY = date.today().isoformat()
 
+
 def project(repo, extra=""):
     (repo / ".agents").mkdir(exist_ok=True)
     (repo / ".agents/aw.toml").write_text('tracker = "jira"\njira_project = "PROJ"\n' + extra)
@@ -88,7 +89,8 @@ def test_local_plans_live_in_the_primary_checkout(repo, tmp_path, capsys, monkey
     git("commit", "-qm", "cfg", cwd=repo)
     git("push", "-q", "origin", "main", cwd=repo)
     assert [m for lvl, m in doctor.run() if "plan_scope" in m] == [
-        f"plan_scope = local but {repo}/.agents/plans is not gitignored"]
+        f"plan_scope = local but {repo}/.agents/plans is not gitignored"
+    ]
     (repo / ".agents/.gitignore").write_text("aw.local.toml\nplans/\n")
     assert not [m for lvl, m in doctor.run() if "plan_scope" in m]
 

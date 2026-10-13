@@ -11,8 +11,7 @@ from aw.config import AwError, git, load
 def configured(repo, tmp_path):
     (repo / ".agents").mkdir()
     (repo / ".agents/aw.toml").write_text(
-        f'worktree_root = "{tmp_path}/wt"\n'
-        'on_start = "echo hook-{issue} > hook.txt"\n'
+        f'worktree_root = "{tmp_path}/wt"\non_start = "echo hook-{{issue}} > hook.txt"\n'
     )
     return repo
 
@@ -54,11 +53,14 @@ def test_from_inside_worktree(configured, tmp_path, monkeypatch):
     assert (first["session"], second["session"]) == ("1", "2")
 
 
-@pytest.mark.parametrize("args, message", [
-    (("wip", "x", None), "type 'wip'"),
-    (("feat", "Bad_Slug", None), "kebab-case"),
-    (("feat", "x", "a b"), "invalid none issue id"),
-])
+@pytest.mark.parametrize(
+    ("args", "message"),
+    [
+        (("wip", "x", None), "type 'wip'"),
+        (("feat", "Bad_Slug", None), "kebab-case"),
+        (("feat", "x", "a b"), "invalid none issue id"),
+    ],
+)
 def test_rejects_bad_input(configured, args, message):
     with pytest.raises(AwError, match=message):
         start_task.run(load(), *args)
@@ -119,7 +121,8 @@ def test_existing_branch(configured):
 
 
 def test_custom_name_pattern(repo, tmp_path):
-    assert start_task._name_pattern("{project}-{n}-{slug}").match("proj-7-abc").group(1) == "7"
+    match = start_task._name_pattern("{project}-{n}-{slug}").match("proj-7-abc")
+    assert match and match.group(1) == "7"
 
 
 def push_base(repo, name="feat/a"):
@@ -142,11 +145,14 @@ def test_stacked_start_forks_from_the_base_and_records_it(configured, tmp_path, 
     assert (meta["base"], meta["fork_point"]) == ("feat/a", tip)
 
 
-@pytest.mark.parametrize("forge_kind, base, message", [
-    ("none", "feat/a", "--base needs a forge"),
-    ("github", "main", "already starts from main"),
-    ("github", "feat/missing", "origin has no branch feat/missing"),
-])
+@pytest.mark.parametrize(
+    ("forge_kind", "base", "message"),
+    [
+        ("none", "feat/a", "--base needs a forge"),
+        ("github", "main", "already starts from main"),
+        ("github", "feat/missing", "origin has no branch feat/missing"),
+    ],
+)
 def test_stacked_start_refuses(configured, monkeypatch, forge_kind, base, message):
     monkeypatch.setenv("AW_FORGE", forge_kind)
     push_base(configured)

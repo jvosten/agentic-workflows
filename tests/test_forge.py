@@ -14,6 +14,7 @@ def project(repo, text):
 
 # --- templates ------------------------------------------------------------------
 
+
 def test_mr_template_comes_from_override_then_forge_then_bundle(repo, capsys):
     project(repo, 'forge = "gitlab"\n')
     assert cli.main(["template", "mr"]) == 0
@@ -26,7 +27,9 @@ def test_mr_template_comes_from_override_then_forge_then_bundle(repo, capsys):
     (templates_dir / "Bug.md").write_text("## Bug\n")
     assert cli.main(["template", "mr"]) == 0
     out = capsys.readouterr()
-    assert out.out == "## What does this MR do?\n" and out.err == "template: .gitlab/merge_request_templates/default.md\n"
+    assert (
+        out.out == "## What does this MR do?\n" and out.err == "template: .gitlab/merge_request_templates/default.md\n"
+    )
 
     project(repo, 'forge = "gitlab"\nmr_template = "bug"\n')
     assert cli.main(["template", "mr"]) == 0
@@ -66,6 +69,7 @@ def test_doctor_reports_a_missing_named_template(repo):
 
 # --- aw mr create -------------------------------------------------------------------
 
+
 @pytest.fixture
 def branch(repo, monkeypatch):
     project(repo, 'forge = "github"\ntracker = "github"\n')
@@ -103,8 +107,9 @@ def test_create_never_opens_a_second_request(branch, tmp_path, monkeypatch, caps
     assert created == []
 
     monkeypatch.setattr(forge, "find_open", lambda kind, b, cwd: None)
-    monkeypatch.setattr(forge, "create", lambda kind, b, base, title, text, draft, cwd:
-                        forge.MergeRequest("8", "https://x/pull/8"))
+    monkeypatch.setattr(
+        forge, "create", lambda kind, b, base, title, text, draft, cwd: forge.MergeRequest("8", "https://x/pull/8")
+    )
     assert cli.main(["mr", "create", "--title", "t", "--body-file", str(body)]) == 0
     assert capsys.readouterr().out == "#8 https://x/pull/8\n"
 
@@ -119,8 +124,11 @@ def test_create_in_a_stacked_session_targets_the_base(branch, tmp_path, monkeypa
     git("push", "-qu", "origin", "feat/retries", cwd=branch)
     targets = []
     monkeypatch.setattr(forge, "find_open", lambda kind, b, cwd: None)
-    monkeypatch.setattr(forge, "create", lambda kind, b, base, title, text, draft, cwd:
-                        targets.append(base) or forge.MergeRequest("9", "u"))
+    monkeypatch.setattr(
+        forge,
+        "create",
+        lambda kind, b, base, title, text, draft, cwd: targets.append(base) or forge.MergeRequest("9", "u"),
+    )
     assert cli.main(["mr", "create", "--title", "t", "--body-file", str(body)]) == 0
     assert targets == ["feat/a"]
 
@@ -137,16 +145,28 @@ REAL_RUN = subprocess.run
 
 
 class FakeProcess:
-    """Stands in for subprocess.run: canned results for gh and glab, keyed by the leading arguments; git runs for real."""
+    """Stands in for subprocess.run: canned results for gh and glab, keyed by the leading arguments.
+
+    git runs for real.
+    """
 
     def __init__(self, answers):
         self.answers, self.calls = answers, []
 
-    def __call__(self, args, cwd=None, input=None, capture_output=False, text=False, check=False,
-                 stdout=None, stderr=None):
+    def __call__(
+        self, args, cwd=None, input=None, capture_output=False, text=False, check=False, stdout=None, stderr=None
+    ):
         if args[0] not in ("gh", "glab"):
-            return REAL_RUN(args, cwd=cwd, input=input, capture_output=capture_output, text=text, check=check,
-                            stdout=stdout, stderr=stderr)
+            return REAL_RUN(
+                args,
+                cwd=cwd,
+                input=input,
+                capture_output=capture_output,
+                text=text,
+                check=check,
+                stdout=stdout,
+                stderr=stderr,
+            )
         self.calls.append(args)
         for prefix, (code, out, err) in self.answers.items():
             if tuple(args[: len(prefix)]) == prefix:
@@ -156,14 +176,23 @@ class FakeProcess:
 
 def test_github_checks_watch_quietly_and_sort_into_buckets(repo, monkeypatch, capsys):
     project(repo, 'forge = "github"\n')
-    rows = [{"name": "test", "bucket": "pass"}, {"name": "lint", "bucket": "fail"},
-            {"name": "deploy", "bucket": "skipping"}, {"name": "e2e", "bucket": "pending"}]
-    fake = FakeProcess({("gh", "pr", "checks", "5", "--watch"): (1, "lots of progress output", ""),
-                        ("gh", "pr", "checks", "5", "--json"): (1, json.dumps(rows), "")})
+    rows = [
+        {"name": "test", "bucket": "pass"},
+        {"name": "lint", "bucket": "fail"},
+        {"name": "deploy", "bucket": "skipping"},
+        {"name": "e2e", "bucket": "pending"},
+    ]
+    fake = FakeProcess(
+        {
+            ("gh", "pr", "checks", "5", "--watch"): (1, "lots of progress output", ""),
+            ("gh", "pr", "checks", "5", "--json"): (1, json.dumps(rows), ""),
+        }
+    )
     monkeypatch.setattr(forge.subprocess, "run", fake)
     assert cli.main(["mr", "checks", "5", "--watch"]) == 1
     assert capsys.readouterr().out == (
-        "1 passed · 1 failed: lint · 1 pending · 1 skipped\n  fail    lint\n  pending e2e\n")
+        "1 passed · 1 failed: lint · 1 pending · 1 skipped\n  fail    lint\n  pending e2e\n"
+    )
     assert fake.calls[0][:5] == ["gh", "pr", "checks", "5", "--watch"]
 
     fake.answers = {("gh", "pr", "checks"): (8, json.dumps(rows[3:]), "")}
@@ -175,38 +204,81 @@ def test_github_checks_watch_quietly_and_sort_into_buckets(repo, monkeypatch, ca
 
 def test_github_comments_and_view(repo, monkeypatch, capsys):
     project(repo, 'forge = "github"\n')
-    threads = {"data": {"repository": {"pullRequest": {
-        "reviewThreads": {"nodes": [
-            {"isResolved": False, "path": "src/a.py", "line": 12,
-             "comments": {"nodes": [{"author": {"login": "ann"}, "body": "Off by one?"},
-                                    {"author": {"login": "bob"}, "body": "Fixed in 3f2a."}]}},
-            {"isResolved": True, "path": "src/b.py", "line": 3, "comments": {"nodes": []}}]},
-        "comments": {"nodes": [{"author": {"login": "ann"}, "body": "Looks good otherwise."}]}}}}}
-    view = {"number": 5, "url": "https://x/pull/5", "title": "feat: retries", "state": "OPEN", "isDraft": False,
-            "reviewDecision": "CHANGES_REQUESTED", "changedFiles": 3, "additions": 40, "deletions": 2,
-            "mergeable": "MERGEABLE"}
-    fake = FakeProcess({("gh", "api", "graphql"): (0, json.dumps(threads), ""),
-                        ("gh", "pr", "view"): (0, json.dumps(view), ""),
-                        ("gh", "pr", "checks"): (0, json.dumps([{"name": "test", "bucket": "pass"}]), "")})
+    threads = {
+        "data": {
+            "repository": {
+                "pullRequest": {
+                    "reviewThreads": {
+                        "nodes": [
+                            {
+                                "isResolved": False,
+                                "path": "src/a.py",
+                                "line": 12,
+                                "comments": {
+                                    "nodes": [
+                                        {"author": {"login": "ann"}, "body": "Off by one?"},
+                                        {"author": {"login": "bob"}, "body": "Fixed in 3f2a."},
+                                    ]
+                                },
+                            },
+                            {"isResolved": True, "path": "src/b.py", "line": 3, "comments": {"nodes": []}},
+                        ]
+                    },
+                    "comments": {"nodes": [{"author": {"login": "ann"}, "body": "Looks good otherwise."}]},
+                }
+            }
+        }
+    }
+    view = {
+        "number": 5,
+        "url": "https://x/pull/5",
+        "title": "feat: retries",
+        "state": "OPEN",
+        "isDraft": False,
+        "reviewDecision": "CHANGES_REQUESTED",
+        "changedFiles": 3,
+        "additions": 40,
+        "deletions": 2,
+        "mergeable": "MERGEABLE",
+    }
+    fake = FakeProcess(
+        {
+            ("gh", "api", "graphql"): (0, json.dumps(threads), ""),
+            ("gh", "pr", "view"): (0, json.dumps(view), ""),
+            ("gh", "pr", "checks"): (0, json.dumps([{"name": "test", "bucket": "pass"}]), ""),
+        }
+    )
     monkeypatch.setattr(forge.subprocess, "run", fake)
     assert cli.main(["mr", "comments", "5"]) == 0
     assert capsys.readouterr().out == (
         "1 unresolved thread · 1 resolved · 1 comment\n\nsrc/a.py:12\n  ann: Off by one?\n  bob: Fixed in 3f2a.\n"
-        "\nComments\n  ann: Looks good otherwise.\n")
+        "\nComments\n  ann: Looks good otherwise.\n"
+    )
     assert cli.main(["mr", "view", "5"]) == 0
     assert capsys.readouterr().out == (
         "#5 feat: retries\nhttps://x/pull/5\nstate    open · mergeable: mergeable\nchecks   1 passed\n"
-        "review   changes requested · 1 unresolved thread\ndiff     3 files · +40 −2\n")
+        "review   changes requested · 1 unresolved thread\ndiff     3 files · +40 −2\n"
+    )
 
 
 # --- GitLab, from the API documentation ------------------------------------------------
+
 
 def test_gitlab_discussions_split_into_threads_and_comments(repo, monkeypatch):
     discussions = [
         {"notes": [{"system": True, "body": "added 1 commit"}]},
         {"notes": [{"resolvable": False, "author": {"username": "ann"}, "body": "Thanks!"}]},
-        {"notes": [{"resolvable": True, "resolved": False, "author": {"username": "bob"}, "body": "Rename?",
-                    "position": {"new_path": "app.py", "new_line": 4}}]},
+        {
+            "notes": [
+                {
+                    "resolvable": True,
+                    "resolved": False,
+                    "author": {"username": "bob"},
+                    "body": "Rename?",
+                    "position": {"new_path": "app.py", "new_line": 4},
+                }
+            ]
+        },
         {"notes": [{"resolvable": True, "resolved": True, "author": {"username": "bob"}, "body": "Typo"}]},
     ]
     fake = FakeProcess({("glab", "api"): (0, json.dumps(discussions), "")})
@@ -229,8 +301,9 @@ def test_gitlab_checks_report_jobs_of_the_head_pipeline(repo, monkeypatch):
 
 def test_parts_reference_the_issue_without_closing_it(branch, tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(session, "read", lambda: {"issue": "12"})
-    monkeypatch.setattr(forge, "merged", lambda kind, b, cwd: [forge.MergeRequest("314", "u"),
-                                                               forge.MergeRequest("315", "u")])
+    monkeypatch.setattr(
+        forge, "merged", lambda kind, b, cwd: [forge.MergeRequest("314", "u"), forge.MergeRequest("315", "u")]
+    )
     body = tmp_path / "body.md"
     body.write_text("## Summary\n\nPart three.\n")
     assert cli.main(["mr", "create", "--title", "t", "--body-file", str(body), "--part", "--dry-run"]) == 0
@@ -242,11 +315,18 @@ def test_parts_reference_the_issue_without_closing_it(branch, tmp_path, monkeypa
     assert capsys.readouterr().out.endswith("Part three.\n\nFixes #12\nEarlier parts: #314, #315\n")
 
 
-@pytest.mark.parametrize("kind, view, answer, edit", [
-    ("github", ("gh", "pr", "view", "5"), {"baseRefName": "feat/a"}, ["gh", "pr", "edit", "5", "--base", "main"]),
-    ("gitlab", ("glab", "mr", "view", "5"), {"target_branch": "feat/a"},
-     ["glab", "mr", "update", "5", "--target-branch", "main"]),
-])
+@pytest.mark.parametrize(
+    ("kind", "view", "answer", "edit"),
+    [
+        ("github", ("gh", "pr", "view", "5"), {"baseRefName": "feat/a"}, ["gh", "pr", "edit", "5", "--base", "main"]),
+        (
+            "gitlab",
+            ("glab", "mr", "view", "5"),
+            {"target_branch": "feat/a"},
+            ["glab", "mr", "update", "5", "--target-branch", "main"],
+        ),
+    ],
+)
 def test_target_and_retarget(repo, monkeypatch, kind, view, answer, edit):
     fake = FakeProcess({view: (0, json.dumps(answer), ""), tuple(edit[:3]): (0, "", "")})
     monkeypatch.setattr(forge.subprocess, "run", fake)

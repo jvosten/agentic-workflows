@@ -89,6 +89,7 @@ def test_session_outside_worktree(repo):
 
 # --- multi-merge sessions ----------------------------------------------------------
 
+
 def commit(worktree, name, push=True):
     (worktree / name).write_text(f"{name}\n")
     git("add", ".", cwd=worktree)
@@ -135,7 +136,7 @@ def test_merge_refuses_commits_the_merge_request_does_not_contain(started, repo,
     monkeypatch.setattr(forge, "find_open", lambda kind, branch, cwd: forge.MergeRequest("7", "u"))
     monkeypatch.setattr(forge, "is_merged", lambda kind, pr, cwd: True)
     monkeypatch.setattr(forge, "head", lambda kind, pr, cwd: "0" * 40)
-    with pytest.raises(AwError, match="merged at another commit .* Push them into a new part first"):
+    with pytest.raises(AwError, match=r"merged at another commit .* Push them into a new part first"):
         finish.merge(load(), session.read(), None)
 
 

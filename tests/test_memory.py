@@ -16,7 +16,8 @@ def body(tmp_path, text):
 def vocab(repo):
     (repo / ".agents/memory").mkdir(parents=True)
     (repo / ".agents/memory/tags.toml").write_text(
-        'flux = "Flux CD: kustomizations, HelmReleases"\ntalos = "Talos Linux and talosctl"\nsops = "SOPS and age"\n')
+        'flux = "Flux CD: kustomizations, HelmReleases"\ntalos = "Talos Linux and talosctl"\nsops = "SOPS and age"\n'
+    )
     return repo
 
 
@@ -26,8 +27,10 @@ def add(tmp_path, kind, title, text, tags=""):
 
 
 def test_add_writes_one_file_per_entry_with_frontmatter(vocab, tmp_path, capsys):
-    assert add(tmp_path, "gotcha", "Flux reconcile hangs on a missing CRD", "## Fix\n\nSplit the kustomization.\n",
-               "flux") == 0
+    assert (
+        add(tmp_path, "gotcha", "Flux reconcile hangs on a missing CRD", "## Fix\n\nSplit the kustomization.\n", "flux")
+        == 0
+    )
     assert capsys.readouterr().out == "wrote .agents/memory/gotchas/flux-reconcile-hangs-on-a-missing-crd.md\n"
     text = (vocab / ".agents/memory/gotchas/flux-reconcile-hangs-on-a-missing-crd.md").read_text()
     assert text.startswith('---\ntitle: "Flux reconcile hangs on a missing CRD"\ntags: ["flux"]\nstatus: "active"\n')
@@ -52,16 +55,29 @@ def test_find_show_tags_and_supersede(vocab, tmp_path, capsys):
     capsys.readouterr()
 
     assert cli.main(["memory", "find", "--tags", "flux", "--compact"]) == 0
-    assert capsys.readouterr().out == ("- flux-needs-crds-first · Flux needs CRDs first\n"
-                                       "- sops-rule-order-matters · SOPS rule order matters\n")
+    assert capsys.readouterr().out == (
+        "- flux-needs-crds-first · Flux needs CRDs first\n- sops-rule-order-matters · SOPS rule order matters\n"
+    )
     assert cli.main(["memory", "find", "--text", "FIRST", "match", "--compact"]) == 0
     assert capsys.readouterr().out == "- sops-rule-order-matters · SOPS rule order matters\n"
 
     assert cli.main(["memory", "tags"]) == 0
     assert capsys.readouterr().out == "flux 2 · sops 1 · talos 1\n"  # most first, ties alphabetical
 
-    assert cli.main(["memory", "supersede", "talosctl-needs-the-endpoint", "--reason", "talosconfig sets it",
-                     "--by", "flux-needs-crds-first"]) == 0
+    assert (
+        cli.main(
+            [
+                "memory",
+                "supersede",
+                "talosctl-needs-the-endpoint",
+                "--reason",
+                "talosconfig sets it",
+                "--by",
+                "flux-needs-crds-first",
+            ]
+        )
+        == 0
+    )
     capsys.readouterr()
     assert cli.main(["memory", "find", "--tags", "talos", "--compact"]) == 0
     assert capsys.readouterr().out == "no entries\n"
@@ -73,10 +89,21 @@ def test_find_show_tags_and_supersede(vocab, tmp_path, capsys):
 
 def test_import_validates_everything_before_writing(vocab, capsys):
     lines = [
-        {"kind": "gotcha", "title": "Bootstrap fails with host parse error", "tags": ["talos"], "aliases": ["1"],
-         "date": "2026-01-02", "sections": {"Symptom": "fails", "Cause": "inventory", "Fix": "add pve01"}},
-        {"kind": "decision", "title": "GitOps engine: Flux CD, not ArgoCD", "tags": ["flux"], "aliases": ["D15"],
-         "body": "See phase 02."},
+        {
+            "kind": "gotcha",
+            "title": "Bootstrap fails with host parse error",
+            "tags": ["talos"],
+            "aliases": ["1"],
+            "date": "2026-01-02",
+            "sections": {"Symptom": "fails", "Cause": "inventory", "Fix": "add pve01"},
+        },
+        {
+            "kind": "decision",
+            "title": "GitOps engine: Flux CD, not ArgoCD",
+            "tags": ["flux"],
+            "aliases": ["D15"],
+            "body": "See phase 02.",
+        },
         {"kind": "gotcha", "title": "Second with the same alias", "tags": ["flux"], "aliases": ["1"]},
         {"kind": "gotcha", "title": "Bad tag", "tags": ["nope"]},
     ]
@@ -136,8 +163,9 @@ def test_doctor_checks_tags_successors_and_aliases(vocab, tmp_path):
     (vocab / ".agents/aw.toml").write_text("aw_version = 1\n")
     gotchas = vocab / ".agents/memory/gotchas"
     gotchas.mkdir(parents=True)
-    (gotchas / "a.md").write_text('---\ntitle: "A"\ntags: ["ghost"]\nstatus: "retired"\nsuperseded_by: "zz"\n'
-                                  'aliases: ["7"]\n---\n\nx\n')
+    (gotchas / "a.md").write_text(
+        '---\ntitle: "A"\ntags: ["ghost"]\nstatus: "retired"\nsuperseded_by: "zz"\naliases: ["7"]\n---\n\nx\n'
+    )
     (gotchas / "b.md").write_text('---\ntitle: "B"\ntags: ["flux"]\nstatus: "active"\naliases: ["7"]\n---\n\ny\n')
     results = doctor.check_memory(load())
     assert ("fail", "memory: unknown tags on a (ghost)") in results

@@ -40,8 +40,10 @@ def _name_pattern(cfg: Config, issue: str) -> re.Pattern[str]:
     if "{issue}" not in name:
         raise AwError(f"plan_file must carry {{issue}} in its file name: {cfg.values['plan_file']!r}")
     escaped = re.escape(name)
-    return re.compile("^" + PLACEHOLDER.sub(
-        lambda m: re.escape(issue) if m.group(1) == "issue" else "[^/]*", escaped) + "$", re.IGNORECASE)
+    return re.compile(
+        "^" + PLACEHOLDER.sub(lambda m: re.escape(issue) if m.group(1) == "issue" else "[^/]*", escaped) + "$",
+        re.IGNORECASE,
+    )
 
 
 def find(cfg: Config, issue: str) -> Path | None:
@@ -77,8 +79,7 @@ def locate(cfg: Config, tracker: Tracker, ref: str, slug: str | None = None) -> 
 def state(cfg: Config, tracker: Tracker, ref: str) -> dict[str, str]:
     issue, found = owner(cfg, tracker, ref)
     subtasks = tracker.children(issue) if tracker.name != "none" else []
-    return {"issue": issue, "plan": str(found) if found else "none",
-            "subtasks": " ".join(row.id for row in subtasks)}
+    return {"issue": issue, "plan": str(found) if found else "none", "subtasks": " ".join(row.id for row in subtasks)}
 
 
 def unsplit(path: Path) -> list[str]:
@@ -86,7 +87,7 @@ def unsplit(path: Path) -> list[str]:
     text = path.read_text()
     marks = list(SECTION.finditer(text))
     left = []
-    for mark, after in zip(marks, [*marks[1:], None]):
+    for mark, after in zip(marks, [*marks[1:], None], strict=True):
         line = SUBTASK.search(text, mark.end(), after.start() if after else len(text))
         value = line.group(1).strip() if line else ""
         if not re.search(r"\d", value) or value.casefold().startswith(("none", "<")):
@@ -102,7 +103,14 @@ def compose(cfg: Config, issue: str, slug: str, parent: Row | None = None) -> Pa
     """Where the plan of this issue goes when it is written. No parent → the area folder drops out."""
     parent_slug = slugify(parent.title) if parent and parent.title else ""
     area = "-".join(filter(None, (parent.id if parent else "", parent_slug)))
-    name = cfg.get("plan_file", issue=issue, slug=slug, date=date.today().isoformat(),
-                   parent=parent.id if parent else "", parent_slug=parent_slug, area=area)
+    name = cfg.get(
+        "plan_file",
+        issue=issue,
+        slug=slug,
+        date=date.today().isoformat(),
+        parent=parent.id if parent else "",
+        parent_slug=parent_slug,
+        area=area,
+    )
     parts = [part for part in name.split("/") if part.strip("-_ ")]
     return directory(cfg).joinpath(*parts)

@@ -61,8 +61,9 @@ def fast_forward(root: Path, branch: str) -> str:
         try:
             git("merge", "--ff-only", "--quiet", upstream, cwd=where)
         except AwError as e:  # uncommitted changes the update would overwrite; git touched nothing
-            raise AwError(f"cannot update {branch} in {where}: commit or stash the changes there, then retry\n{e}") \
-                from None
+            raise AwError(
+                f"cannot update {branch} in {where}: commit or stash the changes there, then retry\n{e}"
+            ) from None
         return f"updated {branch} in {where}"
     local, remote = git("rev-parse", ref, cwd=root), git("rev-parse", upstream, cwd=root)
     if local == remote:
@@ -189,14 +190,14 @@ def load(cwd: Path | str | None = None) -> Config:
         data = read_toml(path)
         if layer == "project":
             cfg.file_version = data.get("aw_version")
-        for key, value in data.items():
-            if key == "aw_version":
+        for raw_key, value in data.items():
+            if raw_key == "aw_version":
                 continue
-            if key in renamed:
-                cfg.renamed.append((layer, key, renamed[key]))
-                if renamed[key] in data:  # the new name, set in the same file, wins
+            key = renamed.get(raw_key, raw_key)
+            if raw_key in renamed:
+                cfg.renamed.append((layer, raw_key, key))
+                if key in data:  # the new name, set in the same file, wins
                     continue
-                key = renamed[key]
             if key not in schema:
                 cfg.unknown.append((layer, key))
                 continue

@@ -8,8 +8,10 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from aw import install, plan, templates, trackers
+from aw import install, memory, plan, templates, trackers
 from aw.config import PROJECT_FILE, AwError, Config, load, load_schema, repo_root
+from aw.trackers.github import GitHub
+from aw.trackers.jira import CREDENTIALS, Jira
 
 NAME = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 TRACKER_CLI = {"github": "gh", "gitlab": "glab"}
@@ -52,8 +54,9 @@ def check_skill(skill: Path) -> list[Result]:
 
 def check_cli() -> list[Result]:
     bin_link = install.agents_home() / "bin/aw"
-    results: list[Result] = [("ok", f"{bin_link}") if bin_link.exists()
-                             else ("fail", f"{bin_link} missing; run `aw install`")]
+    results: list[Result] = [
+        ("ok", f"{bin_link}") if bin_link.exists() else ("fail", f"{bin_link} missing; run `aw install`")
+    ]
     if not shutil.which("aw"):
         results.append(("warn", "`aw` is not on your PATH; skills still work. For your shell: `uv tool update-shell`"))
     return results
@@ -120,27 +123,43 @@ def check_config(cfg: Config) -> list[Result]:
         results.append(("ok", f"{PROJECT_FILE}: aw_version {current}"))
     results += [("warn", f"{layer}: unknown key {key!r}") for layer, key in cfg.unknown]
     results += [("warn", f"{layer}: {old!r} is now {new!r}; `aw init` renames it") for layer, old, new in cfg.renamed]
-    untracked = [name for name in (PROJECT_FILE, ".agents/.gitignore") if (cfg.checkout / name).is_file()
-                 and subprocess.run(["git", "ls-files", "--error-unmatch", name], cwd=cfg.checkout,
-                                    capture_output=True, check=False).returncode]
+    untracked = [
+        name
+        for name in (PROJECT_FILE, ".agents/.gitignore")
+        if (cfg.checkout / name).is_file()
+        and subprocess.run(
+            ["git", "ls-files", "--error-unmatch", name], cwd=cfg.checkout, capture_output=True, check=False
+        ).returncode
+    ]
     if untracked:
-        results.append(("warn", (f"{', '.join(untracked)} not committed: session worktrees start from "
-                                 f"{cfg.get('main_branch')} and run aw there with defaults; "
-                                 "git add .agents && git commit")))
+        results.append(
+            (
+                "warn",
+                (
+                    f"{', '.join(untracked)} not committed: session worktrees start from "
+                    f"{cfg.get('main_branch')} and run aw there with defaults; "
+                    "git add .agents && git commit"
+                ),
+            )
+        )
     for hook in ("on_start", "on_issue_status", "on_merge"):
         if cfg.values[hook]:
             results.append(("ok", f"hook {hook}: {cfg.values[hook]}"))
 
-    results.append(("ok", f"instructions_file {cfg.get('instructions_file')}")
-                   if (cfg.checkout / cfg.get("instructions_file")).is_file()
-                   else ("fail", f"instructions_file {cfg.get('instructions_file')} not found"))
+    results.append(
+        ("ok", f"instructions_file {cfg.get('instructions_file')}")
+        if (cfg.checkout / cfg.get("instructions_file")).is_file()
+        else ("fail", f"instructions_file {cfg.get('instructions_file')} not found")
+    )
     value = cfg.get("changelog_file")
     if value and not (cfg.checkout / value).exists():
         results.append(("warn", f"changelog_file {value} not found"))
     if cfg.get("forge") != "none":
         try:
             source = templates.source(cfg, "mr")
-            results.append(("ok", f"merge request template: {source.relative_to(cfg.checkout) if source else 'bundled'}"))
+            results.append(
+                ("ok", f"merge request template: {source.relative_to(cfg.checkout) if source else 'bundled'}")
+            )
         except AwError as e:
             results.append(("fail", str(e)))
     if cfg.get("plan_scope") == "local" and not plan.ignored(cfg):
@@ -157,10 +176,17 @@ def check_tools(cfg: Config) -> list[Result]:
     for cli, key in clis.items():
         results.append(_tool(cli, f"{key} = {cfg.get(key)}"))
         if shutil.which(cli):
-            authed = subprocess.run([cli, "auth", "status"], stdout=subprocess.DEVNULL,
-                                    stderr=subprocess.DEVNULL, check=False).returncode == 0
-            results.append(("ok", f"{cli} authenticated") if authed
-                           else ("fail", f"{cli} not authenticated; run `{cli} auth login`"))
+            authed = (
+                subprocess.run(
+                    [cli, "auth", "status"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False
+                ).returncode
+                == 0
+            )
+            results.append(
+                ("ok", f"{cli} authenticated")
+                if authed
+                else ("fail", f"{cli} not authenticated; run `{cli} auth login`")
+            )
     if cfg.get("tracker") == "jira":
         results += check_jira(cfg)
     if cfg.get("tracker") == "github" and cfg.get("github_project"):
@@ -175,23 +201,25 @@ def _gh_scopes() -> list[str] | None:
     return re.findall(r"'([^']+)'", m.group(1)) if m else None
 
 
-def check_board(cfg) -> list[Result]:
-    from aw import trackers
-
+def check_board(cfg: Config) -> list[Result]:
     spec, field = cfg.get("github_project"), cfg.get("status_field")
     results: list[Result] = []
     scopes = _gh_scopes()
     if scopes is not None and "project" not in scopes:
         return [("fail", "gh token lacks the project scope; run `gh auth refresh -s project`")]
+    tracker = trackers.get(cfg)
+    if not isinstance(tracker, GitHub):
+        return [("fail", "github_project needs tracker = github")]
     try:
-        board = trackers.get(cfg).board
+        board = tracker.board
     except AwError as e:
         return [("fail", str(e))]
     results.append(("ok", f"board {spec} ({board['title']}), field {field}"))
     columns = {o["name"].casefold() for o in board["field"]["options"]}
     used = [s for s in trackers.STATUSES if s in ("backlog", "in_progress", "done") or s in cfg.get("status_map")]
-    missing = [f"{s} → {trackers.status_name(cfg, s)}" for s in used
-               if trackers.status_name(cfg, s).casefold() not in columns]
+    missing = [
+        f"{s} → {trackers.status_name(cfg, s)}" for s in used if trackers.status_name(cfg, s).casefold() not in columns
+    ]
     if missing:
         available = ", ".join(o["name"] for o in board["field"]["options"])
         results.append(("fail", f"board has no column for {', '.join(missing)} (columns: {available}); set status_map"))
@@ -203,9 +231,7 @@ def check_board(cfg) -> list[Result]:
     return results
 
 
-def check_memory(cfg) -> list[Result]:
-    from aw import memory
-
+def check_memory(cfg: Config) -> list[Result]:
     try:
         every, vocab = memory.entries(cfg), memory.vocabulary(cfg)
     except AwError as e:
@@ -216,8 +242,13 @@ def check_memory(cfg) -> list[Result]:
     slugs = {e.slug for e in every}
     unknown = sorted({f"{e.slug} ({t})" for e in every for t in e.tags if t not in vocab})
     if unknown:
-        results.append(("fail", f"memory: unknown tags on {', '.join(unknown[:5])}"
-                                + (f" and {len(unknown) - 5} more" if len(unknown) > 5 else "")))
+        results.append(
+            (
+                "fail",
+                f"memory: unknown tags on {', '.join(unknown[:5])}"
+                + (f" and {len(unknown) - 5} more" if len(unknown) > 5 else ""),
+            )
+        )
     dangling = [e.slug for e in every if e.superseded_by and e.superseded_by not in slugs]
     if dangling:
         results.append(("fail", f"memory: superseded_by points nowhere in {', '.join(dangling)}"))
@@ -230,14 +261,19 @@ def check_memory(cfg) -> list[Result]:
         results.append(("fail", f"memory: aliases claimed twice: {'; '.join(claimed)}"))
     active = {k: sum(e.kind == k and e.status == "active" for e in every) for k in memory.KINDS}
     load = memory.tokens(memory.start_text(cfg, has_plan=False))
-    results.append(("ok", (f"memory: {active['gotcha']} gotchas, {active['decision']} decisions active; "
-                           f"session start loads ~{load} tokens (gotchas_load = {cfg.get('gotchas_load')})")))
+    results.append(
+        (
+            "ok",
+            (
+                f"memory: {active['gotcha']} gotchas, {active['decision']} decisions active; "
+                f"session start loads ~{load} tokens (gotchas_load = {cfg.get('gotchas_load')})"
+            ),
+        )
+    )
     return results
 
 
-def check_jira(cfg) -> list[Result]:
-    from aw.trackers.jira import CREDENTIALS
-
+def check_jira(cfg: Config) -> list[Result]:
     results: list[Result] = []
     for var in CREDENTIALS:
         results.append(("ok", f"{var} is set") if os.environ.get(var) else ("fail", f"{var} is not set"))
@@ -246,10 +282,15 @@ def check_jira(cfg) -> list[Result]:
     if not cfg.get("jira_project"):
         results.append(("warn", "jira_project is not set; aw issue list and create need it"))
     if all(r[0] != "fail" for r in results):
+        tracker = trackers.get(cfg)
         try:
-            trackers.get(cfg).request("GET", "/rest/api/3/search/jql", {"jql": "created >= -1d", "maxResults": 1, "fields": "summary"})
+            if not isinstance(tracker, Jira):
+                raise AwError("the Jira checks need tracker = jira")
+            tracker.request(
+                "GET", "/rest/api/3/search/jql", {"jql": "created >= -1d", "maxResults": 1, "fields": "summary"}
+            )
             results.append(("ok", "jira authenticated"))
-        except Exception as e:  # noqa: BLE001 - any failure is a doctor finding
+        except Exception as e:
             results.append(("fail", f"jira: {e}"))
     return results
 

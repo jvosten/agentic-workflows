@@ -94,8 +94,15 @@ class Tracker:
     def search(self, query: str, limit: int, raw: bool) -> list[Row]:
         raise self._unsupported("search")
 
-    def create(self, title: str, body: str, parent: str | None, issue_type: str | None,
-               labels: list[str] | None = None, status: str | None = None) -> str:
+    def create(
+        self,
+        title: str,
+        body: str,
+        parent: str | None,
+        issue_type: str | None,
+        labels: list[str] | None = None,
+        status: str | None = None,
+    ) -> str:
         """status: None keeps the tracker's default for new issues; "none" means no state where that is optional."""
         raise self._unsupported("create")
 
@@ -139,7 +146,9 @@ class Tracker:
             return sorted(hits.values(), key=_natural)
         tree = self.tree(parent) if parent else set()
         hits: dict[str, Row] = {}
-        matched: dict[str, int] = {}  # terms each hit matched: one search per term, so a hit for all of them ranks first
+        matched: dict[
+            str, int
+        ] = {}  # terms each hit matched: one search per term, so a hit for all of them ranks first
         for term in terms:
             for row in self.search(term, limit, raw=False):
                 row.scope = "tree" if row.id in tree else "elsewhere"
@@ -176,8 +185,12 @@ class Tracker:
             known = canonical(self.cfg, current)
             if known is None and self.status_category(issue) != "new":
                 # an unmapped state (Blocked, On hold) may be ahead of in progress; only Jira's to-do category is safe
-                return [(f"{self.ref(issue)} stays at {current}: a session start moves only from backlog or ready; "
-                         f"if {current!r} is one of those, map it (status_map.backlog or status_map.ready)")]
+                return [
+                    (
+                        f"{self.ref(issue)} stays at {current}: a session start moves only from backlog or ready; "
+                        f"if {current!r} is one of those, map it (status_map.backlog or status_map.ready)"
+                    )
+                ]
             if known not in (None, "backlog", "ready"):
                 return [f"{self.ref(issue)} stays at {current}: a session start moves only from backlog or ready"]
         messages = [self.set_status(issue, target)] if self.has_states() else []
@@ -203,7 +216,7 @@ def status_hook(cfg: Config, issue: str, status: str) -> str | None:
     if not cfg.values["on_issue_status"]:
         return None
     cmd = cfg.get("on_issue_status", issue=issue, status=status, status_name=status_name(cfg, status))
-    r = subprocess.run(cmd, shell=True, cwd=cfg.checkout, stdout=sys.stderr, check=False)
+    r = subprocess.run(cmd, shell=True, cwd=cfg.checkout, stdout=sys.stderr, check=False)  # noqa: S602 - hooks are shell commands the user configured
     if r.returncode:
         raise AwError(f"on_issue_status exited {r.returncode}: {cmd}")
     return f"on_issue_status: {cmd}"
@@ -215,10 +228,13 @@ def _natural(row: Row) -> list[int | str]:
 
 
 def get(cfg: Config) -> Tracker:
-    from aw.trackers import github, gitlab, jira
+    from aw.trackers import github, gitlab, jira  # noqa: PLC0415 - the adapters import this module
 
     kinds: dict[str, type[Tracker]] = {
-        "none": Tracker, "github": github.GitHub, "gitlab": gitlab.GitLab, "jira": jira.Jira,
+        "none": Tracker,
+        "github": github.GitHub,
+        "gitlab": gitlab.GitLab,
+        "jira": jira.Jira,
     }
     return kinds[cfg.get("tracker")](cfg)
 

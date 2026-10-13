@@ -8,6 +8,7 @@ backlog_home = tracker  the file collects items during a session; each one goes 
 from __future__ import annotations
 
 import re
+from itertools import pairwise
 from pathlib import Path
 
 from aw.config import AwError, Config
@@ -30,8 +31,7 @@ def home(cfg: Config) -> str:
 
 def _headings(lines: list[str]) -> list[tuple[int, int, str]]:
     """(line index, level, title) for every Markdown heading."""
-    return [(i, len(m.group(1)), m.group(2))
-            for i, line in enumerate(lines) if (m := HEADING.match(line.rstrip("\n")))]
+    return [(i, len(m.group(1)), m.group(2)) for i, line in enumerate(lines) if (m := HEADING.match(line.rstrip("\n")))]
 
 
 def _item_level(headings: list[tuple[int, int, str]]) -> int:
@@ -44,7 +44,7 @@ def _item_level(headings: list[tuple[int, int, str]]) -> int:
 def _splits_with_rules(lines: list[str], level: int) -> bool:
     """True when the file separates items of this level with horizontal rules."""
     items = [i for i, lvl, _ in _headings(lines) if lvl == level]
-    return any(any(line.strip() == RULE for line in lines[a + 1:b]) for a, b in zip(items, items[1:]))
+    return any(any(line.strip() == RULE for line in lines[a + 1 : b]) for a, b in pairwise(items))
 
 
 def _join(*blocks: str) -> str:

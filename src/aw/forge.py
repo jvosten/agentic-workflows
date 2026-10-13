@@ -38,16 +38,16 @@ def merge(forge: str, pr: str, method: str, cwd: Path) -> None:
     """Merge without deleting the head branch; the worktree still has it checked out."""
     flag = MERGE_FLAGS[forge][method]
     if forge == "github":
-        _run(["gh", "pr", "merge", pr, flag], cwd)
+        _run(["gh", "pr", "merge", pr, *([flag] if flag else [])], cwd)
     elif forge == "gitlab":
-        _run(["glab", "mr", "merge", pr, "--yes", "--remove-source-branch=false",
-              *([flag] if flag else [])], cwd)
+        _run(["glab", "mr", "merge", pr, "--yes", "--remove-source-branch=false", *([flag] if flag else [])], cwd)
     else:
         raise AwError(f"forge {forge!r} has no pull requests")
 
 
 # --- merge request operations: aw mr ----------------------------------------------
 # GitHub through gh; GitLab through glab, taken from its documentation and not tested against a live instance.
+
 
 @dataclass
 class MergeRequest:
@@ -113,8 +113,22 @@ def find_open(kind: str, branch: str, cwd: Path) -> MergeRequest | None:
 def merged(kind: str, branch: str, cwd: Path) -> list[MergeRequest]:
     """Merged requests from branch, oldest first: the parts a multi-merge session has shipped."""
     if kind == "github":
-        rows = _json(["gh", "pr", "list", "--head", branch, "--state", "merged", "--limit", "100",
-                      "--json", "number,url,title,headRefOid,mergedAt"], cwd)
+        rows = _json(
+            [
+                "gh",
+                "pr",
+                "list",
+                "--head",
+                branch,
+                "--state",
+                "merged",
+                "--limit",
+                "100",
+                "--json",
+                "number,url,title,headRefOid,mergedAt",
+            ],
+            cwd,
+        )
         rows = sorted(rows, key=lambda r: r["mergedAt"])
         return [MergeRequest(str(r["number"]), r["url"], r["title"], "merged", r["headRefOid"]) for r in rows]
     if kind == "gitlab":
@@ -154,14 +168,31 @@ def retarget(kind: str, ref: str, branch: str, cwd: Path) -> None:
 def create(kind: str, branch: str, base: str, title: str, body: str, draft: bool, cwd: Path) -> MergeRequest:
     if kind == "github":
         args = ["gh", "pr", "create", "--head", branch, "--base", base, "--title", title, "--body-file", "-"]
-        r = subprocess.run([*args, *(["--draft"] if draft else [])], cwd=cwd, input=body,
-                           capture_output=True, text=True, check=False)
+        r = subprocess.run(
+            [*args, *(["--draft"] if draft else [])], cwd=cwd, input=body, capture_output=True, text=True, check=False
+        )
         if r.returncode:
             raise AwError(f"gh pr create: {r.stderr.strip() or r.stdout.strip()}")
         url = r.stdout.strip().splitlines()[-1]
     elif kind == "gitlab":
-        out = _run(["glab", "mr", "create", "--source-branch", branch, "--target-branch", base, "--title", title,
-                    "--description", body, "--yes", *(["--draft"] if draft else [])], cwd)
+        out = _run(
+            [
+                "glab",
+                "mr",
+                "create",
+                "--source-branch",
+                branch,
+                "--target-branch",
+                base,
+                "--title",
+                title,
+                "--description",
+                body,
+                "--yes",
+                *(["--draft"] if draft else []),
+            ],
+            cwd,
+        )
         url = next((w for w in out.split() if "/merge_requests/" in w), out.splitlines()[-1])
     else:
         raise _unsupported(kind)
@@ -174,12 +205,23 @@ def update(kind: str, ref: str, title: str | None, body: str | None, cwd: Path) 
         if body is None:
             _run(args, cwd)
             return
-        r = subprocess.run([*args, "--body-file", "-"], cwd=cwd, input=body, capture_output=True, text=True, check=False)
+        r = subprocess.run(
+            [*args, "--body-file", "-"], cwd=cwd, input=body, capture_output=True, text=True, check=False
+        )
         if r.returncode:
             raise AwError(f"gh pr edit: {r.stderr.strip() or r.stdout.strip()}")
     elif kind == "gitlab":
-        _run(["glab", "mr", "update", ref, *(["--title", title] if title else []),
-              *(["--description", body] if body is not None else [])], cwd)
+        _run(
+            [
+                "glab",
+                "mr",
+                "update",
+                ref,
+                *(["--title", title] if title else []),
+                *(["--description", body] if body is not None else []),
+            ],
+            cwd,
+        )
     else:
         raise _unsupported(kind)
 
@@ -188,10 +230,16 @@ def checks(kind: str, ref: str, cwd: Path, watch: bool = False) -> list[Check]:
     """CI results; with watch, wait until nothing is pending. Progress output is discarded, only results return."""
     if kind == "github":
         if watch:
-            subprocess.run(["gh", "pr", "checks", ref, "--watch", "--interval", "15"], cwd=cwd,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
-        r = subprocess.run(["gh", "pr", "checks", ref, "--json", "name,bucket"], cwd=cwd,
-                           capture_output=True, text=True, check=False)
+            subprocess.run(
+                ["gh", "pr", "checks", ref, "--watch", "--interval", "15"],
+                cwd=cwd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+        r = subprocess.run(
+            ["gh", "pr", "checks", ref, "--json", "name,bucket"], cwd=cwd, capture_output=True, text=True, check=False
+        )
         if r.returncode not in (0, 1, 8):  # 1: a check failed, 8: pending; both still print the JSON
             raise AwError(f"gh pr checks: {r.stderr.strip()}")
         if not r.stdout.strip():
@@ -220,12 +268,32 @@ def comments(kind: str, ref: str, cwd: Path) -> tuple[list[Thread], list[tuple[s
     """Unresolved review threads, general comments, and how many threads are resolved."""
     if kind == "github":
         number = ref if ref.isdigit() else str(_json(["gh", "pr", "view", ref, "--json", "number"], cwd)["number"])
-        data = _json(["gh", "api", "graphql", "-f", f"query={THREADS}", "-F", "owner={owner}", "-F", "repo={repo}",
-                      "-F", f"number={number}"], cwd)["data"]["repository"]["pullRequest"]
+        data = _json(
+            [
+                "gh",
+                "api",
+                "graphql",
+                "-f",
+                f"query={THREADS}",
+                "-F",
+                "owner={owner}",
+                "-F",
+                "repo={repo}",
+                "-F",
+                f"number={number}",
+            ],
+            cwd,
+        )["data"]["repository"]["pullRequest"]
         threads = data["reviewThreads"]["nodes"]
-        open_threads = [Thread(t["path"], t.get("line"), [((c.get("author") or {}).get("login", "?"), c["body"])
-                                                          for c in t["comments"]["nodes"]])
-                        for t in threads if not t["isResolved"]]
+        open_threads = [
+            Thread(
+                t["path"],
+                t.get("line"),
+                [((c.get("author") or {}).get("login", "?"), c["body"]) for c in t["comments"]["nodes"]],
+            )
+            for t in threads
+            if not t["isResolved"]
+        ]
         general = [((c.get("author") or {}).get("login", "?"), c["body"]) for c in data["comments"]["nodes"]]
         return open_threads, general, len(threads) - len(open_threads)
     if kind == "gitlab":
@@ -242,8 +310,13 @@ def comments(kind: str, ref: str, cwd: Path) -> tuple[list[Thread], list[tuple[s
                 resolved += 1
             else:
                 position = notes[0].get("position") or {}
-                open_threads.append(Thread(position.get("new_path", ""), position.get("new_line"),
-                                           [((n.get("author") or {}).get("username", "?"), n["body"]) for n in notes]))
+                open_threads.append(
+                    Thread(
+                        position.get("new_path", ""),
+                        position.get("new_line"),
+                        [((n.get("author") or {}).get("username", "?"), n["body"]) for n in notes],
+                    )
+                )
         return open_threads, general, resolved
     raise _unsupported(kind)
 
@@ -251,14 +324,34 @@ def comments(kind: str, ref: str, cwd: Path) -> tuple[list[Thread], list[tuple[s
 def summary(kind: str, ref: str, cwd: Path) -> Summary:
     """Everything the merge gate shows, in as few calls as the forge allows."""
     if kind == "github":
-        d = _json(["gh", "pr", "view", ref, "--json",
-                   "number,url,title,state,isDraft,reviewDecision,changedFiles,additions,deletions,mergeable"], cwd)
-        review = {"APPROVED": "approved", "CHANGES_REQUESTED": "changes requested",
-                  "REVIEW_REQUIRED": "review required"}.get(d.get("reviewDecision") or "", "none")
+        d = _json(
+            [
+                "gh",
+                "pr",
+                "view",
+                ref,
+                "--json",
+                "number,url,title,state,isDraft,reviewDecision,changedFiles,additions,deletions,mergeable",
+            ],
+            cwd,
+        )
+        review = {
+            "APPROVED": "approved",
+            "CHANGES_REQUESTED": "changes requested",
+            "REVIEW_REQUIRED": "review required",
+        }.get(d.get("reviewDecision") or "", "none")
         threads, _, _ = comments(kind, str(d["number"]), cwd)
-        return Summary(MergeRequest(str(d["number"]), d["url"], d["title"], d["state"].lower()), d["isDraft"],
-                       checks(kind, str(d["number"]), cwd), review, len(threads), d["changedFiles"],
-                       d["additions"], d["deletions"], (d.get("mergeable") or "").lower())
+        return Summary(
+            MergeRequest(str(d["number"]), d["url"], d["title"], d["state"].lower()),
+            d["isDraft"],
+            checks(kind, str(d["number"]), cwd),
+            review,
+            len(threads),
+            d["changedFiles"],
+            d["additions"],
+            d["deletions"],
+            (d.get("mergeable") or "").lower(),
+        )
     if kind == "gitlab":
         d = _json(["glab", "mr", "view", ref, "--output", "json"], cwd)
         iid = str(d["iid"])
@@ -266,6 +359,15 @@ def summary(kind: str, ref: str, cwd: Path) -> Summary:
         status = d.get("detailed_merge_status") or ""
         review = "review required" if status == "not_approved" else "none"
         files = int(str(d.get("changes_count") or "0").rstrip("+") or 0)
-        return Summary(MergeRequest(iid, d["web_url"], d["title"], d["state"]), bool(d.get("draft")),
-                       checks(kind, iid, cwd), review, len(threads), files, None, None, status.replace("_", " "))
+        return Summary(
+            MergeRequest(iid, d["web_url"], d["title"], d["state"]),
+            bool(d.get("draft")),
+            checks(kind, iid, cwd),
+            review,
+            len(threads),
+            files,
+            None,
+            None,
+            status.replace("_", " "),
+        )
     raise _unsupported(kind)

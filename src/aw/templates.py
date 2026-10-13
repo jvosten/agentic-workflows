@@ -11,8 +11,12 @@ from pathlib import Path
 from aw.config import AwError, Config
 
 NAMES = ("story", "subtask", "plan", "mr")
-GITHUB_DEFAULTS = (".github/pull_request_template.md", ".github/PULL_REQUEST_TEMPLATE.md",
-                   "pull_request_template.md", "docs/pull_request_template.md")
+GITHUB_DEFAULTS = (
+    ".github/pull_request_template.md",
+    ".github/PULL_REQUEST_TEMPLATE.md",
+    "pull_request_template.md",
+    "docs/pull_request_template.md",
+)
 
 
 def _find(directory: Path, name: str) -> Path | None:
@@ -34,7 +38,9 @@ def forge_template(cfg: Config) -> Path | None:
         found = _find(directory, named or "Default")
         if named and found is None:
             available = ", ".join(sorted(p.stem for p in directory.glob("*.md"))) or "none"
-            raise AwError(f"mr_template {named!r}: no {directory.relative_to(root)}/{named}.md (available: {available})")
+            raise AwError(
+                f"mr_template {named!r}: no {directory.relative_to(root)}/{named}.md (available: {available})"
+            )
         return found
     if kind == "github":
         if named:

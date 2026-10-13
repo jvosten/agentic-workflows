@@ -14,6 +14,7 @@ class Board(Tracker):
         super().__init__(cfg)
         self.issues = issues  # id -> {"status", "type", "parent", "link"}
         self.moves, self.comments = [], []
+        self.started: dict[str, str] = {}  # the start-task output, set by fixtures that start a session
 
     def _row(self, issue):
         data = self.issues[issue]
@@ -21,8 +22,16 @@ class Board(Tracker):
 
     def parent(self, issue):
         parent = self.issues[issue].get("parent")
-        return Row(parent, self.issues[parent].get("title", ""), type=self.issues[parent].get("type", ""),
-                   link=self.issues[issue].get("link", "native")) if parent else None
+        return (
+            Row(
+                parent,
+                self.issues[parent].get("title", ""),
+                type=self.issues[parent].get("type", ""),
+                link=self.issues[issue].get("link", "native"),
+            )
+            if parent
+            else None
+        )
 
     def children(self, issue):
         return [self._row(i) for i, d in self.issues.items() if d.get("parent") == issue]
@@ -70,7 +79,7 @@ def test_session_start_never_moves_an_epic(cfg):
     assert rollup.story(board, "1") == (None, "9 is an epic; epics close by decision, not by rollup")
 
 
-def test_no_rollup_without_a_native_parent_or_without_states(cfg):
+def test_no_rollup_without_a_native_parent_or_without_states(cfg, monkeypatch):
     issues = story(**{"2": "Backlog"})
     issues["2"]["link"] = "text"
     board = Board(cfg, issues)
@@ -79,7 +88,7 @@ def test_no_rollup_without_a_native_parent_or_without_states(cfg):
     assert rollup.story(board, "9") == (None, "9 has no parent")
 
     board = Board(cfg, story(**{"2": "Backlog"}))
-    board.has_states = lambda: False
+    monkeypatch.setattr(board, "has_states", lambda: False)
     assert rollup.start(board, "2") == [] and board.moves == []
     assert rollup.story(Tracker(cfg), "2") == (None, "none has no parent links")
 
@@ -87,7 +96,8 @@ def test_no_rollup_without_a_native_parent_or_without_states(cfg):
 def test_check_counts_the_finishing_subtask_as_closed(cfg):
     board = Board(cfg, story("In Progress", **{"2": "Done", "3": "In Progress"}))
     assert rollup.report(board, "3", rollup.check(cfg, board, "3")) == (
-        "1 can close: no child open besides 3 (children: 2, 3)")
+        "1 can close: no child open besides 3 (children: 2, 3)"
+    )
     assert rollup.report(board, "2", rollup.check(cfg, board, "2")) == "1 stays open: 3 open"
 
 
@@ -98,7 +108,8 @@ def test_a_plan_section_without_a_subtask_keeps_the_story_open(cfg, repo):
     (plans / "1-story-2026-10-06.md").write_text(
         "# 1 Plan\n\n## Implementation sections\n\n### S1 — One\n\n**Subtask:** #2\n\n"
         "### S2 — Two\n\n**Subtask:** #3\n\n### S3 — Three\n\n**Subtask:** none yet\n\n"
-        "### S4 — Four\n\n**Steps**\n\n1. x\n\n## Session order\n")
+        "### S4 — Four\n\n**Steps**\n\n1. x\n\n## Session order\n"
+    )
     assert rollup.check(cfg, board, "3").left == ["plan section S3 has no subtask", "plan section S4 has no subtask"]
 
 
@@ -107,15 +118,18 @@ def test_close_closes_the_story_with_a_comment_and_runs_the_hook(repo, tmp_path)
     (repo / ".agents/aw.toml").write_text(f'on_issue_status = "echo {{issue}} {{status}} >> {tmp_path}/hook"\n')
     cfg = load()
     board = Board(cfg, story("In Progress", **{"2": "Done", "3": "Done"}))
-    assert rollup.close(cfg, board, "3") == ["1 -> done", f"on_issue_status: echo 1 done >> {tmp_path}/hook",
-                                              "commented on 1"]
+    assert rollup.close(cfg, board, "3") == [
+        "1 -> done",
+        f"on_issue_status: echo 1 done >> {tmp_path}/hook",
+        "commented on 1",
+    ]
     assert board.comments == [("1", "All children are closed (2, 3); closed after 3.")]
     assert (tmp_path / "hook").read_text() == "1 done\n"
 
 
 def test_close_refuses_while_a_child_is_open_and_never_closes_an_epic(cfg):
     board = Board(cfg, story("In Progress", **{"2": "In Progress", "3": "Done"}))
-    with pytest.raises(AwError, match="^1 stays open: 2 open; nothing closed$"):
+    with pytest.raises(AwError, match=r"^1 stays open: 2 open; nothing closed$"):
         rollup.close(cfg, board, "3")
     with pytest.raises(AwError, match="9 is an epic"):
         rollup.close(cfg, board, "1")

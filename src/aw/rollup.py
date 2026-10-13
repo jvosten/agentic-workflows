@@ -29,8 +29,10 @@ def story(tracker: Tracker, issue: str) -> tuple[Row | None, str]:
     if parent is None:
         return None, f"{tracker.ref(issue)} has no parent"
     if parent.link != "native":
-        return None, (f"{tracker.ref(parent.id)} is a parent by text only; "
-                      f"`aw issue set-parent {issue} {parent.id}` links it natively")
+        return None, (
+            f"{tracker.ref(parent.id)} is a parent by text only; "
+            f"`aw issue set-parent {issue} {parent.id}` links it natively"
+        )
     if tracker.is_epic(parent):
         return None, f"{tracker.ref(parent.id)} is an epic; epics close by decision, not by rollup"
     return parent, ""

@@ -18,7 +18,7 @@ import urllib.request
 from dataclasses import replace
 from typing import Any
 
-from aw.config import AwError
+from aw.config import AwError, Config
 from aw.trackers import Issue, Row, Tracker, adf, status_name
 
 CREDENTIALS = ("JIRA_USER_EMAIL", "JIRA_API_TOKEN")
@@ -45,6 +45,11 @@ class Jira(Tracker):
     name = "jira"
     id_pattern = re.compile(r"^[A-Z][A-Z0-9_]+-\d+$")
 
+    def __init__(self, cfg: Config) -> None:
+        super().__init__(cfg)
+        self._categories: dict[str, str | None] = {}  # status category per issue, filled by every read
+        self._levels: dict[str, int] = {}  # issue type hierarchy level per issue
+
     def normalize(self, raw: str) -> str:
         return super().normalize(raw.upper())
 
@@ -66,11 +71,18 @@ class Jira(Tracker):
             raise AwError(f"missing environment variables: {', '.join(missing)}")
         token = base64.b64encode(f"{os.environ['JIRA_USER_EMAIL']}:{os.environ['JIRA_API_TOKEN']}".encode()).decode()
         url = self.api_base() + path + ("?" + urllib.parse.urlencode(params) if params else "")
-        req = urllib.request.Request(url, method=method, headers={
-            "Authorization": f"Basic {token}", "Accept": "application/json", "Content-Type": "application/json",
-        }, data=json.dumps(body).encode() if body is not None else None)
+        req = urllib.request.Request(  # noqa: S310 - https URL built from jira_base_url
+            url,
+            method=method,
+            headers={
+                "Authorization": f"Basic {token}",
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+            },
+            data=json.dumps(body).encode() if body is not None else None,
+        )
         try:
-            with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+            with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:  # noqa: S310 - the request above
                 raw = resp.read()
         except urllib.error.HTTPError as e:
             detail = e.read().decode(errors="replace")[:300]
@@ -85,15 +97,23 @@ class Jira(Tracker):
         f = data.get("fields", {})
         status, kind = f.get("status") or {}, f.get("issuetype") or {}
         if category := (status.get("statusCategory") or {}).get("key"):
-            self._categories = {**getattr(self, "_categories", {}), data["key"]: category}
+            self._categories[data["key"]] = category
         if (level := kind.get("hierarchyLevel")) is not None:
-            self._levels = {**getattr(self, "_levels", {}), data["key"]: level}
-        return Row(data["key"], f.get("summary", ""), status.get("name", ""), kind.get("name", ""),
-                   parent=(f.get("parent") or {}).get("key", ""))
+            self._levels[data["key"]] = level
+        return Row(
+            data["key"],
+            f.get("summary", ""),
+            status.get("name", ""),
+            kind.get("name", ""),
+            parent=(f.get("parent") or {}).get("key", ""),
+        )
 
     def _search(self, jql: str, limit: int) -> list[Row]:
-        data = self.request("GET", "/rest/api/3/search/jql",
-                            {"jql": jql, "maxResults": limit, "fields": "summary,status,issuetype,parent"})
+        data = self.request(
+            "GET",
+            "/rest/api/3/search/jql",
+            {"jql": jql, "maxResults": limit, "fields": "summary,status,issuetype,parent"},
+        )
         return [self._row(i) for i in data.get("issues", [])]
 
     def _project_clause(self) -> str:
@@ -113,15 +133,21 @@ class Jira(Tracker):
         parent = f.get("parent")
         comments = (f.get("comment") or {}).get("comments", [])
         return Issue(
-            id=data["key"], ref=data["key"], title=f.get("summary", ""),
-            status=(f.get("status") or {}).get("name", ""), type=(f.get("issuetype") or {}).get("name", ""),
-            url=f"{self.site_url()}/browse/{data['key']}", labels=f.get("labels", []),
+            id=data["key"],
+            ref=data["key"],
+            title=f.get("summary", ""),
+            status=(f.get("status") or {}).get("name", ""),
+            type=(f.get("issuetype") or {}).get("name", ""),
+            url=f"{self.site_url()}/browse/{data['key']}",
+            labels=f.get("labels", []),
             parent=replace(self._row(parent), link="native") if parent else None,
             body=adf.to_markdown(f.get("description")),
             sections={name: _field_text(f.get(fid)) for name, fid in extra.items()},
             children=self.children(issue),
-            comments=[((c.get("author") or {}).get("displayName", "unknown"), adf.to_markdown(c.get("body")))
-                      for c in comments],
+            comments=[
+                ((c.get("author") or {}).get("displayName", "unknown"), adf.to_markdown(c.get("body")))
+                for c in comments
+            ],
         )
 
     def parent(self, issue: str) -> Row | None:
@@ -137,8 +163,9 @@ class Jira(Tracker):
         if (current.id if current else None) == target:
             return f"{issue} already under {target}" if target else f"{issue} has no parent"
         try:
-            self.request("PUT", f"/rest/api/3/issue/{issue}",
-                         body={"fields": {"parent": {"key": target} if target else None}})
+            self.request(
+                "PUT", f"/rest/api/3/issue/{issue}", body={"fields": {"parent": {"key": target} if target else None}}
+            )
         except AwError as e:
             # Hierarchy rules (sub-task under epic, team- vs company-managed) only make sense with the types.
             pair = " under ".join(f"{key} ({self._type(key)})" for key in filter(None, (issue, target)))
@@ -158,7 +185,7 @@ class Jira(Tracker):
             raise AwError("--tree-only needs a parent")
         children = [row.id for row in self.children(parent)] if parent else []
         text = " OR ".join(f"text ~ {_jql_str(term)}" for term in terms)
-        where = f"parent in ({', '.join([parent, *children])})" if tree_only else self._project_clause()
+        where = f"parent in ({', '.join([parent, *children])})" if tree_only and parent else self._project_clause()
         rows = self._search(f"{where} AND ({text}) ORDER BY updated DESC", limit)
         tree = {parent, *children} if parent else set()
         for row in rows:  # children and grandchildren hang under the parent or one of its children
@@ -172,14 +199,23 @@ class Jira(Tracker):
         jql = query if raw else f"{self._project_clause()} AND text ~ {_jql_str(query)} ORDER BY updated DESC"
         return self._search(jql, limit)
 
-    def create(self, title: str, body: str, parent: str | None, issue_type: str | None,
-               labels: list[str] | None = None, status: str | None = None) -> str:
+    def create(
+        self,
+        title: str,
+        body: str,
+        parent: str | None,
+        issue_type: str | None,
+        labels: list[str] | None = None,
+        status: str | None = None,
+    ) -> str:
         project = self.cfg.get("jira_project")
         if not project:
             raise AwError("jira_project is not set")
         fields: dict[str, Any] = {
-            "project": {"key": project}, "issuetype": {"name": issue_type or "Task"},
-            "summary": title, "description": adf.from_markdown(body),
+            "project": {"key": project},
+            "issuetype": {"name": issue_type or "Task"},
+            "summary": title,
+            "description": adf.from_markdown(body),
         }
         if parent:
             fields["parent"] = {"key": self.normalize(parent)}
@@ -190,12 +226,15 @@ class Jira(Tracker):
             try:
                 self.set_status(key, status)
             except AwError as e:
-                raise AwError(f"created {key}, but not moved to {status}: {e}. "
-                              f"Run `aw issue set-status {key} {status}`; do not create it again") from None
+                raise AwError(
+                    f"created {key}, but not moved to {status}: {e}. "
+                    f"Run `aw issue set-status {key} {status}`; do not create it again"
+                ) from None
         return key
 
     def comment(self, issue: str, body: str) -> None:
         self.request("POST", f"/rest/api/3/issue/{issue}/comment", body={"body": adf.from_markdown(body)})
+
     def update(self, issue: str, title: str | None, body: str | None) -> None:
         fields: dict[str, Any] = {}
         if title:
@@ -222,17 +261,17 @@ class Jira(Tracker):
 
     def current_status(self, issue: str) -> str | None:
         status = self.request("GET", f"/rest/api/3/issue/{issue}", {"fields": "status"})["fields"].get("status") or {}
-        self._categories = {**getattr(self, "_categories", {}), issue: (status.get("statusCategory") or {}).get("key")}
+        self._categories[issue] = (status.get("statusCategory") or {}).get("key")
         return status.get("name")
 
     def is_epic(self, row: Row) -> bool:
         """One of epic_types, or a type above story level (hierarchyLevel 1 and up), whatever its name."""
-        return super().is_epic(row) or getattr(self, "_levels", {}).get(row.id, 0) >= 1
+        return super().is_epic(row) or self._levels.get(row.id, 0) >= 1
 
     def closed(self, row: Row) -> bool:
         return self.status_category(row.id) == "done"
 
     def status_category(self, issue: str) -> str | None:
-        if issue not in getattr(self, "_categories", {}):
+        if issue not in self._categories:
             self.current_status(issue)
-        return getattr(self, "_categories", {}).get(issue)
+        return self._categories.get(issue)

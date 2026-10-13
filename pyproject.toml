@@ -1,6 +1,6 @@
 [project]
 name = "agentic-workflows"
-version = "0.1.1"
+version = "0.1.2"
 description = "Generic agent skills for standardized session workflows, configured per project"
 readme = "README.md"
 license = "MIT"
@@ -12,7 +12,11 @@ dependencies = []
 aw = "aw.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8"]
+dev = [
+    "pytest>=8",
+    "ruff==0.17.0",
+    "ty==0.0.86",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -26,3 +30,25 @@ packages = ["src/aw"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "RUF", "SIM", "C4", "PTH", "RET", "ARG", "PT", "PL", "ANN", "S"]
+ignore = [
+    "S603", "S607",  # aw runs git, gh and glab by name with argument lists; no shell, no user-built command
+    "ANN401",        # Any stays at the decoding boundary of raw JSON and TOML
+    # Complexity limits: the CLI dispatch and adapters exceed them today; revisit when S16 reshapes the modules.
+    "PLR0911", "PLR0912", "PLR0913", "PLR0915", "PLR0917", "PLR2004",
+]
+allowed-confusables = ["−", "›", "–"]  # typographic characters in user-facing text
+
+[tool.ruff.lint.per-file-ignores]
+# Tests: asserts are the point, fakes take arguments they ignore, annotations add nothing, git runs by name.
+"tests/**" = ["S101", "ANN", "ARG", "PT018", "PLC0415", "S108"]
+# The Tracker interface: base methods raise "unsupported", adapters accept arguments they do not need.
+"src/aw/trackers/*.py" = ["ARG002"]
+# argparse handlers share one signature.
+"src/aw/cli.py" = ["ARG001"]
