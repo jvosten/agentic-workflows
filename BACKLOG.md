@@ -128,6 +128,7 @@ Deferred features and open checks. Each entry has enough context to be picked up
 **Context:** `plan_scope` offers two homes, and each has a cost that surfaced in practice:
 - `repo` (committed): finished plans stay in `.agents/plans/`; a later session cannot tell a live plan from a finished one and may read old steps as current requirements. [encephalon](https://github.com/isaachinman/encephalon) keeps old plans but marks them as history, "not current requirements".
 - `local` (gitignored, primary checkout): the plan exists on one machine in one clone. Another machine never sees it, a re-clone (e.g. a history rewrite and republish) loses it unless copied by hand, and a sandboxed session with a fresh clone has no plan at all.
+- `repo`, but planned outside a session: homelab live test, 2026-10-07. `aw-plan-story #323` ran in the primary checkout on `main_branch` and wrote the plan there, untracked; `/aw-to-subtasks` wrote the subtask ids into that file too. `aw start-task` creates the worktree from `main_branch`, so the plan is not in it and `aw plan path` in the worktree finds nothing; the first session moved the file in by hand. A copy left behind broke `aw finish` when updating `main_branch` ("untracked working tree files would be overwritten by merge"; since 2026-10-07 that update is a warning, not a failure). `aw memory add decision` in `aw-plan-story` has the same problem.
 
 This repo's own hardening plan hit the second set right after it was written (2026-10-10).
 
@@ -137,9 +138,14 @@ This repo's own hardening plan hit the second set right after it was written (20
 - The tracker: the plan as the story's description or an attached document; needs a tracker.
 - A plans directory outside the repo, keyed by project: survives re-clones, but is machine-bound and depends on `$HOME`, which conflicts with sandboxed sessions.
 
+**Needed whichever home wins:**
+- `aw start-task --issue <id>`: when the primary checkout holds an untracked plan for the issue or its story (and untracked memory entries that reference it), move them into the new worktree, list what moved, and leave nothing behind; the first session commits them.
+- `aw finish` and `aw merge`: before merging, name untracked files in the primary checkout that updating `main_branch` would overwrite, before anything changes.
+- `aw-plan-story` outside a session: say where the plan landed and which session takes it over.
+
 **Open first:** whether plans need review in pull requests at all, and how a sandboxed session receives its plan.
 
-**Done when:** one home is the default, chosen against these cases (second machine, re-clone, sandbox, finished plan), and `aw` supports it end to end.
+**Done when:** one home is the default, chosen against these cases (second machine, re-clone, sandbox, finished plan, planned outside a session), and `aw` supports it end to end; a plan written outside a session is in the worktree of the first `aw start-task --issue` for its story and gone from the primary checkout.
 
 ### [MEDIUM] Jira status checks in aw doctor
 
@@ -255,6 +261,76 @@ This repo's own hardening plan hit the second set right after it was written (20
 **Done when:** a project can raise the limit in `aw.toml`, and `aw-plan-story` uses it, or small sections no longer trigger the split on their own.
 
 **Effort:** small for A; medium for B (a size field in the plan template).
+
+---
+
+### [MEDIUM] Custom board fields on create
+
+**Context:** With `github_project`, `aw` writes the board's status field only. Boards that group or sort by other single-select fields (homelab #323: `Area` for swimlanes, `Priority` for order inside a lane) get those fields from nothing: GitHub's built-in board workflows set Status only, so every issue `aw issue create` files lands in a "No Area" lane until someone sets it by hand. A GitHub Action could set them, but writing a user-owned project needs a token with project scope stored as a repo secret, and it only sees labels, so the labels must stay as the field's input.
+
+**Scope:**
+- `aw issue create --field <name>=<value>` (repeatable): single-select fields of `github_project`, options matched case-insensitively and resolved before the create, like the status column; an unknown field or option fails before anything is created. Jira: the same flag sets a custom field by name (`jira_fields`).
+- Config `board_fields`: label prefix → field (`"area/" = "Area"`), so the first matching label on create also sets the field. Skills that already ask for labels then fill the field without a second question.
+- `aw-backlog-item` and `aw-to-story` ask for the fields the config names (e.g. Priority) the way they ask for labels.
+- `aw doctor` checks that every field and option the config names exists on the board.
+
+**Done when:** a homelab issue filed through `aw-backlog-item` appears in its area lane with its priority set, without a manual step.
+
+---
+
+### [LOW] Decisions in force filtered to the story's subject
+
+**Context:** `aw-plan-story` step 4 copies "the decision index from step 2, as printed" into **Decisions in force**. Homelab live test, 2026-10-07: the index has 111 decisions; for #323 (tracker migration) two applied. Pasting all 111 into every plan costs the context the gotcha design saved, and the agent filtered by text instead, which the skill does not say. Gotchas are already filtered by tags; homelab decisions carry no tags (`tags: []`), so the same filter finds nothing.
+
+**Scope:**
+- Decisions take tags from the same vocabulary (`aw memory add decision --tags`); `aw memory import` and a retag command let a project tag existing ones.
+- `aw-plan-story` lists decisions with `aw memory find --kind decision --tags <story tags>` plus `--text` terms from the story, and writes the filter on the line above the list, as for gotchas.
+- Below a size threshold (about 20 active decisions) the full index stays.
+
+**Acceptance criteria:**
+- A plan in a project above the threshold lists only decisions that match its tags or terms, and names the filter.
+- A project below the threshold still gets the full index.
+
+**Effort:** small to medium. Mostly skill text; retagging existing decisions is the project's work.
+
+---
+
+### [HIGH] Changelog entry lands before the pull request is opened
+
+**Context:** `aw-finalize` step 8 adds the changelog entry after the merge request exists, because the entry names the PR number. It lands as a second commit (`docs: changelog for #N`) after the PR was opened. Review bots that run once on open (homelab's claude-review triggers on `pull_request: [opened, reopened]`) review the diff without the entry and flag "CHANGELOG missing" on every PR (homelab #333, #335). The finding is noise, and the session then answers it by hand each time. The work also ships as two commits where one would do.
+
+**Problem:** the PR number is unknown until the PR exists, so the entry comes late, and every reviewer that looks at the opening diff sees an incomplete change.
+
+**Scope:** decide one of these, then make `aw-finalize` follow it:
+- **Draft first:** `aw mr create --draft`, write the entry with the real number into the same commit series, push, then `aw mr ready`. Needs the project's review trigger to fire on `ready_for_review` and skip drafts; `aw doctor` could detect a review workflow that triggers only on `opened` and say so.
+- **Entry without the PR number:** the entry names the issue only; the PR is reachable from the issue's closing reference. A format change for projects whose changelog names PRs.
+- **Number up front:** read the repository's next issue/PR number before creating, write it into the entry, and have `aw mr create` check that the created number matches (a mismatch only on a race; then fix the line before review starts).
+
+In every case the entry is in the commits that exist when the PR opens, and the changelog is not a separate commit.
+
+**Acceptance criteria:**
+- A PR opened by `aw-finalize` contains its changelog entry in its first pushed state.
+- No session produces a `docs: changelog for #N` commit after the PR was opened.
+- A review bot that runs on open finds the entry.
+
+**Effort:** small to medium. Skill order plus, depending on the option, `aw mr ready` or a number check in `aw mr create`.
+
+---
+
+### [MEDIUM] Text-link children only from task lists that hold child refs
+
+**Context:** Homelab live test, 2026-10-07: `aw issue children 323` and `aw plan state 323` report #162 as a `[text link]` child of story #323. The story's acceptance criterion "- [ ] Phase epics #162–#165 are closed; …" is a checkbox line with an issue reference, and the GitHub adapter's `TASK_REF` pattern reads every such line as a task-list child. Acceptance criteria and checklists that name other issues are common, so `--text-only` migrations and `aw-to-subtasks` mappings get false children; `aw-to-subtasks` had to explain it away by hand.
+
+**Scope:**
+- Count a checkbox line as a child only when the reference is the line's subject: the line starts with the reference (`- [ ] #12`, `- [ ] #12 title`), or it sits under a heading such as `## Items`, `## Tasks`, `## Subtasks`.
+- `aw issue children` keeps showing native children unchanged; ambiguous text matches are dropped, not guessed.
+- Tests: an acceptance criterion naming issues mid-sentence yields no child; an `## Items` list and a bare `- [ ] #12` line still do.
+
+**Acceptance criteria:**
+- `aw issue children` on a story whose acceptance criteria mention other issues lists only real children.
+- Existing text-linked trees (`## Items` lists) are still found by `--text-only`.
+
+**Effort:** small. One pattern and its tests in the GitHub adapter.
 
 ## Considered and not planned
 
