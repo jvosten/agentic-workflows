@@ -29,6 +29,7 @@ def env(tmp_path, monkeypatch):
 @pytest.fixture(autouse=True)
 def no_network(tmp_path, monkeypatch):
     """No test reaches Jira, GitHub or GitLab: sockets refuse, gh and glab fail."""
+
     def refuse(*args, **kwargs):
         raise OSError("no network in tests")
 

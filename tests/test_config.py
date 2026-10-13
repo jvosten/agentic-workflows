@@ -17,7 +17,7 @@ def test_layers_and_env_override(repo, env, monkeypatch):
     (env / ".agents/aw/config.toml").write_text('verify_cmd = "user"\nplan_dir = "user"\n')
     (repo / ".agents").mkdir()
     (repo / ".agents/aw.toml").write_text('aw_version = 1\nverify_cmd = "project"\ndirenv = true\n')
-    (repo / ".agents/aw.local.toml").write_text('direnv = false\n')
+    (repo / ".agents/aw.local.toml").write_text("direnv = false\n")
     monkeypatch.setenv("AW_BRANCH_TYPES", "feat, fix")
 
     cfg = load()

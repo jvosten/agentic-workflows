@@ -64,8 +64,13 @@ class GitHub(Tracker):
     def gh_json(self, *args: str, stdin: str | None = None) -> Any:
         return json.loads(self.gh(*args, stdin=stdin) or "null")
 
-    def graphql(self, query: str, stdin: str | None = None, raw: dict[str, str] | None = None,
-                **typed: str | int | bool | list[str]) -> dict:
+    def graphql(
+        self,
+        query: str,
+        stdin: str | None = None,
+        raw: dict[str, str] | None = None,
+        **typed: str | int | bool | list[str],
+    ) -> dict:
         """GraphQL request. `typed` goes through -F (numbers, booleans, ids, `{owner}` placeholders, `@-` for stdin,
         lists as `key[]=` per item); `raw` through -f, for user text that -F would misread (a title like `42`)."""
         args = ["api", "graphql", "-f", f"query={query}", "-F", "owner={owner}", "-F", "repo={repo}"]
@@ -81,8 +86,14 @@ class GitHub(Tracker):
     @staticmethod
     def _row(d: dict, link: str = "") -> Row:
         parent = str(d["parent"]["number"]) if d.get("parent") else ""
-        return Row(str(d["number"]), d.get("title", ""), d.get("state", "").lower(),
-                   (d.get("issueType") or {}).get("name", ""), link=link, parent=parent)
+        return Row(
+            str(d["number"]),
+            d.get("title", ""),
+            d.get("state", "").lower(),
+            (d.get("issueType") or {}).get("name", ""),
+            link=link,
+            parent=parent,
+        )
 
     def _meta(self, issue: str) -> dict:
         return self.graphql(META, number=int(issue))["repository"]["issue"]
@@ -103,12 +114,19 @@ class GitHub(Tracker):
         body = d.get("body") or ""
         meta = self._meta(issue)
         return Issue(
-            id=str(d["number"]), ref=f"#{d['number']}", title=d["title"], status=d["state"].lower(),
-            url=d.get("url", ""), type=(meta.get("issueType") or {}).get("name", ""),
-            labels=[lb["name"] for lb in d.get("labels", [])], parent=self._parent(meta), body=body,
+            id=str(d["number"]),
+            ref=f"#{d['number']}",
+            title=d["title"],
+            status=d["state"].lower(),
+            url=d.get("url", ""),
+            type=(meta.get("issueType") or {}).get("name", ""),
+            labels=[lb["name"] for lb in d.get("labels", [])],
+            parent=self._parent(meta),
+            body=body,
             children=self.children(issue, body),
-            comments=[((c.get("author") or {}).get("login", "unknown"), c.get("body", ""))
-                      for c in d.get("comments", [])],
+            comments=[
+                ((c.get("author") or {}).get("login", "unknown"), c.get("body", "")) for c in d.get("comments", [])
+            ],
         )
 
     def native_children(self, issue: str) -> list[Row]:
@@ -153,8 +171,15 @@ class GitHub(Tracker):
         data = self.graphql(SEARCH, q=f"repo:{{owner}}/{{repo}} is:issue {query}", first=min(limit, 100))
         return [self._row(node) for node in data["search"]["nodes"] if node]
 
-    def create(self, title: str, body: str, parent: str | None, issue_type: str | None,
-               labels: list[str] | None = None, status: str | None = None) -> str:
+    def create(
+        self,
+        title: str,
+        body: str,
+        parent: str | None,
+        issue_type: str | None,
+        labels: list[str] | None = None,
+        status: str | None = None,
+    ) -> str:
         """One createIssue mutation, so the issue never exists without its parent link or labels.
 
         With github_project, the new issue then goes on the board in the column for status (default backlog;
@@ -174,13 +199,18 @@ class GitHub(Tracker):
         if issue_type:
             types = (repo.get("issueTypes") or {}).get("nodes") or []
             if not types:
-                why = ("issue types need an organization-owned repository" if repo["owner"]["__typename"] == "User"
-                       else "this repository has no issue types")
+                why = (
+                    "issue types need an organization-owned repository"
+                    if repo["owner"]["__typename"] == "User"
+                    else "this repository has no issue types"
+                )
                 print(f"warning: --type {issue_type!r} ignored: {why}", file=sys.stderr)
             else:
                 match = [t["id"] for t in types if t["name"].casefold() == issue_type.casefold()]
                 if not match:
-                    raise AwError(f"unknown issue type {issue_type!r} (available: {', '.join(t['name'] for t in types)})")
+                    raise AwError(
+                        f"unknown issue type {issue_type!r} (available: {', '.join(t['name'] for t in types)})"
+                    )
                 ids["typeId"] = match[0]
         label_ids: list[str] = []
         if labels:
@@ -189,8 +219,9 @@ class GitHub(Tracker):
             if unknown:
                 raise AwError(f"unknown label(s): {', '.join(unknown)}; create them first (gh label create)")
             label_ids = [known[name.casefold()] for name in labels]
-        data = self.graphql(CREATE, stdin=body, raw={"title": title}, body="@-", **ids,
-                            **({"labelIds": label_ids} if label_ids else {}))
+        data = self.graphql(
+            CREATE, stdin=body, raw={"title": title}, body="@-", **ids, **({"labelIds": label_ids} if label_ids else {})
+        )
         number = str(data["createIssue"]["issue"]["number"])
         if self.has_states():
             try:
@@ -200,8 +231,9 @@ class GitHub(Tracker):
                     self.set_status(number, status)
             except AwError as e:
                 repair = f"aw issue set-status {number} {'backlog' if status == 'none' else status}"
-                raise AwError(f"created #{number}, but it is not on the board: {e}. "
-                              f"Run `{repair}`; do not create it again") from None
+                raise AwError(
+                    f"created #{number}, but it is not on the board: {e}. Run `{repair}`; do not create it again"
+                ) from None
         return number
 
     def set_parent(self, issue: str, parent: str | None) -> str:
@@ -222,6 +254,7 @@ class GitHub(Tracker):
 
     def comment(self, issue: str, body: str) -> None:
         self.gh("issue", "comment", issue, "--body-file", "-", stdin=body)
+
     def update(self, issue: str, title: str | None, body: str | None) -> None:
         args = ["issue", "edit", issue]
         if title:
@@ -246,7 +279,9 @@ class GitHub(Tracker):
         try:
             data = self.graphql(BOARD, raw={"login": owner, "field": field}, number=int(number))
         except AwError as e:
-            raise AwError(f"github_project {spec}: {e} (token needs the project scope: gh auth refresh -s project)") from None
+            raise AwError(
+                f"github_project {spec}: {e} (token needs the project scope: gh auth refresh -s project)"
+            ) from None
         project = (data.get("repositoryOwner") or {}).get("projectV2")
         if not project:
             raise AwError(f"github_project {spec} not found")
@@ -297,8 +332,13 @@ class GitHub(Tracker):
             return f"board already {option['name']}"
         if item is None:  # addProjectV2ItemById is idempotent, but only an absent card needs it
             item = self.graphql(ADD_CARD, projectId=self.board["id"], contentId=node_id)["addProjectV2ItemById"]["item"]
-        self.graphql(SET_CARD, projectId=self.board["id"], itemId=item["id"], fieldId=self.board["field"]["id"],
-                     raw={"optionId": option["id"]})
+        self.graphql(
+            SET_CARD,
+            projectId=self.board["id"],
+            itemId=item["id"],
+            fieldId=self.board["field"]["id"],
+            raw={"optionId": option["id"]},
+        )
         return f"board {option['name']}"
 
     def set_status(self, issue: str, status: str) -> str:

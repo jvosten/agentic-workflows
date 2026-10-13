@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.2 — 2026-10-13 (#2)
+
+### Added
+
+- CI on GitHub Actions: tests on Python 3.11 and 3.13, ruff and ty, on every pull request and push to `main`.
+- `make check` runs tests, lint and types; `make test`, `make lint`, `make types` and `make format` for the parts.
+
+### Changed
+
+- `ruff` and `ty` pinned in the dev group. A strict ruff rule set, each exception explained in `pyproject.toml` or on
+  its `noqa` line; `src` and `tests` formatted with `ruff format` and clean under both checkers.
+- `aw doctor` reports a board or Jira check against the wrong tracker as a failure instead of crashing.
+- `AGENTS.md` adds the checks, the rules for working on `aw` and the repository conventions to the test rules.
+
 ## 0.1.1 — 2026-10-13 (#1)
 
 ### Added

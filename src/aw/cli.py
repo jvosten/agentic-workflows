@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import re
 import shutil
@@ -11,10 +12,24 @@ from dataclasses import asdict
 from pathlib import Path
 
 from aw import (
-    __version__, backlog, doctor, finish, forge, init, install, memory, plan, restack, rollup, session, start_task,
-    templates, trackers, ui,
+    __version__,
+    backlog,
+    doctor,
+    finish,
+    forge,
+    init,
+    install,
+    memory,
+    plan,
+    restack,
+    rollup,
+    session,
+    start_task,
+    templates,
+    trackers,
+    ui,
 )
-from aw.config import PROJECT_FILE, AwError, git, load, toml_value
+from aw.config import PROJECT_FILE, AwError, Config, git, load, toml_value
 from aw.trackers import STATUSES
 
 
@@ -72,8 +87,10 @@ def _issue(args: argparse.Namespace) -> None:
     if op == "create":
         body = _body(args.body_file)
         if args.dry_run:
-            print(f"DRY RUN ({tracker.name}): title={args.title!r} parent={args.parent} type={args.type} "
-                  f"labels={','.join(args.label) or None} status={args.status or 'default'}")
+            print(
+                f"DRY RUN ({tracker.name}): title={args.title!r} parent={args.parent} type={args.type} "
+                f"labels={','.join(args.label) or None} status={args.status or 'default'}"
+            )
             print(f"body: {len(body.splitlines())} lines")
             return
         new = tracker.create(args.title, body, args.parent, args.type, args.label, args.status)
@@ -106,8 +123,10 @@ def _issue(args: argparse.Namespace) -> None:
         if args.dry_run:
             current = tracker.parent(issue)
             was = f"{tracker.ref(current.id)} ({current.link} link)" if current else "none"
-            print(f"DRY RUN ({tracker.name}): {tracker.ref(issue)} parent {was} -> "
-                  f"{tracker.ref(parent) if parent else 'none'}")
+            print(
+                f"DRY RUN ({tracker.name}): {tracker.ref(issue)} parent {was} -> "
+                f"{tracker.ref(parent) if parent else 'none'}"
+            )
             return
         print(tracker.set_parent(issue, parent))
     elif op == "dupes":
@@ -133,8 +152,11 @@ def _issue(args: argparse.Namespace) -> None:
         if message := trackers.status_hook(cfg, issue, args.status):
             print(message)
     elif op == "rollup":
-        print("\n".join(rollup.close(cfg, tracker, issue)) if args.close
-              else rollup.report(tracker, issue, rollup.check(cfg, tracker, issue)))
+        print(
+            "\n".join(rollup.close(cfg, tracker, issue))
+            if args.close
+            else rollup.report(tracker, issue, rollup.check(cfg, tracker, issue))
+        )
     elif op == "ref":
         print(tracker.ref(issue))
     elif op == "pr-text":
@@ -144,7 +166,7 @@ def _issue(args: argparse.Namespace) -> None:
 MR_PREFIX = {"github": "#", "gitlab": "!"}
 
 
-def _issue_lines(cfg, body: str, part: int | None, earlier: list[str]) -> list[str]:
+def _issue_lines(cfg: Config, body: str, part: int | None, earlier: list[str]) -> list[str]:
     """Lines that tie the request to the session: the issue (closing it only on the last part), earlier parts."""
     lines = []
     try:
@@ -162,7 +184,7 @@ def _issue_lines(cfg, body: str, part: int | None, earlier: list[str]) -> list[s
     return lines
 
 
-def _target(cfg) -> str:
+def _target(cfg: Config) -> str:
     """The session's base while it is stacked, else main_branch."""
     try:
         return session.read().get("base") or cfg.get("main_branch")
@@ -188,8 +210,10 @@ def _mr(args: argparse.Namespace) -> int:
         if lines := _issue_lines(cfg, body, part, done):
             body = body.rstrip() + "\n\n" + "\n".join(lines) + "\n"
         if args.dry_run:
-            print(f"DRY RUN ({kind}): {branch} → {target} title={args.title!r} draft={args.draft}"
-                  + (f" part={part}" if part else ""))
+            print(
+                f"DRY RUN ({kind}): {branch} → {target} title={args.title!r} draft={args.draft}"
+                + (f" part={part}" if part else "")
+            )
             print(body, end="" if body.endswith("\n") else "\n")
             return 0
         try:
@@ -223,8 +247,10 @@ def _mr(args: argparse.Namespace) -> int:
         return 1 if "fail" in buckets else 2 if "pending" in buckets else 0
     elif args.op == "comments":
         threads, general, resolved = forge.comments(kind, ref, cwd)
-        print(f"{ui.plural(len(threads), 'unresolved thread')} · {resolved} resolved · "
-              f"{ui.plural(len(general), 'comment')}")
+        print(
+            f"{ui.plural(len(threads), 'unresolved thread')} · {resolved} resolved · "
+            f"{ui.plural(len(general), 'comment')}"
+        )
         for t in threads:
             print(f"\n{t.path}:{t.line}" if t.line else f"\n{t.path or '(general)'}")
             for author, text in t.comments:
@@ -323,10 +349,8 @@ def _memory(args: argparse.Namespace) -> None:
         print(f"imported {', '.join(ui.plural(n, k) for k, n in kinds.items() if n) or 'nothing'}")
     elif op == "load":
         text = memory.start_text(cfg, args.plan)
-        try:
+        with contextlib.suppress(AwError):  # outside a session: nothing to record
             session.update(memory_start_tokens=memory.tokens(text))
-        except AwError:
-            pass  # outside a session: nothing to record
         print(text or "no project memory yet")
     elif op == "log":
         meta = session.read()
@@ -389,9 +413,11 @@ def _init(args: argparse.Namespace) -> None:
     name = PROJECT_FILE
     print(ui.style("aw init", ui.BOLD))
     if previous is None:
-        origin = [ui.plural(n, src) if src == "default" else f"{n} {src}"
-                  for src in ("detected", "answered", "--set", "default")
-                  if (n := sum(s == src for s in report.sources.values()))]
+        origin = [
+            ui.plural(n, src) if src == "default" else f"{n} {src}"
+            for src in ("detected", "answered", "--set", "default")
+            if (n := sum(s == src for s in report.sources.values()))
+        ]
         status = ui.style("created", ui.GREEN) + f" · {ui.plural(len(values), 'key')}: {', '.join(origin)}"
         changed: list[str] = []
         new: list[str] = []
@@ -399,9 +425,13 @@ def _init(args: argparse.Namespace) -> None:
         changed = [k for k in values if k in previous and previous[k] != values[k]]
         new = [k for k in values if k not in previous]
         counts = [f"{len(changed)} changed" if changed else "", f"{len(new)} new" if new else ""]
-        status = (ui.style("updated", ui.GREEN) + " · " + ", ".join(filter(None, counts))
-                  if changed or new else ui.style("up to date", ui.DIM))
+        status = (
+            ui.style("updated", ui.GREEN) + " · " + ", ".join(filter(None, counts))
+            if changed or new
+            else ui.style("up to date", ui.DIM)
+        )
     print(f"  {name:<20}{status}")
+
     def show(value: object) -> str:
         return init.shown(value) or "—"
 
@@ -410,8 +440,9 @@ def _init(args: argparse.Namespace) -> None:
         for key, value in values.items():
             print(f"    {key:<{width}}{show(value):<28}{ui.style(report.sources.get(key, ''), ui.DIM)}")
     else:
+        old = previous or {}
         for key in changed:
-            print(f"    {key}  {show(previous[key])} → {ui.style(show(values[key]), ui.GREEN)}")
+            print(f"    {key}  {show(old[key])} → {ui.style(show(values[key]), ui.GREEN)}")
         for key in new:
             print(f"    {key}  {ui.style(show(values[key]), ui.GREEN)} {ui.style('(new)', ui.DIM)}")
     if report.ignored:
@@ -463,8 +494,11 @@ def _doctor(args: argparse.Namespace) -> int:
         levels = [level for level, _ in results]
         worst = "fail" if "fail" in levels else "warn" if "warn" in levels else "ok"
         mark, color = DOCTOR_MARKS[worst]
-        problems = [ui.plural(levels.count(lvl), word) for lvl, word in (("fail", "failure"), ("warn", "warning"))
-                    if lvl in levels]
+        problems = [
+            ui.plural(levels.count(lvl), word)
+            for lvl, word in (("fail", "failure"), ("warn", "warning"))
+            if lvl in levels
+        ]
         passed = ui.plural(levels.count("ok"), "check") + " ok" if "ok" in levels else ""
         if "info" in levels:
             passed = " · ".join(filter(None, [passed, ui.plural(levels.count("info"), "note")]))
@@ -478,8 +512,11 @@ def _doctor(args: argparse.Namespace) -> int:
                 print(f"      {ui.style(mark, color)} {message.replace(home, '~')}")
     levels = [level for _, results in groups for level, _ in results]
     if "fail" in levels or "warn" in levels:
-        counts = [ui.plural(levels.count(lvl), word) for lvl, word in (("fail", "failure"), ("warn", "warning"))
-                  if lvl in levels]
+        counts = [
+            ui.plural(levels.count(lvl), word)
+            for lvl, word in (("fail", "failure"), ("warn", "warning"))
+            if lvl in levels
+        ]
         print(", ".join(counts))
     else:
         print(ui.style("all good", "32"))
@@ -498,9 +535,19 @@ def menu(parser: argparse.ArgumentParser) -> str:
     def head(text: str) -> str:
         return ui.style(text, "1")
 
-    workflow = ["aw-plan", "aw-to-story", "aw-plan-story", "aw-to-subtasks", "aw-start-task", "aw-checkpoint",
-                "aw-merge-request", "aw-finalize"]
-    order = sorted(install.source_skills(), key=lambda p: (workflow.index(p.name) if p.name in workflow else 99, p.name))
+    workflow = [
+        "aw-plan",
+        "aw-to-story",
+        "aw-plan-story",
+        "aw-to-subtasks",
+        "aw-start-task",
+        "aw-checkpoint",
+        "aw-merge-request",
+        "aw-finalize",
+    ]
+    order = sorted(
+        install.source_skills(), key=lambda p: (workflow.index(p.name) if p.name in workflow else 99, p.name)
+    )
     skills = []
     for skill in order:
         fm = doctor.frontmatter(skill / "SKILL.md")
@@ -516,14 +563,21 @@ def menu(parser: argparse.ArgumentParser) -> str:
     def rows(items: list[tuple[str, str]]) -> list[str]:
         out = []
         for n, text in items:
-            text = text if len(text) <= room else text[: room - 1] + "…"
-            out.append(f"  {name(n.ljust(col))}{text}")
+            shown = text if len(text) <= room else text[: room - 1] + "…"
+            out.append(f"  {name(n.ljust(col))}{shown}")
         return out
 
-    lines = [f"aw {__version__}: standardized agentic workflows", "",
-             head("Skills (run in your agent)"), *rows(skills), "",
-             head("Commands"), *rows(commands), "",
-             "Run `aw <command> -h` for options."]
+    lines = [
+        f"aw {__version__}: standardized agentic workflows",
+        "",
+        head("Skills (run in your agent)"),
+        *rows(skills),
+        "",
+        head("Commands"),
+        *rows(commands),
+        "",
+        "Run `aw <command> -h` for options.",
+    ]
     return "\n".join(lines)
 
 
@@ -533,8 +587,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="command", required=True)
 
     s = sub.add_parser("install", help="link skills and the CLI into ~/.agents")
-    s.add_argument("--agent", action="append", default=None,
-                   help="also link skills for this agent (default: claude)")
+    s.add_argument("--agent", action="append", default=None, help="also link skills for this agent (default: claude)")
     s.add_argument("-v", "--verbose", action="store_true", help="one line per link instead of a summary")
     s.set_defaults(func=_install)
 
@@ -565,8 +618,11 @@ def build_parser() -> argparse.ArgumentParser:
     o.add_argument("--out", metavar="DIR", help="write <id>.md (or .json) into DIR instead of printing")
     o = ops.add_parser("children", help="child issues / subtasks, each marked when linked only by text")
     o.add_argument("id")
-    o.add_argument("--text-only", action="store_true",
-                   help="only children without a native link: what is left to move to set-parent")
+    o.add_argument(
+        "--text-only",
+        action="store_true",
+        help="only children without a native link: what is left to move to set-parent",
+    )
     o.add_argument("--json", action="store_true")
     o = ops.add_parser("dupes", help="issues matching the terms, any state: under the parent first, then elsewhere")
     o.add_argument("id", nargs="?", help="parent issue the candidates hang under (none: the whole project)")
@@ -588,9 +644,12 @@ def build_parser() -> argparse.ArgumentParser:
     o.add_argument("--parent")
     o.add_argument("--type", help="issue type (Jira default Task; GitHub only on organization-owned repos)")
     o.add_argument("--label", action="append", default=[], help="label to set; repeat for several")
-    o.add_argument("--status", choices=[*STATUSES, "none"],
-                   help="state of the new issue (default: backlog on a GitHub board, the workflow's first on Jira); "
-                        "none: on the board without a column, e.g. an epic")
+    o.add_argument(
+        "--status",
+        choices=[*STATUSES, "none"],
+        help="state of the new issue (default: backlog on a GitHub board, the workflow's first on Jira); "
+        "none: on the board without a column, e.g. an epic",
+    )
     o.add_argument("--dry-run", action="store_true")
     o = ops.add_parser("set-parent", help="link, re-parent or unlink an existing issue with the native parent link")
     o.add_argument("id")
@@ -610,8 +669,11 @@ def build_parser() -> argparse.ArgumentParser:
     o.add_argument("status", choices=STATUSES)
     o = ops.add_parser("rollup", help="whether this subtask's story can close once it is done; --close closes it")
     o.add_argument("id", help="the subtask; it counts as closed")
-    o.add_argument("--close", action="store_true",
-                   help="close the story with a comment naming its children; refuses while anything keeps it open")
+    o.add_argument(
+        "--close",
+        action="store_true",
+        help="close the story with a comment naming its children; refuses while anything keeps it open",
+    )
     o = ops.add_parser("ref", help="how to reference the issue in text (#12, PROJ-123)")
     o.add_argument("id")
     o = ops.add_parser("pr-text", help="line for the PR body that links or closes the issue")
@@ -620,13 +682,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("mr", aliases=["pr"], help="merge/pull request operations (forge from config)")
     mr_ops = s.add_subparsers(dest="op", required=True)
-    o = mr_ops.add_parser("create", help="open a merge request for the current branch against main_branch, "
-                          "or a stacked session's base")
+    o = mr_ops.add_parser(
+        "create", help="open a merge request for the current branch against main_branch, or a stacked session's base"
+    )
     o.add_argument("--title", required=True)
     o.add_argument("--body-file", required=True, help="Markdown file, or - for stdin")
     o.add_argument("--draft", action="store_true")
-    o.add_argument("--part", action="store_true",
-                   help="one part of a multi-merge session: references the issue without closing it")
+    o.add_argument(
+        "--part", action="store_true", help="one part of a multi-merge session: references the issue without closing it"
+    )
     o.add_argument("--dry-run", action="store_true")
     o = mr_ops.add_parser("update", help="replace title and description")
     o.add_argument("ref", nargs="?", help="number or branch (default: the current branch)")
@@ -705,7 +769,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.set_defaults(func=_verify)
 
     s = sub.add_parser("merge", help="merge one part of the session; the branch catches up with main and goes on")
-    s.add_argument("--pr", help="merge request number (default: the branch's open one; forge = none: after a manual merge)")
+    s.add_argument(
+        "--pr", help="merge request number (default: the branch's open one; forge = none: after a manual merge)"
+    )
     s.set_defaults(func=_merge)
 
     s = sub.add_parser("restack", help="stacked session: rebase onto the base's tip, or onto main once it merged")
@@ -713,17 +779,31 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--json", action="store_true", help="the result as JSON")
     s.set_defaults(func=_restack)
 
-    s = sub.add_parser("finish", help="last merge (skipped when nothing is left), remove the worktree, delete the branch")
-    s.add_argument("--pr", help="merge request number (default: the branch's open one; forge = none: after a manual merge)")
-    s.add_argument("--close-parent", action="store_true",
-                   help="also close the issue's parent story, unless another child or a plan section keeps it open")
+    s = sub.add_parser(
+        "finish", help="last merge (skipped when nothing is left), remove the worktree, delete the branch"
+    )
+    s.add_argument(
+        "--pr", help="merge request number (default: the branch's open one; forge = none: after a manual merge)"
+    )
+    s.add_argument(
+        "--close-parent",
+        action="store_true",
+        help="also close the issue's parent story, unless another child or a plan section keeps it open",
+    )
     s.set_defaults(func=_finish)
 
     s = sub.add_parser("abandon", help="end the session without a merge: issue back, worktree and branch removed")
-    s.add_argument("--discard", action="store_true",
-                   help="also drop uncommitted changes and commits main lacks (refused without it)")
-    s.add_argument("--status", choices=["backlog", "ready"], default="backlog",
-                   help="where an issue in progress goes back to (default: backlog)")
+    s.add_argument(
+        "--discard",
+        action="store_true",
+        help="also drop uncommitted changes and commits main lacks (refused without it)",
+    )
+    s.add_argument(
+        "--status",
+        choices=["backlog", "ready"],
+        default="backlog",
+        help="where an issue in progress goes back to (default: backlog)",
+    )
     s.set_defaults(func=_abandon)
 
     s = sub.add_parser("doctor", help="check installation and project configuration")

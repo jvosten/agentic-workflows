@@ -74,7 +74,6 @@ def _prune(directory: Path, owned: Path) -> list[Change]:
     return removed
 
 
-
 def run(agents: list[str], exe: Path | None = None) -> Report:
     unknown = set(agents) - AGENT_DIRS.keys()
     if unknown:
@@ -102,6 +101,8 @@ def run(agents: list[str], exe: Path | None = None) -> Report:
     else:
         report.changes.append(_link(bin_link, exe.resolve()))
     if not shutil.which("aw"):
-        report.warnings.append("`aw` is not on your PATH; skills still work through ~/.agents/bin/aw.\n"
-                               "  For your shell: `uv tool update-shell`, then open a new terminal.")
+        report.warnings.append(
+            "`aw` is not on your PATH; skills still work through ~/.agents/bin/aw.\n"
+            "  For your shell: `uv tool update-shell`, then open a new terminal."
+        )
     return report

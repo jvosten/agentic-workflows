@@ -137,7 +137,7 @@ def inline(text: str, marks: list[dict] | None = None) -> list[dict]:
     pos = 0
     for m in _INLINE.finditer(text):
         if m.start() > pos:
-            out.append(_t(text[pos:m.start()], marks))
+            out.append(_t(text[pos : m.start()], marks))
         g = m.groupdict()
         if g["code"] is not None:
             out.append(_t(g["code"], [*[k for k in marks if k["type"] == "link"], {"type": "code"}]))
@@ -160,8 +160,11 @@ def _para(text: str) -> dict:
 
 
 def _parse_list(lines: list[str]) -> dict:
-    base = len(_LIST_ITEM.match(lines[0]).group(1))
-    ordered = _LIST_ITEM.match(lines[0]).group(2)[0].isdigit()
+    first = _LIST_ITEM.match(lines[0])
+    if first is None:
+        raise ValueError(f"not a list item: {lines[0]!r}")
+    base = len(first.group(1))
+    ordered = first.group(2)[0].isdigit()
     items: list[list[str]] = []
     for line in lines:
         m = _LIST_ITEM.match(line)
@@ -183,8 +186,9 @@ def _table_node(lines: list[str]) -> dict:
         if i == 1 and all(re.fullmatch(r":?-{2,}:?", c) for c in cells if c):
             continue
         kind = "tableHeader" if i == 0 else "tableCell"
-        rows.append({"type": "tableRow", "content": [
-            {"type": kind, "content": [_para(c.replace("\\|", "|"))]} for c in cells]})
+        rows.append(
+            {"type": "tableRow", "content": [{"type": kind, "content": [_para(c.replace("\\|", "|"))]} for c in cells]}
+        )
     return {"type": "table", "content": rows}
 
 
@@ -201,7 +205,7 @@ def _blocks(text: str) -> list[dict]:
             j = i + 1
             while j < len(lines) and not _FENCE.match(lines[j]):
                 j += 1
-            node: dict = {"type": "codeBlock", "content": [_t(t, [])] if (t := "\n".join(lines[i + 1:j])) else []}
+            node: dict = {"type": "codeBlock", "content": [_t(t, [])] if (t := "\n".join(lines[i + 1 : j])) else []}
             if m.group(1):
                 node["attrs"] = {"language": m.group(1)}
             out.append(node)
@@ -233,9 +237,15 @@ def _blocks(text: str) -> list[dict]:
             i = j
         else:
             j = i
-            while j < len(lines) and lines[j].strip() and not (
-                _FENCE.match(lines[j]) or _HEADING.match(lines[j]) or _LIST_ITEM.match(lines[j])
-                or lines[j].lstrip().startswith((">", "|"))
+            while (
+                j < len(lines)
+                and lines[j].strip()
+                and not (
+                    _FENCE.match(lines[j])
+                    or _HEADING.match(lines[j])
+                    or _LIST_ITEM.match(lines[j])
+                    or lines[j].lstrip().startswith((">", "|"))
+                )
             ):
                 j += 1
             out.append(_para(" ".join(x.strip() for x in lines[i:j])))

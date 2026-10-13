@@ -22,9 +22,7 @@ source_env "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)"
 def _name_pattern(template: str) -> re.Pattern[str]:
     """Regex matching worktree names built from template, capturing {n}."""
     parts = re.split(r"(\{[a-z]+\})", template)
-    body = "".join(
-        r"(\d+)" if p == "{n}" else ".+" if p.startswith("{") else re.escape(p) for p in parts
-    )
+    body = "".join(r"(\d+)" if p == "{n}" else ".+" if p.startswith("{") else re.escape(p) for p in parts)
     return re.compile(f"^{body}$")
 
 
@@ -54,8 +52,9 @@ def _fill(cfg: Config, key: str, ph: dict[str, str]) -> str:
     return cfg.expand(template, **ph)
 
 
-def run(cfg: Config, kind: str, slug: str, issue: str | None, number: int | None = None,
-        base: str | None = None) -> dict[str, str]:
+def run(
+    cfg: Config, kind: str, slug: str, issue: str | None, number: int | None = None, base: str | None = None
+) -> dict[str, str]:
     tracker = trackers.get(cfg)
     issue = tracker.normalize(issue) if issue else ""
     types = cfg.get("branch_types")
@@ -78,13 +77,16 @@ def run(cfg: Config, kind: str, slug: str, issue: str | None, number: int | None
         print("warning: no 'origin' remote, skipping pull", file=sys.stderr)
 
     n = number or next_session(cfg)
-    ph = {"type": kind, "slug": slug, "n": str(n),
-          "date": date.today().strftime("%Y%m%d"), "issue": issue}
+    ph = {"type": kind, "slug": slug, "n": str(n), "date": date.today().strftime("%Y%m%d"), "issue": issue}
     branch = _fill(cfg, "branch_name", ph)
     worktree = Path(cfg.get("worktree_root", **ph)) / _fill(cfg, "worktree_name", ph)
 
-    if subprocess.run(["git", "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"],
-                      cwd=root, check=False).returncode == 0:
+    if (
+        subprocess.run(
+            ["git", "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"], cwd=root, check=False
+        ).returncode
+        == 0
+    ):
         raise AwError(f"branch exists: {branch}")
     if worktree.exists():
         raise AwError(f"path exists: {worktree}")
@@ -96,14 +98,25 @@ def run(cfg: Config, kind: str, slug: str, issue: str | None, number: int | None
         start = git("rev-parse", f"origin/{base}", cwd=root)
     git("worktree", "add", "--quiet", "-b", branch, str(worktree), start, cwd=root)
     if not (worktree / PROJECT_FILE).is_file():
-        print(f"warning: {PROJECT_FILE} is not committed on {main}, so this worktree has none and aw runs here "
-              "with defaults (no tracker, no hooks); commit .agents/ on main", file=sys.stderr)
+        print(
+            f"warning: {PROJECT_FILE} is not committed on {main}, so this worktree has none and aw runs here "
+            "with defaults (no tracker, no hooks); commit .agents/ on main",
+            file=sys.stderr,
+        )
     counter = counter_file(cfg)
     previous = int(counter.read_text()) if counter.is_file() else 0
     counter.write_text(f"{max(n, previous)}\n")
-    session.write(worktree, {"session": n, "issue": issue, "type": kind, "slug": slug,
-                             "started": date.today().isoformat(),
-                             **({"base": base, "fork_point": start} if base else {})})
+    session.write(
+        worktree,
+        {
+            "session": n,
+            "issue": issue,
+            "type": kind,
+            "slug": slug,
+            "started": date.today().isoformat(),
+            **({"base": base, "fork_point": start} if base else {}),
+        },
+    )
 
     if cfg.get("direnv"):
         (worktree / ".envrc").write_text(ENVRC)
@@ -122,7 +135,7 @@ def run(cfg: Config, kind: str, slug: str, issue: str | None, number: int | None
             print(f"warning: parent status not updated: {e}", file=sys.stderr)
 
     if hook := cfg.get("on_start", **ph):
-        r = subprocess.run(hook, shell=True, cwd=worktree, stdout=sys.stderr, check=False)
+        r = subprocess.run(hook, shell=True, cwd=worktree, stdout=sys.stderr, check=False)  # noqa: S602 - hooks are shell commands the user configured
         if r.returncode:
             print(f"warning: on_start exited {r.returncode}", file=sys.stderr)
 

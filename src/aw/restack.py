@@ -41,8 +41,10 @@ class Result:
             verb = "would restack" if self.dry_run else "restacked"
             return f"{verb} {self.branch}: {plural(self.commits, 'commit')} onto {onto}{merged}{moved}"
         if self.state == "conflict":
-            return (f"conflict in {', '.join(self.conflicts)}: resolve, `git add`, `git rebase --continue`, "
-                    "then `aw restack` again")
+            return (
+                f"conflict in {', '.join(self.conflicts)}: resolve, `git add`, `git rebase --continue`, "
+                "then `aw restack` again"
+            )
         if self.state == "up_to_date":
             return f"{self.branch} is up to date with {self.base}"
         return "not a stacked session; nothing to restack"
@@ -50,21 +52,29 @@ class Result:
 
 def _rebase(worktree: Path, onto: str, fork_point: str) -> list[str]:
     """Rebase the session's own commits onto onto; returns the conflicting files, empty on success."""
-    r = subprocess.run(["git", "rebase", "--quiet", "--onto", onto, fork_point],
-                       cwd=worktree, capture_output=True, text=True, check=False)
+    r = subprocess.run(
+        ["git", "rebase", "--quiet", "--onto", onto, fork_point],
+        cwd=worktree,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
     if r.returncode == 0:
         return []
     return git("diff", "--name-only", "--diff-filter=U", cwd=worktree).splitlines() or ["(see git status)"]
 
 
 def _rebasing(worktree: Path) -> bool:
-    return any((worktree / git("rev-parse", "--git-path", d, cwd=worktree)).exists()
-               for d in ("rebase-merge", "rebase-apply"))
+    return any(
+        (worktree / git("rev-parse", "--git-path", d, cwd=worktree)).exists() for d in ("rebase-merge", "rebase-apply")
+    )
 
 
 def _contains(worktree: Path, commit: str) -> bool:
-    return subprocess.run(["git", "merge-base", "--is-ancestor", commit, "HEAD"], cwd=worktree,
-                          check=False).returncode == 0
+    return (
+        subprocess.run(["git", "merge-base", "--is-ancestor", commit, "HEAD"], cwd=worktree, check=False).returncode
+        == 0
+    )
 
 
 def _base_merged(kind: str, base: str, cwd: Path) -> bool:
@@ -91,8 +101,10 @@ def run(cfg: Config, meta: dict[str, Any], dry_run: bool = False) -> Result:
         raise AwError("rebase in progress: resolve the conflicts, `git rebase --continue`, then `aw restack` again")
     branch, pending = meta["branch"], meta.get("restack_onto", "")
     if not _contains(worktree, fork_point):
-        raise AwError(f"fork point {fork_point[:12]} is not in {branch}; set fork_point in the session to the "
-                      "base commit the branch builds on")
+        raise AwError(
+            f"fork point {fork_point[:12]} is not in {branch}; set fork_point in the session to the "
+            "base commit the branch builds on"
+        )
     main, kind = cfg.get("main_branch"), cfg.get("forge")
     merged = _base_merged(kind, base, worktree)
     target = main if merged else base
@@ -111,8 +123,9 @@ def run(cfg: Config, meta: dict[str, Any], dry_run: bool = False) -> Result:
     else:
         result.commits = int(git("rev-list", "--count", f"{fork_point}..HEAD", cwd=worktree))
         if dry_run:
-            log.insert(0, f"DRY RUN: git rebase --onto {upstream} {fork_point[:12]} "
-                          f"({plural(result.commits, 'commit')})")
+            log.insert(
+                0, f"DRY RUN: git rebase --onto {upstream} {fork_point[:12]} ({plural(result.commits, 'commit')})"
+            )
             return result
         if conflicts := _rebase(worktree, onto, fork_point):
             session.update(worktree, restack_onto=onto)

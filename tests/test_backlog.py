@@ -31,8 +31,12 @@ def body(tmp_path, text):
 
 def test_backlog_add_places_the_item_with_the_others(repo, tmp_path):
     (repo / "BACKLOG.md").write_text(ITEMS)
-    assert cli.main(["backlog", "add", "--title", "[MEDIUM] Third item",
-                     "--body-file", body(tmp_path, "Context: three.\n")]) == 0
+    assert (
+        cli.main(
+            ["backlog", "add", "--title", "[MEDIUM] Third item", "--body-file", body(tmp_path, "Context: three.\n")]
+        )
+        == 0
+    )
     text = (repo / "BACKLOG.md").read_text()
     assert text.index("### [LOW] Second item") < text.index("### [MEDIUM] Third item")
     assert text.index("### [MEDIUM] Third item") < text.index("## Considered and not planned")
@@ -50,7 +54,10 @@ def test_backlog_pop_removes_one_item_only(repo):
 
 def test_backlog_add_stays_above_the_rule_that_closes_the_items(repo, tmp_path):
     (repo / "BACKLOG.md").write_text(ITEMS.replace("\n## Considered", "\n---\n\n## Considered"))
-    assert cli.main(["backlog", "add", "--title", "[LOW] Third item", "--body-file", body(tmp_path, "Context: three.\n")]) == 0
+    assert (
+        cli.main(["backlog", "add", "--title", "[LOW] Third item", "--body-file", body(tmp_path, "Context: three.\n")])
+        == 0
+    )
     text = (repo / "BACKLOG.md").read_text()
     assert "Context: two.\n\n### [LOW] Third item\n\nContext: three.\n\n---\n\n## Considered" in text
 
@@ -84,7 +91,9 @@ def test_inbox_lists_items_and_disappears_when_emptied(repo, tmp_path, capsys):
     (repo / ".agents").mkdir()
     (repo / ".agents/aw.toml").write_text('tracker = "github"\nbacklog_home = "tracker"\n')
     for title in ("Retry uploads", "Drop old flag"):
-        assert cli.main(["backlog", "add", "--title", title, "--body-file", body(tmp_path, "Noted mid-session.\n")]) == 0
+        assert (
+            cli.main(["backlog", "add", "--title", title, "--body-file", body(tmp_path, "Noted mid-session.\n")]) == 0
+        )
     capsys.readouterr()
     assert cli.main(["backlog", "list"]) == 0
     assert capsys.readouterr().out == "Retry uploads\nDrop old flag\n"
@@ -109,7 +118,7 @@ def test_finish_refuses_while_the_inbox_holds_items(repo, tmp_path):
     (repo / ".agents/aw.toml").write_text('tracker = "jira"\nbacklog_home = "tracker"\n')
     (repo / "BACKLOG.md").write_text("# Backlog\n\n## Retry uploads\n\nx\n")
     meta = {"branch": "main", "worktree": str(repo)}
-    with pytest.raises(AwError, match="BACKLOG.md still holds 1 item\\(s\\): Retry uploads"):
+    with pytest.raises(AwError, match=r"BACKLOG\.md still holds 1 item\(s\): Retry uploads"):
         finish.run(load(), meta, None)
     (repo / ".agents/aw.toml").write_text('tracker = "jira"\nbacklog_home = "file"\n')
     with pytest.raises(AwError, match="uncommitted changes"):

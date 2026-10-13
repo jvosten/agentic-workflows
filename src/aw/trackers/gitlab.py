@@ -32,15 +32,26 @@ class GitLab(Tracker):
 
     def view(self, issue: str) -> Issue:
         d = self.glab_json("issue", "view", issue, "--output", "json")
-        return Issue(id=str(d["iid"]), ref=f"#{d['iid']}", title=d["title"], status=d.get("state", ""),
-                     url=d.get("web_url", ""), labels=d.get("labels", []), body=d.get("description") or "")
+        return Issue(
+            id=str(d["iid"]),
+            ref=f"#{d['iid']}",
+            title=d["title"],
+            status=d.get("state", ""),
+            url=d.get("web_url", ""),
+            labels=d.get("labels", []),
+            body=d.get("description") or "",
+        )
 
     def list_open(self, limit: int) -> list[Row]:
         return [self._row(d) for d in self.glab_json("issue", "list", "--per-page", str(limit), "--output", "json")]
 
     def search(self, query: str, limit: int, raw: bool) -> list[Row]:
-        return [self._row(d) for d in self.glab_json(
-            "issue", "list", "--all", "--search", query, "--per-page", str(limit), "--output", "json")]
+        return [
+            self._row(d)
+            for d in self.glab_json(
+                "issue", "list", "--all", "--search", query, "--per-page", str(limit), "--output", "json"
+            )
+        ]
 
     def comment(self, issue: str, body: str) -> None:
         self.glab("issue", "note", issue, "--message", body)

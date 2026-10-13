@@ -279,10 +279,11 @@ Two skills write a story: `aw-to-story` when the conversation redefined it, `aw-
 ## Development
 
 ```bash
-uv run pytest
+make check     # tests, ruff and ty: what CI runs
+make format    # let ruff fix and format what it can
 ```
 
-or `make check`, which `aw init` detects as this repo's `verify_cmd`.
+`make test`, `make lint` and `make types` run the parts. `aw init` detects `make check` as this repo's `verify_cmd`. How to work on `aw` (checks, rules, conventions): [AGENTS.md](AGENTS.md).
 
 Planned work: [BACKLOG.md](BACKLOG.md).
 

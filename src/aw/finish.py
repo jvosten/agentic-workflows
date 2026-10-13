@@ -36,8 +36,11 @@ def _preflight(cfg: Config, worktree: Path, branch: str, ignore_inbox: bool) -> 
     main's tip, ahead of its remote (or, after a squash, without one), and none of that is unpushed work.
     """
     inbox = cfg.get("backlog_file") if ignore_inbox and backlog.home(cfg) == "tracker" else ""
-    dirty = [line for line in git("status", "--porcelain", cwd=worktree).splitlines()
-             if not (inbox and line == f"?? {inbox}")]
+    dirty = [
+        line
+        for line in git("status", "--porcelain", cwd=worktree).splitlines()
+        if not (inbox and line == f"?? {inbox}")
+    ]
     if dirty:
         raise AwError(f"{worktree} has uncommitted changes")
     main = cfg.get("main_branch")
@@ -77,8 +80,9 @@ def _merged_outside(kind: str, branch: str, worktree: Path) -> str | None:
 
 def _merged_by_hand(root: Path, main: str, branch: str) -> None:
     git("fetch", "--quiet", "origin", main, cwd=root)
-    if subprocess.run(["git", "merge-base", "--is-ancestor", branch, f"origin/{main}"],
-                      cwd=root, check=False).returncode:
+    if subprocess.run(
+        ["git", "merge-base", "--is-ancestor", branch, f"origin/{main}"], cwd=root, check=False
+    ).returncode:
         raise AwError(f"{branch} is not merged into origin/{main}; merge it first")
 
 
@@ -110,9 +114,16 @@ def _update_main(root: Path, main: str, log: list[str]) -> None:
 def _on_merge(cfg: Config, meta: dict[str, Any], pr: str, final: bool, log: list[str]) -> None:
     if not cfg.values["on_merge"]:
         return
-    cmd = cfg.get("on_merge", pr=pr, final=str(final).lower(), issue=meta.get("issue") or "",
-                  slug=meta.get("slug", ""), type=meta.get("type", ""), date=date.today().strftime("%Y%m%d"))
-    r = subprocess.run(cmd, shell=True, cwd=cfg.root, stdout=sys.stderr, check=False)
+    cmd = cfg.get(
+        "on_merge",
+        pr=pr,
+        final=str(final).lower(),
+        issue=meta.get("issue") or "",
+        slug=meta.get("slug", ""),
+        type=meta.get("type", ""),
+        date=date.today().strftime("%Y%m%d"),
+    )
+    r = subprocess.run(cmd, shell=True, cwd=cfg.root, stdout=sys.stderr, check=False)  # noqa: S602 - hooks are shell commands the user configured
     log.append(f"on_merge: {cmd}" if r.returncode == 0 else f"warning: on_merge exited {r.returncode}: {cmd}")
 
 
@@ -133,8 +144,10 @@ def merge(cfg: Config, meta: dict[str, Any], pr: str | None) -> list[str]:
     else:
         pr = _merge_request(cfg, kind, branch, pr, worktree, log)
         if forge.head(kind, pr, root) != head:
-            raise AwError(f"{PREFIX[kind]}{pr} was merged at another commit than {branch}'s head; "
-                          "the commits after it would be lost. Push them into a new part first")
+            raise AwError(
+                f"{PREFIX[kind]}{pr} was merged at another commit than {branch}'s head; "
+                "the commits after it would be lost. Push them into a new part first"
+            )
     _update_main(root, main, log)
 
     git("fetch", "--quiet", "origin", main, cwd=worktree)
@@ -176,13 +189,16 @@ def run(cfg: Config, meta: dict[str, Any], pr: str | None, close_parent: bool = 
     _refuse_stacked(meta)
 
     if backlog.home(cfg) == "tracker" and cfg.get("backlog_file") and (left := backlog.titles(cfg, worktree)):
-        raise AwError(f"{cfg.get('backlog_file')} still holds {len(left)} item(s): {'; '.join(left)}. "
-                      "Send each to the tracker or discard it (aw-finalize step 5), then commit")
+        raise AwError(
+            f"{cfg.get('backlog_file')} still holds {len(left)} item(s): {'; '.join(left)}. "
+            "Send each to the tracker or discard it (aw-finalize step 5), then commit"
+        )
     _preflight(cfg, worktree, branch, ignore_inbox=False)
 
     git("fetch", "--quiet", "origin", main, cwd=worktree)
-    nothing_left = subprocess.run(["git", "diff", "--quiet", f"origin/{main}", "HEAD"],
-                                  cwd=worktree, check=False).returncode == 0
+    nothing_left = (
+        subprocess.run(["git", "diff", "--quiet", f"origin/{main}", "HEAD"], cwd=worktree, check=False).returncode == 0
+    )
     if nothing_left and kind != "none" and (outside := _merged_outside(kind, branch, worktree)):
         # Merged on the forge by hand: the last merge happened, so it is handled as one (on_merge runs).
         nothing_left, pr = False, outside
@@ -245,8 +261,9 @@ def abandon(cfg: Config, meta: dict[str, Any], discard: bool = False, status: st
     ahead = int(git("rev-list", "--count", *heads, "--not", f"origin/{main}", cwd=worktree))
     dirty = bool(git("status", "--porcelain", cwd=worktree))
     if (ahead or dirty) and not discard:
-        what = " and ".join(filter(None, (f"{ahead} commit(s) {main} lacks" if ahead else "",
-                                          "uncommitted changes" if dirty else "")))
+        what = " and ".join(
+            filter(None, (f"{ahead} commit(s) {main} lacks" if ahead else "", "uncommitted changes" if dirty else ""))
+        )
         raise AwError(f"{branch} has {what}; pass --discard to drop them, or keep the session")
     if kind != "none" and (request := forge.find_open(kind, branch, worktree)):
         raise AwError(f"{branch} has an open merge request {PREFIX[kind]}{request.number}; close it first")
@@ -260,8 +277,9 @@ def abandon(cfg: Config, meta: dict[str, Any], discard: bool = False, status: st
         try:  # the start moved it to in progress; anything else someone chose, so it stays
             current = tracker.current_status(issue)
             if current is None or canonical(cfg, current) != "in_progress":
-                log.append(f"{tracker.ref(issue)} stays at {current or 'no status'}: "
-                           "only an issue in progress goes back")
+                log.append(
+                    f"{tracker.ref(issue)} stays at {current or 'no status'}: only an issue in progress goes back"
+                )
             else:
                 log.append(tracker.set_status(issue, status))
                 if hook := trackers.status_hook(cfg, issue, status):

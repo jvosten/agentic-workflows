@@ -41,10 +41,20 @@ class Entry:
     body: str = ""
 
     def text(self) -> str:
-        meta = {"title": self.title, "tags": self.tags, "status": self.status, "superseded_by": self.superseded_by,
-                "aliases": self.aliases, "date": self.date, "issue": self.issue}
-        lines = [f"{key}: {json.dumps(meta[key], ensure_ascii=False)}" for key in FIELDS
-                 if meta[key] or key in ("title", "tags", "status")]
+        meta = {
+            "title": self.title,
+            "tags": self.tags,
+            "status": self.status,
+            "superseded_by": self.superseded_by,
+            "aliases": self.aliases,
+            "date": self.date,
+            "issue": self.issue,
+        }
+        lines = [
+            f"{key}: {json.dumps(meta[key], ensure_ascii=False)}"
+            for key in FIELDS
+            if meta[key] or key in ("title", "tags", "status")
+        ]
         return "---\n" + "\n".join(lines) + "\n---\n\n" + self.body.strip() + "\n"
 
     def compact(self) -> str:
@@ -83,15 +93,23 @@ def parse(path: Path, kind: str) -> Entry:
                 meta[key.strip()] = json.loads(value.strip())
             except json.JSONDecodeError:
                 meta[key.strip()] = value.strip()
-    return Entry(kind=kind, slug=path.stem, title=meta.get("title", path.stem), tags=list(meta.get("tags", [])),
-                 status=meta.get("status", "active"), superseded_by=meta.get("superseded_by", ""),
-                 aliases=[str(a) for a in meta.get("aliases", [])], date=str(meta.get("date", "")),
-                 issue=str(meta.get("issue", "")), body=body.strip())
+    return Entry(
+        kind=kind,
+        slug=path.stem,
+        title=meta.get("title", path.stem),
+        tags=list(meta.get("tags", [])),
+        status=meta.get("status", "active"),
+        superseded_by=meta.get("superseded_by", ""),
+        aliases=[str(a) for a in meta.get("aliases", [])],
+        date=str(meta.get("date", "")),
+        issue=str(meta.get("issue", "")),
+        body=body.strip(),
+    )
 
 
 def entries(cfg: Config, kind: str | None = None) -> list[Entry]:
     found = []
-    for name in ([kind] if kind else KINDS):
+    for name in [kind] if kind else KINDS:
         root = directory(cfg, name)
         found += [parse(p, name) for p in sorted(root.glob("*.md"))] if root.is_dir() else []
     return found
@@ -195,9 +213,18 @@ def import_json(cfg: Config, lines: list[str]) -> list[Path]:
                 raise ValueError(f"kind must be one of {', '.join(KINDS)}")
             sections = d.get("sections") or {}
             body = d.get("body") or "\n\n".join(f"## {k}\n\n{str(v).strip()}" for k, v in sections.items() if v)
-            entry = Entry(kind, d.get("slug") or slugify(title), title, list(d.get("tags", [])),
-                          d.get("status", "active"), d.get("superseded_by", ""), [str(a) for a in d.get("aliases", [])],
-                          str(d.get("date", "")), str(d.get("issue", "")), body)
+            entry = Entry(
+                kind,
+                d.get("slug") or slugify(title),
+                title,
+                list(d.get("tags", [])),
+                d.get("status", "active"),
+                d.get("superseded_by", ""),
+                [str(a) for a in d.get("aliases", [])],
+                str(d.get("date", "")),
+                str(d.get("issue", "")),
+                body,
+            )
             if entry.status not in STATUSES:
                 raise ValueError(f"status must be one of {', '.join(STATUSES)}")
             _check_tags(cfg, kind, entry.tags)
@@ -211,12 +238,18 @@ def import_json(cfg: Config, lines: list[str]) -> list[Path]:
         slugs[(entry.kind, entry.slug)] = slugs.get((entry.kind, entry.slug), 0) + 1
         for alias in entry.aliases:
             aliases.setdefault(alias.casefold(), []).append(entry.slug)
-    problems += [f"slug {slug!r} ({kind}) used {n} times; give the entries a \"slug\" or distinct titles"
-                 for (kind, slug), n in slugs.items() if n > 1]
+    problems += [
+        f'slug {slug!r} ({kind}) used {n} times; give the entries a "slug" or distinct titles'
+        for (kind, slug), n in slugs.items()
+        if n > 1
+    ]
     problems += [f"alias {a!r} claimed by {', '.join(owners)}" for a, owners in aliases.items() if len(owners) > 1]
     known = {e.slug for e in existing + new}
-    problems += [f"{e.slug}: superseded_by {e.superseded_by!r} does not exist" for e in new
-                 if e.superseded_by and e.superseded_by not in known]
+    problems += [
+        f"{e.slug}: superseded_by {e.superseded_by!r} does not exist"
+        for e in new
+        if e.superseded_by and e.superseded_by not in known
+    ]
     if problems:
         shown = problems[:20] + ([f"… {len(problems) - 20} more"] if len(problems) > 20 else [])
         raise AwError("import refused, nothing written:\n  " + "\n  ".join(shown))
@@ -231,15 +264,17 @@ def import_json(cfg: Config, lines: list[str]) -> list[Path]:
 
 # --- what a session loads, and the experiment's log ---------------------------------------
 
+
 def start_text(cfg: Config, has_plan: bool) -> str:
     """What a session start reads: gotchas per gotchas_load, the decision index when there is no plan."""
     parts = []
     if cfg.get("gotchas_load") == "tags":
         counts = [f"{t} {n}" for t, n, _ in tag_counts(cfg) if n]
         if counts:
-            parts.append("Known gotchas by tool. Before working with one of these, or when it errors: "
-                         "`aw memory find --tags <tag> --compact`, then `aw memory show <id>`.\n"
-                         + " · ".join(counts))
+            parts.append(
+                "Known gotchas by tool. Before working with one of these, or when it errors: "
+                "`aw memory find --tags <tag> --compact`, then `aw memory show <id>`.\n" + " · ".join(counts)
+            )
     else:
         active = [e for e in entries(cfg, "gotcha") if e.status == "active"]
         if active:
@@ -247,8 +282,10 @@ def start_text(cfg: Config, has_plan: bool) -> str:
     if not has_plan:
         decisions = [e.compact() for e in entries(cfg, "decision") if e.status == "active"]
         if decisions:
-            parts.append("Decisions in force (`aw memory show <id>` for one; do not reopen them):\n"
-                         + "\n".join(f"- {line}" for line in decisions))
+            parts.append(
+                "Decisions in force (`aw memory show <id>` for one; do not reopen them):\n"
+                + "\n".join(f"- {line}" for line in decisions)
+            )
     return "\n\n".join(parts)
 
 
@@ -267,7 +304,7 @@ def pulled(plan_file: Path | None) -> list[str]:
     except StopIteration:
         return []
     ids = []
-    for line in lines[start + 1:]:
+    for line in lines[start + 1 :]:
         if line.startswith("## "):
             break
         if m := re.match(r"^- ([a-z0-9-]+) · ", line):
@@ -275,14 +312,21 @@ def pulled(plan_file: Path | None) -> list[str]:
     return ids
 
 
-def log(cfg: Config, meta: dict[str, Any], plan_file: Path | None, relevant: list[str], missed: list[str],
-        note: str) -> Path:
+def log(
+    cfg: Config, meta: dict[str, Any], plan_file: Path | None, relevant: list[str], missed: list[str], note: str
+) -> Path:
     """One line per session for the experiment, in the primary checkout so it outlives the worktree."""
     ids = pulled(plan_file)
     record = {
-        "date": date.today().isoformat(), "issue": meta.get("issue") or "", "mode": cfg.get("gotchas_load"),
-        "start_tokens": meta.get("memory_start_tokens"), "pulled": len(ids),
-        "relevant": relevant, "relevant_pulled": [r for r in relevant if r in ids], "missed": missed, "note": note,
+        "date": date.today().isoformat(),
+        "issue": meta.get("issue") or "",
+        "mode": cfg.get("gotchas_load"),
+        "start_tokens": meta.get("memory_start_tokens"),
+        "pulled": len(ids),
+        "relevant": relevant,
+        "relevant_pulled": [r for r in relevant if r in ids],
+        "missed": missed,
+        "note": note,
     }
     path = cfg.root / LOG
     path.parent.mkdir(parents=True, exist_ok=True)
