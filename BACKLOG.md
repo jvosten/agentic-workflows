@@ -327,6 +327,27 @@ In every case the entry is in the commits that exist when the PR opens, and the 
 
 **Effort:** small. One pattern and its tests in the GitHub adapter.
 
+---
+
+### [MEDIUM] Clear error when gh or glab is missing
+
+**Context:** With `forge = "github"` and no `gh` on the machine, `aw mr create --dry-run` ends in a Python traceback. Found while finalizing the stacked-sessions session (0.2.0).
+
+**Problem:** `forge._run` and `forge._json` call `subprocess.run` without catching `FileNotFoundError`; the tracker adapters already turn it into an error (`trackers/__init__.py`). Agents and users see a stack trace instead of the next step.
+
+**Scope:**
+
+- One place turns a missing `gh` / `glab` into an `AwError`: "gh is not installed; install it and run `gh auth login`" (glab likewise).
+- Reuse the trackers' wording, so both say the same.
+- A test per CLI with the binary absent from PATH (the test fixture already puts failing stand-ins first on PATH; this case needs them absent).
+
+**Acceptance criteria:**
+
+- Any `aw` command that needs `gh` or `glab` exits 1 with that message and no traceback when the binary is missing.
+- `aw doctor` reports the missing CLI for the configured forge and tracker (check whether it already does).
+
+**Effort:** small — one wrapper and its callers.
+
 ## Considered and not planned
 
 - **Personas and multi-agent roles** (BMAD), **spec-driven phases** (spec-kit), **label-based handoff queues** (zaks-io): full methods of their own; out of scope for a session-workflow standard.
