@@ -56,19 +56,47 @@ def _preflight(cfg: Config, worktree: Path, branch: str, ignore_inbox: bool) -> 
 
 
 def _merge_request(cfg: Config, kind: str, branch: str, pr: str | None, worktree: Path, log: list[str]) -> str:
-    """Merge the given request, or the branch's open one; returns its number. Already merged is fine (a resume)."""
+    """Merge the given request, or the branch's open one; returns its number. Already merged is fine (a resume).
+
+    The request has to be at the branch's head, merged or not: a foreign request is never merged, and a merge that
+    misses later commits never leads to cleanup.
+    """
     root = cfg.root
     if pr is None:
         request = forge.find_open(kind, branch, worktree)
         if request is None:
             raise AwError(f"{branch} has no open merge request; open one with `aw mr create`, or pass --pr")
         pr = request.number
-    if not forge.is_merged(kind, pr, root):
+    merged = forge.is_merged(kind, pr, root)
+    _require_head(kind, pr, branch, merged, worktree)
+    if not merged:
         forge.merge(kind, pr, cfg.get("merge_method"), root)
         log.append(f"merged {PREFIX[kind]}{pr}")
     if not forge.is_merged(kind, pr, root):
         raise AwError(f"{PREFIX[kind]}{pr} is not merged (pending checks or auto-merge?); rerun when it is")
     return pr
+
+
+def _require_head(kind: str, pr: str, branch: str, merged: bool, worktree: Path) -> None:
+    """Refuse a request that is not at the branch's head: it is another branch's, or commits came after it."""
+    at = forge.head(kind, pr, worktree)
+    if at == git("rev-parse", "HEAD", cwd=worktree):
+        return
+    ref = f"{PREFIX[kind]}{pr}"
+    if not merged:
+        raise AwError(
+            f"{ref} is at another commit than {branch}'s head; it is not this branch's merge request, "
+            "or one of them moved since. Nothing merged"
+        )
+    try:
+        lost = git("log", "--format=%h %s", f"{at}..HEAD", cwd=worktree).splitlines()
+    except AwError:  # the merged commit is not in this clone
+        lost = []
+    raise AwError(
+        f"{ref} was merged at another commit than {branch}'s head; the commits after it would be lost"
+        + (f": {'; '.join(lost)}" if lost else "")
+        + ". Push them into a new part first"
+    )
 
 
 def _merged_outside(kind: str, branch: str, worktree: Path) -> str | None:
@@ -135,7 +163,6 @@ def merge(cfg: Config, meta: dict[str, Any], pr: str | None) -> list[str]:
         raise AwError(f"on {main}: aw merge runs in a session worktree")
     _refuse_stacked(meta)
     _preflight(cfg, worktree, branch, ignore_inbox=True)
-    head = git("rev-parse", "HEAD", cwd=worktree)
     log: list[str] = []
 
     if kind == "none":
@@ -143,11 +170,6 @@ def merge(cfg: Config, meta: dict[str, Any], pr: str | None) -> list[str]:
         pr = ""
     else:
         pr = _merge_request(cfg, kind, branch, pr, worktree, log)
-        if forge.head(kind, pr, root) != head:
-            raise AwError(
-                f"{PREFIX[kind]}{pr} was merged at another commit than {branch}'s head; "
-                "the commits after it would be lost. Push them into a new part first"
-            )
     _update_main(root, main, log)
 
     git("fetch", "--quiet", "origin", main, cwd=worktree)
@@ -196,10 +218,11 @@ def run(cfg: Config, meta: dict[str, Any], pr: str | None, close_parent: bool = 
     _preflight(cfg, worktree, branch, ignore_inbox=False)
 
     git("fetch", "--quiet", "origin", main, cwd=worktree)
-    nothing_left = (
-        subprocess.run(["git", "diff", "--quiet", f"origin/{main}", "HEAD"], cwd=worktree, check=False).returncode == 0
-    )
-    if nothing_left and kind != "none" and (outside := _merged_outside(kind, branch, worktree)):
+    # Commits main lacks, not differing files: once main moved on after the last part, the files differ although
+    # nothing of this branch is left. A squash or rebase merge outside aw leaves commits that main holds under other
+    # ids, so that case is recognised first, by the merged request's head.
+    nothing_left = git("rev-list", "--count", f"origin/{main}..HEAD", cwd=worktree) == "0"
+    if kind != "none" and pr is None and (outside := _merged_outside(kind, branch, worktree)):
         # Merged on the forge by hand: the last merge happened, so it is handled as one (on_merge runs).
         nothing_left, pr = False, outside
         log.append(f"{PREFIX[kind]}{pr} was merged outside aw")

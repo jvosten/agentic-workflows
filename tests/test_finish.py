@@ -62,6 +62,9 @@ def test_finish_with_forge_merges_first(started, repo, monkeypatch):
     monkeypatch.setattr(forge, "is_merged", lambda kind, pr, cwd: merged["state"])
     open_request = {"found": None}
     monkeypatch.setattr(forge, "find_open", lambda kind, branch, cwd: open_request["found"])
+    monkeypatch.setattr(forge, "merged", lambda kind, branch, cwd: [])
+    head = git("rev-parse", "HEAD", cwd=started["worktree"])
+    monkeypatch.setattr(forge, "head", lambda kind, pr, cwd: head)  # the open request is at the branch's head
     cfg, meta = load(), session.read()
     with pytest.raises(AwError, match="no open merge request; open one with `aw mr create`, or pass --pr"):
         finish.run(cfg, meta, None)
@@ -235,3 +238,55 @@ def test_merge_warns_about_sessions_stacked_on_the_branch(started, repo, monkeyp
     merge_by_hand(repo, started["branch"])
     log = finish.merge(load(), session.read(), None)
     assert f"warning: {out['branch']} is stacked on {started['branch']}; run `aw restack` in {out['worktree']}" in log
+
+
+def test_finish_never_cleans_up_after_a_request_that_does_not_cover_head(started, repo, monkeypatch):
+    """--pr names a merged request, but commits were pushed after it: nothing is removed or deleted."""
+    wt, branch = Path(started["worktree"]), started["branch"]
+    monkeypatch.chdir(wt)
+    monkeypatch.setenv("AW_FORGE", "github")
+    merged_at = git("rev-parse", "HEAD", cwd=wt)
+    commit(wt, "later.txt")  # pushed after #7 merged: in no request
+    monkeypatch.setattr(forge, "find_open", lambda kind, b, cwd: None)
+    monkeypatch.setattr(forge, "is_merged", lambda kind, pr, cwd: True)
+    monkeypatch.setattr(forge, "head", lambda kind, pr, cwd: merged_at)
+    monkeypatch.setattr(forge, "merged", lambda kind, b, cwd: [forge.MergeRequest("7", "u", head=merged_at)])
+    with pytest.raises(AwError, match=r"#7 was merged at another commit .* would be lost: [0-9a-f]+ feat: later\.txt"):
+        finish.run(load(), session.read(), "7")
+    assert wt.is_dir()
+    assert git("branch", "--list", branch, cwd=repo)
+    assert git("ls-remote", "--heads", "origin", branch, cwd=repo)
+
+
+def test_a_foreign_open_request_is_never_merged(started, monkeypatch):
+    """--pr names an open request whose head is not this branch's: refused before the merge."""
+    monkeypatch.chdir(started["worktree"])
+    monkeypatch.setenv("AW_FORGE", "github")
+    monkeypatch.setattr(forge, "is_merged", lambda kind, pr, cwd: False)
+    monkeypatch.setattr(forge, "head", lambda kind, pr, cwd: "1" * 40)
+    monkeypatch.setattr(forge, "merged", lambda kind, b, cwd: [])
+    monkeypatch.setattr(forge, "merge", lambda *a: pytest.fail("merged a foreign request"))
+    with pytest.raises(AwError, match=r"#9 is at another commit than .*'s head; it is not this branch's merge request"):
+        finish.run(load(), session.read(), "9")
+
+
+def test_finish_after_main_moved_on_since_the_last_part(started, repo, tmp_path, monkeypatch):
+    """The last part merged, then someone else merged into main: nothing is left, and finish finishes."""
+    wt, branch = Path(started["worktree"]), started["branch"]
+    monkeypatch.chdir(wt)
+    monkeypatch.setenv("AW_FORGE", "github")
+    merge_by_hand(repo, branch)
+    git("fetch", "-q", "origin", cwd=wt)
+    git("merge", "-q", "--ff-only", "origin/main", cwd=wt)  # where aw merge leaves the branch
+    git("push", "-q", "origin", branch, cwd=wt)
+    other = tmp_path / "other"
+    git("clone", "-q", str(tmp_path / "origin.git"), str(other), cwd=tmp_path)
+    (other / "elsewhere.txt").write_text("x\n")
+    git("add", ".", cwd=other)
+    git("commit", "-qm", "feat: someone else's change", cwd=other)
+    git("push", "-q", "origin", "main", cwd=other)
+    monkeypatch.setattr(forge, "find_open", lambda kind, b, cwd: None)
+    monkeypatch.setattr(forge, "merged", lambda kind, b, cwd: [forge.MergeRequest("6", "u", head="0" * 40)])
+    log = finish.run(load(), session.read(), None)
+    assert log[0] == f"nothing left to merge: {branch} has no changes against main"
+    assert not wt.exists()
