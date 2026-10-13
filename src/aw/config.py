@@ -43,6 +43,15 @@ def git(*args: str, cwd: Path | str | None = None) -> str:
     return r.stdout.strip()
 
 
+def json_pages(text: str) -> list[Any]:
+    """The documents of `gh api --paginate` or `glab api --paginate` output: one JSON value per page, concatenated."""
+    decoder, pages, pos = json.JSONDecoder(), [], 0
+    while (pos := len(text) - len(text[pos:].lstrip())) < len(text):
+        page, pos = decoder.raw_decode(text, pos)
+        pages.append(page)
+    return pages
+
+
 def fast_forward(root: Path, branch: str) -> str:
     """Bring the local branch up to origin's, whatever the primary checkout has checked out.
 

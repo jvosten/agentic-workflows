@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from aw.config import AwError
+from aw.config import AwError, json_pages
 
 MERGE_FLAGS = {
     "github": {"merge": "--merge", "squash": "--squash", "rebase": "--rebase"},
@@ -84,8 +84,10 @@ class Summary:
     mergeable: str = ""
 
 
-THREADS = """query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){
-  pullRequest(number:$number){reviewThreads(first:100){nodes{isResolved path line
+# $endCursor and pageInfo let `gh api graphql --paginate` walk every page of review threads.
+THREADS = """query($owner:String!,$repo:String!,$number:Int!,$endCursor:String){repository(owner:$owner,name:$repo){
+  pullRequest(number:$number){reviewThreads(first:100,after:$endCursor){pageInfo{hasNextPage endCursor}
+  nodes{isResolved path line
   comments(first:20){nodes{author{login} body}}}} comments(last:30){nodes{author{login} body}}}}}"""
 GITHUB_BUCKETS = {"pass": "pass", "fail": "fail", "cancel": "fail", "pending": "pending", "skipping": "skip"}
 GITLAB_PIPELINE = {"success": "pass", "failed": "fail", "canceled": "fail", "skipped": "skip", "manual": "skip"}
@@ -97,6 +99,11 @@ def _unsupported(kind: str) -> AwError:
 
 def _json(args: list[str], cwd: Path) -> Any:
     return json.loads(_run(args, cwd) or "null")
+
+
+def _pages(args: list[str], cwd: Path) -> list[Any]:
+    """Every item of a paginated `glab api --paginate` list: one JSON array per page."""
+    return [item for page in json_pages(_run(args, cwd)) for item in page or []]
 
 
 def find_open(kind: str, branch: str, cwd: Path) -> MergeRequest | None:
@@ -257,7 +264,7 @@ def checks(kind: str, ref: str, cwd: Path, watch: bool = False) -> list[Check]:
             if bucket != "pending" or not watch:
                 break
             time.sleep(15)
-        jobs = _json(["glab", "api", f"projects/:id/pipelines/{pipeline['id']}/jobs"], cwd) or []
+        jobs = _pages(["glab", "api", "--paginate", f"projects/:id/pipelines/{pipeline['id']}/jobs"], cwd)
         if not jobs:
             return [Check("pipeline", bucket)]
         return [Check(j["name"], GITLAB_PIPELINE.get(j["status"], "pending")) for j in jobs]
@@ -268,23 +275,27 @@ def comments(kind: str, ref: str, cwd: Path) -> tuple[list[Thread], list[tuple[s
     """Unresolved review threads, general comments, and how many threads are resolved."""
     if kind == "github":
         number = ref if ref.isdigit() else str(_json(["gh", "pr", "view", ref, "--json", "number"], cwd)["number"])
-        data = _json(
-            [
-                "gh",
-                "api",
-                "graphql",
-                "-f",
-                f"query={THREADS}",
-                "-F",
-                "owner={owner}",
-                "-F",
-                "repo={repo}",
-                "-F",
-                f"number={number}",
-            ],
-            cwd,
-        )["data"]["repository"]["pullRequest"]
-        threads = data["reviewThreads"]["nodes"]
+        pages = json_pages(
+            _run(
+                [
+                    "gh",
+                    "api",
+                    "graphql",
+                    "--paginate",
+                    "-f",
+                    f"query={THREADS}",
+                    "-F",
+                    "owner={owner}",
+                    "-F",
+                    "repo={repo}",
+                    "-F",
+                    f"number={number}",
+                ],
+                cwd,
+            )
+        )
+        data = pages[0]["data"]["repository"]["pullRequest"]  # general comments: the same on every page
+        threads = [t for p in pages for t in p["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"]]
         open_threads = [
             Thread(
                 t["path"],
@@ -298,7 +309,7 @@ def comments(kind: str, ref: str, cwd: Path) -> tuple[list[Thread], list[tuple[s
         return open_threads, general, len(threads) - len(open_threads)
     if kind == "gitlab":
         iid = ref if ref.isdigit() else str(_json(["glab", "mr", "view", ref, "--output", "json"], cwd)["iid"])
-        discussions = _json(["glab", "api", f"projects/:id/merge_requests/{iid}/discussions"], cwd) or []
+        discussions = _pages(["glab", "api", "--paginate", f"projects/:id/merge_requests/{iid}/discussions"], cwd)
         open_threads, general, resolved = [], [], 0
         for d in discussions:
             notes = [n for n in d.get("notes", []) if not n.get("system")]

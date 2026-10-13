@@ -6,19 +6,46 @@ carries no status of its own and closes by decision, so the rollup never touches
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from aw import plan
 from aw.config import AwError, Config
 from aw.trackers import Row, Tracker, status_hook
 
 
-@dataclass
-class Check:
-    parent: Row | None = None
-    children: list[Row] = field(default_factory=list)
-    left: list[str] = field(default_factory=list)  # what keeps the parent open: open children, unsplit sections
-    reason: str = ""  # why there is no parent to roll up to
+@dataclass(frozen=True)
+class NoStory:
+    """Nothing to roll up to: no parent, a parent linked by text only, an epic, or a tracker without parent links."""
+
+    reason: str
+
+
+@dataclass(frozen=True)
+class Unknown:
+    """The story's children could not be read completely; nothing may close on this."""
+
+    parent: Row
+    reason: str
+
+
+@dataclass(frozen=True)
+class Blocked:
+    """Something keeps the story open: another open child, or a plan section without a subtask."""
+
+    parent: Row
+    children: tuple[Row, ...]
+    left: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class CanClose:
+    """No child open besides the issue itself, and the plan is fully cut into subtasks."""
+
+    parent: Row
+    children: tuple[Row, ...]
+
+
+Decision = NoStory | Unknown | Blocked | CanClose
 
 
 def story(tracker: Tracker, issue: str) -> tuple[Row | None, str]:
@@ -46,32 +73,41 @@ def start(tracker: Tracker, issue: str) -> list[str]:
     return tracker.advance(parent.id, "in_progress") if parent else []
 
 
-def check(cfg: Config, tracker: Tracker, issue: str) -> Check:
-    """Whether issue's story can close once issue is done: no other open child, no plan section left unsplit."""
+def check(cfg: Config, tracker: Tracker, issue: str) -> Decision:
+    """Whether issue's story can close once issue is done: no other open child, no plan section left unsplit.
+
+    A failed listing of the children is Unknown, never an empty list.
+    """
     parent, reason = story(tracker, issue)
     if parent is None:
-        return Check(reason=reason)
-    children = tracker.children(parent.id)
+        return NoStory(reason)
+    try:
+        children = tuple(tracker.children(parent.id))
+    except AwError as e:
+        return Unknown(parent, str(e))
     left = [f"{tracker.ref(row.id)} open" for row in children if row.id != issue and not tracker.closed(row)]
     if path := plan.find(cfg, parent.id):
         left += [f"plan section {name} has no subtask" for name in plan.unsplit(path)]
-    return Check(parent, children, left)
+    return Blocked(parent, children, tuple(left)) if left else CanClose(parent, children)
 
 
-def report(tracker: Tracker, issue: str, result: Check) -> str:
-    if result.parent is None:
-        return result.reason
-    ref = tracker.ref(result.parent.id)
-    if result.left:
-        return f"{ref} stays open: {'; '.join(result.left)}"
-    names = ", ".join(tracker.ref(row.id) for row in result.children)
-    return f"{ref} can close: no child open besides {tracker.ref(issue)} (children: {names})"
+def report(tracker: Tracker, issue: str, result: Decision) -> str:
+    match result:
+        case NoStory(reason):
+            return reason
+        case Unknown(parent, reason):
+            return f"{tracker.ref(parent.id)}: children unknown ({reason})"
+        case Blocked(parent, _, left):
+            return f"{tracker.ref(parent.id)} stays open: {'; '.join(left)}"
+        case CanClose(parent, children):
+            names = ", ".join(tracker.ref(row.id) for row in children)
+            return f"{tracker.ref(parent.id)} can close: no child open besides {tracker.ref(issue)} (children: {names})"
 
 
 def close(cfg: Config, tracker: Tracker, issue: str) -> list[str]:
-    """Close issue's story as done, with a comment naming its children; refuses while anything keeps it open."""
+    """Close issue's story as done, with a comment naming its children; refuses unless the decision is CanClose."""
     result = check(cfg, tracker, issue)
-    if result.parent is None or result.left:
+    if not isinstance(result, CanClose):
         raise AwError(f"{report(tracker, issue, result)}; nothing closed")
     parent = result.parent.id
     messages = [tracker.set_status(parent, "done")]
