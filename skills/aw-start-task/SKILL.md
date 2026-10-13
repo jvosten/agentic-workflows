@@ -28,11 +28,12 @@ On error, show it and stop. If `.agents/aw.toml` is missing, tell the user to ru
 ## 3. Create the worktree
 
 ```bash
-~/.agents/bin/aw start-task <type> <slug> [--issue <id>]
+~/.agents/bin/aw start-task <type> <slug> [--issue <id>] [--base <branch>]
 ```
 
 It syncs `main_branch`, picks the session number, creates branch and worktree, sets up direnv, moves the issue to in progress, and a subtask's parent story with it (trackers with workflow states, `sync_issue_status`), and runs `on_start` in the new worktree. It prints `session`, `branch`, `worktree`, `issue`.
 
+- The work builds on another session's branch whose merge request is still in review → `--base <that branch>`. The worktree starts from `origin/<branch>`, the merge request targets it, and `aw restack` moves the session onto the base's new tip, or onto `main_branch` once the base merged. Only with a forge; one level of stacking.
 - Do not create branches or worktrees any other way.
 - On a non-zero exit, show stderr and stop.
 

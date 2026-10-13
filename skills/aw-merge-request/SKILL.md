@@ -23,7 +23,7 @@ One merge request for the current branch: its title and description, created or 
 ```
 
 - `forge = none` → there is no merge request; say so and stop.
-- The change: `git diff <main_branch>...HEAD --stat` and the diff itself, plus the commit messages. Called from `/aw-finalize`, reuse its summary of what changed and why.
+- The change: `git diff <target>...HEAD --stat` and the diff itself (`<target>`: the session's `base` while stacked, else `main_branch`), plus the commit messages. Called from `/aw-finalize`, reuse its summary of what changed and why.
 - The branch is pushed and has no unpushed commits; `aw mr create` refuses otherwise.
 
 ## 2. Read the rules, then the template
@@ -58,6 +58,7 @@ Fill the template following [Sections](#sections). Do not add the issue's closin
 
 - Standalone: show the title and body and wait for a go before the real create. From `/aw-finalize` or `/aw-checkpoint`: create directly; the merge gate comes later.
 - One part of a multi-merge session (from `/aw-checkpoint`): `--part`. The request then references the issue as `Refs #12 (part N)` instead of closing it; the dry run prints N. Add ` (part N)` to the title unless the rules define titles. Without `--part`, after earlier parts, `aw mr create` lists them (`Earlier parts: #314, #315`) and closes the issue.
+- Stacked session: the request targets the base; the dry run shows it as `<branch> → <base>`. Say in the description that it builds on the base's merge request.
 - `--draft` when the rules ask for it, or the work is not ready for review.
 - `already open` → this branch has a merge request. Show the old and new description and update it on a go: `~/.agents/bin/aw mr update --title "<title>" --body-file -` (`--dry-run` first).
 - Print the merge request link.

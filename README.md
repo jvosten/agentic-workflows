@@ -128,7 +128,7 @@ Pushing an item to the tracker: `aw issue dupes <backlog_parent> --terms ...` sh
 
 | Command | Does |
 |---|---|
-| `aw mr create --title T --body-file F [--draft] [--dry-run]` | Opens the request from the current branch against `main_branch`; refuses unpushed work; an open request for the branch is reported, never duplicated; appends the issue's closing line (`Fixes #12`) when the body does not reference the issue |
+| `aw mr create --title T --body-file F [--draft] [--dry-run]` | Opens the request from the current branch against `main_branch` (a stacked session: its base); refuses unpushed work; an open request for the branch is reported, never duplicated; appends the issue's closing line (`Fixes #12`) when the body does not reference the issue |
 | `aw mr update [ref] --title T --body-file F` | Replaces title and description |
 | `aw mr view [ref]` | State, CI, review, unresolved threads, files and lines changed: what the merge gate shows |
 | `aw mr checks [ref] [--watch]` | One line of counts plus the failing and pending checks; `--watch` waits without streaming progress. Exit 0 passed, 1 failed, 2 pending |
@@ -147,6 +147,27 @@ Some changes have to be live before the next step can be built or checked: a Git
 `aw merge [--pr N]` merges the branch's open request (`forge = none`: after a manual merge), refuses commits the request does not contain, updates `main`, and moves the branch to `main`'s tip: a fast-forward after a merge commit; after a squash or rebase merge a `reset --keep`, and the merged remote branch is deleted so the next `git push -u` needs no force. It comments on the issue (`Part 2 merged: #315`) and runs `on_merge` (e.g. `flux reconcile source git flux-system`), as `aw finish` does after the last merge. Worktree, branch and issue stay. Which parts merged and where a checkpoint stopped come from the forge and git, so an interrupted checkpoint resumes where it was.
 
 Promotion across environments and changes split across repos are not covered yet.
+
+## Stacked sessions
+
+Reviews take time. A session that builds on another session's unmerged branch starts on it instead of waiting:
+
+```bash
+aw start-task feat <slug> --base <branch>    # worktree from origin/<branch>
+aw restack [--dry-run] [--json]              # follow the base, or move onto main once it merged
+```
+
+The session records the base and its *fork point*: the base commit it was cut from or last restacked onto. Every restack is `git rebase --onto <upstream> <fork point>`, so only the session's own commits are replayed, whatever happened to the base. Its merge request targets the base until the base merges; `aw merge` and `aw finish` refuse before that. `aw merge` and `aw finish` in the base session warn about every session stacked on it.
+
+| Event | `merge` | `squash` | `rebase` |
+|---|---|---|---|
+| Base gets new commits | restack onto `origin/<base>` | same | same |
+| Base merged into `main` | restack onto `origin/main` (the base's commits are in `main` under the same ids, so nothing is replayed twice) | restack onto `origin/main`; without the fork point the base's commits would be replayed onto their own squash | same as squash |
+| Merge request target | GitLab retargets on the base's merge, GitHub when the base branch is deleted after it; `aw restack` retargets when the forge did not | same | same |
+
+After the base merged, `aw restack` force-pushes (`--force-with-lease`), retargets and clears the base; the session is an ordinary one from then on. A conflict leaves the rebase in progress: resolve, `git rebase --continue`, `aw restack` again. Output is one line per action and a summary line; `--json` gives the same as a structured result.
+
+Not covered: a stacked branch ready before its base, `forge = none`, stacks deeper than two, and part merges (`aw merge`) in the base session beyond the warning.
 
 ## Set up a project
 
@@ -225,7 +246,8 @@ How states, boards and the hook fit together on each tracker: [docs/boards.md](d
 | `aw install [--agent claude] [-v]` | Link skills into `~/.agents/skills` and agent dirs, CLI into `~/.agents/bin/aw` |
 | `aw init [-y] [--set K=V] [-v]` | Create or update `.agents/aw.toml`; reports what changed, `-v` every value and where it came from |
 | `aw config [--get KEY] [--sources]` | Print resolved configuration |
-| `aw start-task <type> <slug> [--issue N] [--number N]` | Fast-forward the local main (the primary checkout may be on any branch), pick session number, create branch + worktree from main, direnv, `on_start` |
+| `aw start-task <type> <slug> [--issue N] [--number N] [--base B]` | Fast-forward the local main (the primary checkout may be on any branch), pick session number, create branch + worktree from main (`--base`: from `origin/B`, a [stacked session](#stacked-sessions)), direnv, `on_start` |
+| `aw restack [--dry-run] [--json]` | Stacked session: rebase onto the base's tip, or onto main once the base merged; push, retarget |
 | `aw session` | Print the current worktree's session metadata |
 | `aw verify` | Run `verify_cmd` in the current checkout (through direnv if enabled) |
 | `aw merge [--pr N]` | Merge one part; the branch catches up with main, worktree and issue stay, `on_merge` runs |

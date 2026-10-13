@@ -1,7 +1,7 @@
 ---
 name: aw-checkpoint
 description: Merge one part of a session and keep going - verify, open a part merge request, pass CI and the merge gate, merge with aw merge, check the change live, then continue the session. Use at a plan's "Checkpoint:" step, when a change has to be live before the next one can be built or checked (GitOps reconcile, a migration, a deploy), or when the user says "checkpoint", "merge this part", "ship this step".
-allowed-tools: Bash(~/.agents/bin/aw config) Bash(~/.agents/bin/aw session) Bash(~/.agents/bin/aw verify) Bash(~/.agents/bin/aw issue ref:*) Bash(~/.agents/bin/aw template mr) Bash(~/.agents/bin/aw mr create:*) Bash(~/.agents/bin/aw mr update:*) Bash(~/.agents/bin/aw mr view:*) Bash(~/.agents/bin/aw mr checks:*) Bash(~/.agents/bin/aw mr comments:*) Bash(~/.agents/bin/aw merge:*)
+allowed-tools: Bash(~/.agents/bin/aw config) Bash(~/.agents/bin/aw session) Bash(~/.agents/bin/aw verify) Bash(~/.agents/bin/aw issue ref:*) Bash(~/.agents/bin/aw template mr) Bash(~/.agents/bin/aw mr create:*) Bash(~/.agents/bin/aw mr update:*) Bash(~/.agents/bin/aw mr view:*) Bash(~/.agents/bin/aw mr checks:*) Bash(~/.agents/bin/aw mr comments:*) Bash(~/.agents/bin/aw merge:*) Bash(~/.agents/bin/aw restack:*)
 metadata:
   package: agentic-workflows
 ---
@@ -20,6 +20,8 @@ One merge in the middle of a session. The worktree, the branch and the issue sta
 ```
 
 Not in a session worktree, or `forge = none` without a manual merge in mind → say so and stop.
+
+Stacked session (`aw session` shows a non-empty `base`) → a part cannot merge before the base: `aw merge` refuses. Say so and stop; once the base merged, `~/.agents/bin/aw restack` brings the session onto `main_branch`.
 
 Resume from what the forge and git say, not from memory of an earlier turn:
 
@@ -64,7 +66,7 @@ Every merge here deploys, so the gate holds for every part. `merge_gate = approv
 ~/.agents/bin/aw merge      # forge = none: after merging by hand
 ```
 
-It merges the branch's open request, refuses commits the request does not contain, updates `main_branch`, moves the branch to `main`'s tip (after a squash or rebase merge it also deletes the merged remote branch; the next `git push -u` recreates it), comments on the issue, and runs `on_merge`.
+It merges the branch's open request, refuses commits the request does not contain, updates `main_branch`, moves the branch to `main`'s tip (after a squash or rebase merge it also deletes the merged remote branch; the next `git push -u` recreates it), comments on the issue, and runs `on_merge`. A session stacked on this branch gets a warning line: tell the user to run `aw restack` there.
 
 `on_merge` warned (exited non-zero) → stop and report before the live check: checking a system that did not reconcile tells nothing.
 

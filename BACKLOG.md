@@ -184,22 +184,17 @@ This repo's own hardening plan hit the second set right after it was written (20
 
 ---
 
-### [MEDIUM] Stacked branches: start a session on a pending branch
+### [LOW] Stacked sessions: cases not covered
 
-**Context:** The start-task skill of an earlier project (before `aw`) had `--base <branch>`: a session forked from a branch whose merge request was still in review, so dependent work did not wait for the merge. `aw start-task` always branches from `main_branch`, and `aw mr create` and `aw finish` assume `main_branch` as the target. Work that builds on an unmerged change has to wait, or is cut from `main` and conflicts later.
+**Context:** `aw start-task --base` and `aw restack` cover one level of stacking with a forge, for `merge`, `squash` and `rebase` (README "Stacked sessions"). Cut on purpose:
 
-**Scope:**
-- `aw start-task <type> <slug> --base <branch>`: fetch the base, create the worktree from `origin/<base>`, and record the base in the session metadata (the old skill used `git config branch.<branch>.stacked-on <base>`; the session file is the `aw` place for it).
-- `aw mr create` targets the base branch while it is unmerged, and `main_branch` once it has merged.
-- The base updated while the stacked session runs: rebase onto `origin/<base>`, through `aw` or as documented skill steps.
-- The base merged first: rebase onto `origin/<main_branch>` (`push --force-with-lease`) and retarget the open merge request to `main_branch`. With squash or rebase merges, the base's commits are in main under other ids, so a plain rebase replays them; decide between `rebase --onto` and the reset `aw merge` already does.
-- The stacked branch ready first: merge it into the base, so both land together.
-- `aw finish` and `aw merge` know the target: the base, or main once the base has merged. `aw-start-task`, `aw-checkpoint`, `aw-finalize` and `aw-merge-request` name the base wherever they say `main_branch` now.
-- Out of scope unless needed: stacks deeper than two.
+- **Stacked branch ready before its base:** merge the stacked request into the base, so both land together. `aw merge` / `aw finish` refuse in a stacked session today.
+- **Part merges in the base session:** with `squash` or `rebase`, `aw merge` resets the base branch to `main` and deletes `origin/<base>`. The stacked session only gets a warning; whether `aw restack` should then treat the base as merged, or keep following the recreated branch, is open.
+- **`forge = none`:** a squash merged by hand is invisible to git; `--base` refuses.
+- **Stacks deeper than two;** `glab stack` and GitHub equivalents.
+- **Live check:** `gh pr edit --base` and `glab mr update --target-branch` are taken from docs; add to "[HIGH] Verify v1 in live agent sessions".
 
-**Open first:** whether `aw` does the rebase and retarget itself, or detects that the base merged and tells the agent the steps; and how GitHub and GitLab differ when the base branch is deleted after its merge (GitHub retargets the open pull request to main automatically, GitLab does not).
-
-**Done when:** a session started with `--base` opens its merge request against the base, survives the base merging first (rebased, retargeted, merged into `main_branch` by `aw finish`) and the stacked branch merging first, covered by tests for both paths.
+**Done when:** each case is supported with tests, or moved to "Considered and not planned" with the reason.
 
 ---
 
