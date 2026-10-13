@@ -126,7 +126,10 @@ def _warn_stacked(root: Path, branch: str, log: list[str]) -> None:
             continue
         try:
             other = session.read(line.removeprefix("worktree "))
-        except AwError:
+        except session.NoSession:
+            continue
+        except AwError as e:
+            log.append(f"warning: cannot tell whether a session is stacked on {branch}: {e}")
             continue
         if other.get("base") == branch:
             log.append(f"warning: {other['branch']} is stacked on {branch}; run `aw restack` in {other['worktree']}")

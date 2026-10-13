@@ -54,7 +54,7 @@ Load `aw-merge-request` for this part:
 ~/.agents/bin/aw mr comments
 ```
 
-CI failure → fix, push, wait again. An unresolved review point, something unplanned in the diff, or an unclear risk → stop and report; never merge past it.
+CI failure → fix, push, wait again. Exit 2 (pending, or `no checks yet` although CI is configured) is not green: watch again, and report instead of merging if the checks never appear. An unresolved review point, something unplanned in the diff, or an unclear risk → stop and report; never merge past it.
 
 ## 5. Merge gate
 

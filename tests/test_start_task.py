@@ -1,9 +1,11 @@
+import os
+import shutil
 from datetime import date
 from pathlib import Path
 
 import pytest
 
-from aw import session, start_task
+from aw import cli, session, start_task
 from aw.config import AwError, git, load
 
 
@@ -31,6 +33,40 @@ def test_numbering_hook_and_output(configured, tmp_path):
     assert (configured / ".git/aw-last-session").read_text() == "16\n"
     meta = session.read(tmp_path / "wt/s16-pbs-auth")
     assert (meta["session"], meta["branch"], meta["issue"], meta["slug"]) == (16, out["branch"], "42", "pbs-auth")
+
+
+def fake_direnv(tmp_path, monkeypatch, script):
+    """A `direnv` first on PATH; script None: no direnv on PATH at all (git stays reachable)."""
+    bin_dir = tmp_path / "direnv-bin"
+    bin_dir.mkdir()
+    if script is None:
+        (bin_dir / "git").symlink_to(shutil.which("git"))
+        monkeypatch.setenv("PATH", str(bin_dir))
+    else:
+        (bin_dir / "direnv").write_text(f"#!/bin/sh\n{script}\n")
+        (bin_dir / "direnv").chmod(0o755)
+        monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+
+
+@pytest.mark.parametrize("script", [None, "echo broken >&2; exit 1"], ids=["missing", "failing"])
+def test_direnv_trouble_is_a_warning_and_the_start_goes_on(configured, tmp_path, monkeypatch, capfd, script):
+    monkeypatch.setenv("AW_DIRENV", "true")
+    fake_direnv(tmp_path, monkeypatch, script)
+    out = start_task.run(load(), "docs", "one", None)
+    assert (Path(out["worktree"]) / "hook.txt").read_text() == "hook-\n"
+    assert "warning: direnv allow" in capfd.readouterr().err
+
+
+def test_a_tracked_envrc_is_never_overwritten(configured, tmp_path, monkeypatch):
+    (configured / ".envrc").write_text("export PROJECT=own\n")
+    git("add", ".envrc", cwd=configured)
+    git("commit", "-qm", "envrc", cwd=configured)
+    git("push", "-q", "origin", "main", cwd=configured)
+    monkeypatch.setenv("AW_DIRENV", "true")
+    fake_direnv(tmp_path, monkeypatch, "exit 0")
+    out = start_task.run(load(), "docs", "one", None)
+    assert (Path(out["worktree"]) / ".envrc").read_text() == "export PROJECT=own\n"
+    assert not git("status", "--porcelain", ".envrc", cwd=out["worktree"])
 
 
 def test_counter_survives_removed_worktrees(configured):
@@ -168,3 +204,30 @@ def test_on_start_placeholders_are_quoted(repo, tmp_path):
     )
     out = start_task.run(load(), "docs", "quoted", None)
     assert (Path(out["worktree"]) / "hook.txt").read_text() == "|quoted|"  # the empty issue is still an argument
+
+
+@pytest.mark.parametrize(
+    ("text", "message"),
+    [
+        ('session = "six"\n', "session must be a whole number"),
+        ("session = 6\nissue = 12\n", "issue must be a string"),
+        ('session = 6\nbase = "feat/x"\n', "base needs fork_point"),
+        ("session = [\n", "aw-session.toml"),
+    ],
+)
+def test_a_malformed_session_file_names_the_file_and_field(configured, text, message):
+    worktree = Path(start_task.run(load(), "docs", "one", None)["worktree"])
+    meta = Path(git("rev-parse", "--absolute-git-dir", cwd=worktree)) / "aw-session.toml"
+    meta.write_text(text)
+    with pytest.raises(AwError, match=message) as e:
+        session.read(worktree)
+    assert str(meta) in str(e.value)
+
+
+def test_a_malformed_session_is_never_read_as_no_session(configured, monkeypatch):
+    """The merge request target falls back to main only outside a session, never on a file it cannot read."""
+    worktree = Path(start_task.run(load(), "docs", "one", None)["worktree"])
+    (Path(git("rev-parse", "--absolute-git-dir", cwd=worktree)) / "aw-session.toml").write_text("base = 1\n")
+    monkeypatch.chdir(worktree)
+    with pytest.raises(AwError, match="base must be a string"):
+        cli._target(load())

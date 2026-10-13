@@ -63,7 +63,7 @@ The story, subtask and plan documents follow templates: `aw template <name>` pri
 
 ## Plans
 
-A plan lives at `plan_dir/plan_file`, by default `.agents/plans/<area>/<issue>-<slug>-<date>.md`. The area is the parent issue (`PROJ-1-upload-retries`), so the plans of one epic share a folder; an issue without a parent puts its plan directly under `.agents/plans/`. `aw plan path <id> --slug <slug>` composes the path; `aw plan path <id>` finds an existing plan by the issue id in its file name, and a subtask finds its story's plan through the parent link.
+A plan lives at `plan_dir/plan_file`, by default `.agents/plans/<area>/<issue>-<slug>-<date>.md`. The area is the parent issue (`PROJ-1-upload-retries`), so the plans of one epic share a folder; an issue without a parent puts its plan directly under `.agents/plans/`. `aw plan path <id> --slug <slug>` composes the path; `aw plan path <id>` finds an existing plan by the issue id in its file name, and a subtask finds its story's plan through the parent link. Several plans for one issue are refused and listed: keep one.
 
 `plan_scope` decides who sees plans:
 
@@ -84,7 +84,7 @@ What the project learned is committed under `memory_dir` (default `.agents/memor
 | `decisions/<slug>.md` | What the project settled, and why it won |
 | `tags.toml` | The tag vocabulary: `flux = "Flux CD: kustomizations, HelmReleases"` |
 
-Each file has a small frontmatter (title, tags, status, aliases, date, issue). The slug comes from the title and is the entry's permanent id, unique across decisions and gotchas; numbers from an older numbering live on as aliases (`aw memory show 95`). Titles are claims (`boto3 is pinned below 1.36`): plans list entries by title alone. Entries are retired, never deleted. Parallel sessions write different files, so they never conflict. A workflow pitfall that bites whatever the tool is not a gotcha but a rule for `instructions_file`.
+Each file has a small frontmatter (title, tags, status, aliases, date, issue), one JSON value per field; a value of the wrong type, such as a YAML list `tags: [git, gh]`, is an error that names the file and the field. The slug comes from the title and is the entry's permanent id, unique across decisions and gotchas; numbers from an older numbering live on as aliases (`aw memory show 95`). Titles are claims (`boto3 is pinned below 1.36`): plans list entries by title alone. Entries are retired, never deleted. Parallel sessions write different files, so they never conflict. A workflow pitfall that bites whatever the tool is not a gotcha but a rule for `instructions_file`.
 
 | Command | Does |
 |---|---|
@@ -131,10 +131,10 @@ Pushing an item to the tracker: `aw issue dupes <backlog_parent> --terms ...` sh
 | `aw mr create --title T --body-file F [--draft] [--dry-run]` | Opens the request from the current branch against `main_branch` (a stacked session: its base); refuses unpushed work; an open request for the branch is reported, never duplicated; appends the issue's closing line (`Fixes #12`) unless the body already closes exactly that issue (a closing keyword before `#12`; `see #12` or `#123` does not count); then checks what the request will close: the session issue missing is an error, any other issue a warning |
 | `aw mr update [ref] --title T --body-file F` | Replaces title and description; keeps the closing line or the part reference `create` appended, and checks what the request closes, as `create` does |
 | `aw mr view [ref]` | State, the issues it closes, CI, review, unresolved threads, files and lines changed: what the merge gate shows |
-| `aw mr checks [ref] [--watch]` | One line of counts plus the failing and pending checks; `--watch` waits without streaming progress. Exit 0 passed, 1 failed, 2 pending |
+| `aw mr checks [ref] [--watch]` | One line of counts plus the failing and pending checks; `--watch` waits without streaming progress. Exit 0 passed, 1 failed, 2 pending. With CI in the checkout (`.github/workflows/*.yml`, `.gitlab-ci.yml`), no checks reported is `no checks yet` and exit 2, never a pass: `--watch` waits up to two minutes for the first one |
 | `aw mr comments [ref]` | Unresolved review threads with file and line, then general comments |
 
-`ref` is a number or branch, the current branch by default; `aw pr` is the same command. GitLab is taken from the `glab` documentation and not tested against a live instance yet.
+`ref` is a number or branch, the current branch by default; `aw pr` is the same command. GitHub runs this repository's own pull requests: create, checks, comments, view, and `aw finish` merging, removing the worktree and deleting both branches. GitLab is taken from the `glab` documentation and not tested against a live instance yet.
 
 ## Sessions with several merges
 
@@ -225,7 +225,7 @@ Skills never call a tracker directly; they call `aw issue <op>`, and `tracker` i
 
 Statuses are canonical (`backlog`, `ready`, `in_progress`, `in_review`, `done`); `status_map` maps them to the tracker's names, defaulting to title case (`In Progress`). With `sync_issue_status` (default on), `aw start-task --issue` moves the issue to `in_progress` and `aw finish` to `done`, on trackers with workflow states. These automatic moves never go backwards: a session start moves only from backlog or ready (or no status), so an issue in review stays there. An explicit `aw issue set-status` is never guarded. Without workflow states, GitHub and GitLab close through the PR keyword.
 
-**Parent rollup:** a story follows its subtasks. A session start on a subtask also moves its parent story to `in_progress`, under the same guard. After the last merge, `aw finish` says whether the story can close: no other child open, and no section of the story's plan without a subtask. It never closes the story itself, because a story can hold work that was never cut into a subtask; `/aw-finalize` asks at the merge gate and passes `aw finish --close-parent` on a yes; `aw issue rollup <subtask> --close` does the same later. Either closes the story with a comment naming its children and refuses while anything keeps it open, or while the children cannot be read completely: every page of sub-issues (GitHub) or children (Jira) is read, and a failed request means "children unknown", never "no children". Epics never roll up: a type in `epic_types` (default `Epic`), on Jira any type above story level, on a GitHub board a card without a column. Only native parent links count.
+**Parent rollup:** a story follows its subtasks. A session start on a subtask also moves its parent story to `in_progress`, under the same guard. After the last merge, `aw finish` says whether the story can close: no other child open, and no section of the story's plan without a subtask. It never closes the story itself, because a story can hold work that was never cut into a subtask; `/aw-finalize` asks at the merge gate and passes `aw finish --close-parent` on a yes; `aw issue rollup <subtask> --close` does the same later. Either closes the story with a comment naming its children and refuses while anything keeps it open, or while the children cannot be read completely or the story has several plans: every page of sub-issues (GitHub) or children (Jira) is read, and a failed request means "children unknown", never "no children". Epics never roll up: a type in `epic_types` (default `Epic`), on Jira any type above story level, on a GitHub board a card without a column. Only native parent links count.
 
 How states, boards and the hook fit together on each tracker: [docs/boards.md](docs/boards.md).
 
@@ -248,7 +248,7 @@ How states, boards and the hook fit together on each tracker: [docs/boards.md](d
 | `aw install [--agent claude] [-v]` | Link skills into `~/.agents/skills` and agent dirs, CLI into `~/.agents/bin/aw` |
 | `aw init [-y] [--set K=V] [-v]` | Create or update `.agents/aw.toml`; reports what changed, `-v` every value and where it came from |
 | `aw config [--get KEY] [--sources]` | Print resolved configuration |
-| `aw start-task <type> <slug> [--issue N] [--number N] [--base B]` | Fast-forward the local main (the primary checkout may be on any branch), pick session number, create branch + worktree from main (`--base`: from `origin/B`, a [stacked session](#stacked-sessions)), direnv, `on_start` |
+| `aw start-task <type> <slug> [--issue N] [--number N] [--base B]` | Fast-forward the local main (the primary checkout may be on any branch), pick session number, create branch + worktree from main (`--base`: from `origin/B`, a [stacked session](#stacked-sessions)), direnv (a tracked `.envrc` is kept; a missing or failing `direnv` is a warning), `on_start` |
 | `aw restack [--dry-run] [--json]` | Stacked session: rebase onto the base's tip, or onto main once the base merged; push, retarget |
 | `aw session` | Print the current worktree's session metadata |
 | `aw verify` | Run `verify_cmd` in the current checkout (through direnv if enabled) |

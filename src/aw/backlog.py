@@ -35,10 +35,14 @@ def _headings(lines: list[str]) -> list[tuple[int, int, str]]:
 
 
 def _item_level(headings: list[tuple[int, int, str]]) -> int:
-    """Heading level the file uses for items: the deepest level that repeats."""
+    """Heading level the file uses for items: the level of the first heading under `## Items`, else the shallowest
+    level that repeats. Sub-headings inside items repeat too, so the deepest repeating level would split items."""
+    for (_, level, title), (_, below, _) in pairwise(headings):
+        if title.lower() == "items" and below > level:
+            return below
     levels = [level for _, level, _ in headings]
     repeated = [level for level in sorted(set(levels)) if levels.count(level) > 1]
-    return repeated[-1] if repeated else 2
+    return repeated[0] if repeated else 2
 
 
 def _splits_with_rules(lines: list[str], level: int) -> bool:

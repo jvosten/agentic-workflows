@@ -52,6 +52,21 @@ def _fill(cfg: Config, key: str, ph: dict[str, str]) -> str:
     return cfg.expand(template, **ph)
 
 
+def _direnv(worktree: Path) -> None:
+    """Delegate to the primary checkout's .envrc unless the project tracks its own; trouble with direnv is a warning,
+    since the worktree and branch exist already and the rest of the start still runs."""
+    envrc = worktree / ".envrc"
+    if not envrc.exists():
+        envrc.write_text(ENVRC)
+    try:
+        r = subprocess.run(["direnv", "allow", str(worktree)], stdout=sys.stderr, check=False)
+    except FileNotFoundError:
+        print("warning: direnv allow: direnv not found; install it or set direnv = false", file=sys.stderr)
+        return
+    if r.returncode:
+        print(f"warning: direnv allow exited {r.returncode}; run it in {worktree}", file=sys.stderr)
+
+
 def run(
     cfg: Config, kind: str, slug: str, issue: str | None, number: int | None = None, base: str | None = None
 ) -> dict[str, str]:
@@ -119,8 +134,7 @@ def run(
     )
 
     if cfg.get("direnv"):
-        (worktree / ".envrc").write_text(ENVRC)
-        subprocess.run(["direnv", "allow", str(worktree)], check=True, stdout=sys.stderr)
+        _direnv(worktree)
 
     if issue and cfg.get("sync_issue_status"):
         try:

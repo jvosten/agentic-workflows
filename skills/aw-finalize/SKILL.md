@@ -91,11 +91,12 @@ After checkpoints: one entry for the whole session, naming every part. A part al
 ## 9. Review and CI
 
 ```bash
-~/.agents/bin/aw mr checks --watch      # waits; prints one line per failing check; exit 0 passed, 1 failed
+~/.agents/bin/aw mr checks --watch      # waits; prints one line per failing check; exit 0 passed, 1 failed, 2 pending or no checks yet
 ~/.agents/bin/aw mr comments            # unresolved review threads, then general comments
 ```
 
 - CI failure → fix, push, wait again.
+- Exit 2 (pending, or `no checks yet` although CI is configured) is not green: watch again; if the checks never appear, report it and do not merge.
 - Every unresolved thread: fix it and push, or answer it; never resolve someone else's point silently.
 - Stop and report instead of merging when: a reviewer raised an unresolved point, the diff contains something unplanned, or you are unsure about a risk. This holds under either `merge_gate`.
 
