@@ -17,6 +17,8 @@
   the file or line and the field; files on disk and imports share one check.
 - A malformed session file names the file and the field, and is never mistaken for "outside a session": a stacked
   session's merge request no longer falls back to `main` on it.
+- Hooks and `direnv` print to file descriptor 2 instead of through `sys.stderr`, so they run when the host replaced
+  `sys.stderr` (pytest's `capsys`, an embedding program) instead of failing with `fileno`.
 
 ### Changed
 

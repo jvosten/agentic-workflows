@@ -231,3 +231,10 @@ def test_a_malformed_session_is_never_read_as_no_session(configured, monkeypatch
     monkeypatch.chdir(worktree)
     with pytest.raises(AwError, match="base must be a string"):
         cli._target(load())
+
+
+def test_hooks_run_when_sys_stderr_is_not_a_file(configured, capsys):
+    """Hook and direnv output goes to file descriptor 2, not to the sys.stderr object: replaced (capsys, an embedding
+    host), that object has no fileno and subprocess would fail before the hook runs."""
+    out = start_task.run(load(), "docs", "one", None)
+    assert (Path(out["worktree"]) / "hook.txt").read_text() == "hook-\n"
