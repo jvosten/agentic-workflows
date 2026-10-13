@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0 — 2026-10-13
+## 0.2.0 — 2026-10-13 (#1)
 
 ### Added
 
@@ -12,7 +12,7 @@
 ### Changed
 
 - Tests never reach the network: sockets refuse, `gh` and `glab` fail, forge and tracker credentials are cleared.
-- This repository uses `forge = "github"`.
+- This repository uses `forge = "github"`; `AGENTS.md` holds its test rules.
 
 ## 0.1.0
 
