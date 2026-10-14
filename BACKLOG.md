@@ -112,12 +112,6 @@ Deferred features and open checks. Each entry has enough context to be picked up
 
 **Scope:** `changelog_mode = file | fragments` plus `changelog_dir`; `aw-finalize` writes a fragment in fragments mode; `aw changelog build` compiles and removes fragments.
 
-### [LOW] Drop the session number
-
-**Context:** `aw start-task` counts sessions per clone (`.git/aw-last-session`) and uses the number only to name the worktree (`s12-retries`). It is never committed, nothing else reads it, and computing it races when two sessions start at once in the same clone. Session state that matters (the issue) lives in the worktree's session metadata; merged parts come from the forge.
-
-**Scope:** worktrees named `{slug}`, or `{issue}-{slug}` with an issue; drop `{n}`, `--number` and the counter file; `aw start-task` refuses an existing path as today. Update `worktree_name` defaults, docs and skills that print `s<session>`.
-
 ### [LOW] Session title hook
 
 **Context:** From agent-issue-tracker. Set the agent session title to `<slug> (#issue)` so parallel sessions are distinguishable. Claude Code hook; other agents vary.
