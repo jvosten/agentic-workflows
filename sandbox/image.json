@@ -1,0 +1,33 @@
+{
+  "arch": "x86_64",
+  "distro": "alpine",
+  "alpine": {
+    "version": "3.23.0",
+    "kernelPackage": "linux-virt",
+    "kernelImage": "vmlinuz-virt",
+    "rootfsPackages": [
+      "linux-virt",
+      "rng-tools",
+      "bash",
+      "ca-certificates",
+      "curl",
+      "e2fsprogs",
+      "e2fsprogs-extra",
+      "python3",
+      "python3-pyc",
+      "uv",
+      "git",
+      "github-cli",
+      "make"
+    ]
+  },
+  "rootfs": {
+    "label": "gondolin-root"
+  },
+  "postBuild": {
+    "copy": [
+      { "src": "./build/aw-lib", "dest": "/usr/local/lib/aw" },
+      { "src": "./build/aw", "dest": "/usr/local/bin/aw" }
+    ]
+  }
+}
