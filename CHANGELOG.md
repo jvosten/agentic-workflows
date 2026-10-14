@@ -1,15 +1,5 @@
 # Changelog
 
-## 0.1.7 — 2026-10-14 (#7)
-
-### Added
-
-- `sandbox/`: runs an aw session in a Gondolin micro-VM that sees only the project, reaches only GitHub and gets
-  `GH_TOKEN` as a placeholder. `build-image.sh` builds the guest (Alpine with git, gh, make, uv, Python and `aw`),
-  `run.mjs` runs a guest script with checkpoint and resume, `guest/start.sh` times session starts and
-  `guest/session.sh` runs a session from `aw start-task` to `aw finish`. This pull request was opened and merged
-  from inside the VM by `session.sh`.
-
 ## 0.1.6 — 2026-10-13 (#6)
 
 ### Fixed
