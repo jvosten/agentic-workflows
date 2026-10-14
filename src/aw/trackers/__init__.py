@@ -101,8 +101,10 @@ class Tracker:
         issue_type: str | None,
         labels: list[str] | None = None,
         status: str | None = None,
+        fields: dict[str, str] | None = None,
     ) -> str:
-        """status: None keeps the tracker's default for new issues; "none" means no state where that is optional."""
+        """status: None keeps the tracker's default for new issues; "none" means no state where that is optional.
+        fields: board field name = option, only where has_fields()."""
         raise self._unsupported("create")
 
     def comment(self, issue: str, body: str) -> None:
@@ -113,6 +115,13 @@ class Tracker:
 
     def set_status(self, issue: str, status: str) -> str:
         raise self._unsupported("set-status")
+
+    def has_fields(self) -> bool:
+        """True when issues carry board fields besides the status (GitHub with github_project)."""
+        return False
+
+    def set_fields(self, issue: str, fields: dict[str, str]) -> str:
+        raise self._unsupported("set-field")
 
     def scoped(self) -> bool:
         """True when this tracker knows parent-child links, so dupes can be scoped."""
@@ -208,6 +217,30 @@ def status_name(cfg: Config, status: str) -> str:
 def canonical(cfg: Config, name: str) -> str | None:
     """The canonical status a tracker or board name stands for, through status_map; None when unmapped."""
     return next((s for s in STATUSES if status_name(cfg, s).casefold() == name.casefold()), None)
+
+
+def label_values(prefix: str, labels: list[str]) -> list[str]:
+    """What follows the prefix in each label that starts with it (case-insensitively), in label order."""
+    return [label[len(prefix) :] for label in labels if label.casefold().startswith(prefix.casefold())]
+
+
+def board_fields(cfg: Config, labels: list[str], pairs: list[str], from_labels: bool = True) -> dict[str, str]:
+    """Board fields for a new issue: each `Name=Value` pair, then per board_fields prefix the first label with a value
+    after it, for a field no pair names."""
+    fields: dict[str, str] = {}
+    for pair in pairs:
+        name, sep, value = (part.strip() for part in pair.partition("="))
+        if not sep or not name or not value:
+            raise AwError(f"--field takes Name=Value, got {pair!r}")
+        if name.casefold() in {n.casefold() for n in fields}:
+            raise AwError(f"--field {name} given twice")
+        fields[name] = value
+    if from_labels:
+        for prefix, name in cfg.get("board_fields").items():
+            value = next((v for v in label_values(prefix, labels) if v), None)
+            if value and name.casefold() not in {n.casefold() for n in fields}:
+                fields[name] = value
+    return fields
 
 
 def status_hook(cfg: Config, issue: str, status: str) -> str | None:

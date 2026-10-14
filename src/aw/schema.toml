@@ -87,6 +87,11 @@ type = "str"
 default = "Status"
 help = "Single-select field of github_project that holds the column"
 
+[keys.board_fields]
+type = "table"
+default = {}
+help = "Label prefix = single-select field of github_project that aw issue create sets from the label (e.g. \"area/\" = \"Area\")"
+
 [keys.status_map]
 type = "table"
 default = {}

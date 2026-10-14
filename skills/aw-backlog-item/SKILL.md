@@ -95,7 +95,7 @@ Rows marked `[text link]` are linked to the tree only by a line in a body. They 
 
 ## 6. Create after confirmation
 
-Labels: read `instructions_file` for the labels the project requires on new issues of this kind, and pass each with `--label`.
+Labels: read `instructions_file` for the labels the project requires on new issues of this kind, and pass each with `--label`. With `board_fields` in `aw config`, pick one label for each prefix it maps (`area/` → one `area/...` label) the way you pick the others; `aw issue create` sets the board field from it. A field the config maps but no label fits → ask, like a label.
 
 Show the payload — parent, issue type, labels, title, full body — and wait for an explicit go.
 
@@ -107,8 +107,8 @@ Show the payload — parent, issue type, labels, title, full body — and wait f
 
 - Title becomes the summary unchanged. The full item body becomes the description; do not shorten it.
 - The parent is set by `--parent` only, as the tracker's native link. Never write it into the body (`Part of #N`, `Epic: KEY`, a parent line under Links).
-- An unknown label, or a board without the backlog column, fails before anything is created. Report it; do not create labels or columns yourself.
-- `created #N, but it is not on the board` → run the `aw issue set-status N backlog` it names. Never create again.
+- An unknown label, a board without the backlog column, or a board field without the label's option fails before anything is created. Report it; do not create labels, columns or options yourself.
+- `created #N, but it is not on the board` → run the commands it names (`aw issue set-status N backlog`, and `aw issue set-field N ...` when fields were set). Never create again.
 - A warning that `--type` was ignored (GitHub repos owned by a user) → report it; the issue was still created.
 - With `github_project` set, `create` already puts the issue on the board as backlog, and `set-status` keeps it there; it is idempotent. `set-status` also runs `on_issue_status`. The project's rules require a step `aw` does not do (a GitHub board without `github_project`) → do it as the rules say, and suggest setting `github_project` so the next item needs no manual step.
 - An issue exists but is not under the chosen parent → fix the link with `aw issue set-parent <new id> <parent> --dry-run`, then without `--dry-run`. Never create it again.

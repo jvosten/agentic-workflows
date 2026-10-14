@@ -420,6 +420,8 @@ class FakeGh:
             return json.dumps({k: data[k] for k in args[4].split(",") if k in data})
         if args[:2] == ("issue", "list"):
             return json.dumps(self.issues.get("list", []))
+        if args[:2] == ("label", "list"):
+            return json.dumps(self.issues.get("labels", []))
         return ""
 
 
@@ -874,6 +876,26 @@ BOARD = {
                     {"id": "o-done", "name": "Done"},
                 ],
             },
+            "fields": {
+                "nodes": [
+                    {"id": "F1", "name": "Status", "options": []},
+                    {
+                        "id": "F2",
+                        "name": "Area",
+                        "options": [
+                            {"id": "a-net", "name": "net"},
+                            {"id": "a-k8s", "name": "k8s"},
+                            {"id": "a-lab", "name": "home lab"},
+                        ],
+                    },
+                    {
+                        "id": "F3",
+                        "name": "Priority",
+                        "options": [{"id": "p-1", "name": "P1"}, {"id": "p-2", "name": "P2"}],
+                    },
+                    {},  # a field that is not single-select
+                ]
+            },
             "workflows": {
                 "nodes": [
                     {"name": "Item closed", "enabled": False},
@@ -1005,7 +1027,7 @@ def test_board_create_puts_the_issue_on_the_board_or_names_the_repair(repo, monk
     monkeypatch.setattr(GitHub, "gh", fake)
     with pytest.raises(
         AwError,
-        match=r"created #5, but it is not on the board: .*insufficient scopes.*"
+        match=r"created #5, but it is not on the board as asked: .*insufficient scopes.*"
         r"aw issue set-status 5 backlog`; do not create it again",
     ):
         trackers.get(load()).create("T", "", None, None)
@@ -1080,6 +1102,130 @@ def test_create_status_puts_the_card_in_a_column_or_none(repo, monkeypatch):
     github_cfg_path.write_text('tracker = "github"\n')
     with pytest.raises(AwError, match="--status ready needs a board"):
         trackers.get(load()).create("T", "", None, None, status="ready")
+
+
+def created_board(status=False, **graphql):
+    context = {"repository": {"id": "R1", "owner": {"__typename": "User"}, "issueTypes": None}}
+    return board_gh(status, issueTypes=context, createIssue={"createIssue": {"issue": {"number": 5}}}, **graphql)
+
+
+def field_sets(fake):
+    return [
+        (fields["fieldId"][1], fields["optionId"][1])
+        for op, fields, _ in fake.calls
+        if op == "updateProjectV2ItemFieldValue"
+    ]
+
+
+def test_create_sets_board_fields_on_the_new_card(repo, monkeypatch):
+    board_cfg(repo)
+    fake = created_board()
+    monkeypatch.setattr(GitHub, "gh", fake)
+    assert trackers.get(load()).create("T", "", None, None, fields={"area": "NET", "Priority": "p2"}) == "5"
+    assert field_sets(fake) == [("F1", "o-backlog"), ("F2", "a-net"), ("F3", "p-2")]
+    assert fake.ops().count("repositoryOwner") == 1
+
+
+def test_create_with_an_unknown_field_or_option_creates_nothing(repo, monkeypatch):
+    board_cfg(repo)
+    for fields, error in (
+        ({"Team": "x"}, r"no single-select field 'Team' \(fields: Area, Priority\)"),
+        ({"Area": "dns"}, r"field 'Area' has no option 'dns' \(options: net, k8s, home lab\)"),
+        ({"status": "Done"}, r"Status is the status field; set it with --status"),
+    ):
+        fake = created_board()
+        monkeypatch.setattr(GitHub, "gh", fake)
+        with pytest.raises(AwError, match=error):
+            trackers.get(load()).create("T", "", None, None, fields=fields)
+        assert "createIssue" not in fake.ops()
+
+    github_cfg_path = repo / ".agents/aw.toml"
+    github_cfg_path.write_text('tracker = "github"\n')
+    with pytest.raises(AwError, match="--field needs a board"):
+        trackers.get(load()).create("T", "", None, None, fields={"Area": "net"})
+
+
+def test_create_names_both_repairs_when_a_field_fails(repo, monkeypatch):
+    board_cfg(repo)
+
+    def refuse(fields):
+        if fields["fieldId"][1] == "F3":
+            raise AwError("gh api graphql: something broke")
+        return {}
+
+    fake = created_board(updateProjectV2ItemFieldValue=refuse)
+    monkeypatch.setattr(GitHub, "gh", fake)
+    with pytest.raises(
+        AwError,
+        match=r"created #5, but it is not on the board as asked: .*something broke.*"
+        r"Run `aw issue set-status 5 backlog` and `aw issue set-field 5 'Area=home lab' Priority=P2`; "
+        r"do not create it again",
+    ):
+        trackers.get(load()).create("T", "", None, None, fields={"Area": "home lab", "Priority": "P2"})
+
+
+def test_fields_from_flags_and_labels(repo):
+    cfg = board_cfg(repo, 'board_fields = { "area/" = "Area", "prio-" = "Priority" }\n')
+    assert trackers.board_fields(cfg, ["bug", "Area/net", "area/k8s", "prio-"], []) == {"Area": "net"}
+    assert trackers.board_fields(cfg, ["area/net", "prio-P1"], ["area=k8s"]) == {"area": "k8s", "Priority": "P1"}
+    assert trackers.board_fields(cfg, ["area/net"], ["Area=k8s"], from_labels=False) == {"Area": "k8s"}
+    for bad, error in ((["Area"], "Name=Value"), (["=x"], "Name=Value"), (["Area=a", "area=b"], "twice")):
+        with pytest.raises(AwError, match=error):
+            trackers.board_fields(cfg, [], bad)
+
+
+def test_cli_create_and_set_field(repo, monkeypatch, capsys):
+    board_cfg(repo, 'board_fields = { "area/" = "Area" }\n')
+    fake = created_board()
+    monkeypatch.setattr(GitHub, "gh", fake)
+    monkeypatch.setattr("sys.stdin", io.StringIO("body"))
+    argv = ["issue", "create", "--title", "T", "--body-file", "-", "--label", "area/k8s", "--field", "Priority=P1"]
+    assert cli.main([*argv, "--dry-run"]) == 0
+    assert "fields=Priority=P1,Area=k8s" in capsys.readouterr().out
+    assert fake.calls == []
+    monkeypatch.setattr("sys.stdin", io.StringIO("body"))
+    created = []
+    monkeypatch.setattr(GitHub, "create", lambda self, *a: created.append(a[-1]) or "5")
+    assert cli.main(argv) == 0
+    assert created == [{"Priority": "P1", "Area": "k8s"}]
+
+    fake = board_gh("Backlog")
+    monkeypatch.setattr(GitHub, "gh", fake)
+    capsys.readouterr()
+    assert cli.main(["issue", "set-field", "#5", "area=K8S", "Priority=p1"]) == 0
+    assert capsys.readouterr().out == "#5 board Area k8s · Priority P1\n"
+    assert field_sets(fake) == [("F2", "a-k8s"), ("F3", "p-1")]
+
+    fake = board_gh(False)
+    monkeypatch.setattr(GitHub, "gh", fake)
+    assert cli.main(["issue", "set-field", "5", "Area=net"]) == 1
+    assert "not on the board; run `aw issue set-status 5 backlog` first" in capsys.readouterr().err
+    assert field_sets(fake) == []
+
+
+def test_jira_refuses_fields_before_create(repo, monkeypatch, capsys):
+    jira_cfg(repo)
+    monkeypatch.setattr(Jira, "create", lambda *a, **k: pytest.fail("created"))
+    monkeypatch.setattr("sys.stdin", io.StringIO("body"))
+    assert cli.main(["issue", "create", "--title", "T", "--body-file", "-", "--field", "Area=net"]) == 1
+    assert "--field: tracker 'jira' has no board fields" in capsys.readouterr().err
+
+
+def test_doctor_checks_board_fields_against_labels(repo, monkeypatch):
+    from aw import doctor
+
+    board_cfg(repo, 'board_fields = { "area/" = "Area", "team/" = "Team" }\n')
+    fake = board_gh()
+    fake.issues["labels"] = [{"name": "area/net"}, {"name": "Area/DNS"}, {"name": "bug"}]
+    monkeypatch.setattr(GitHub, "gh", fake)
+    monkeypatch.setattr(doctor, "_gh_scopes", lambda: ["repo", "project"])
+    results = doctor.check_board(load())
+    assert ("fail", "board field Area has no option for label Area/DNS (options: net, k8s, home lab)") in results
+    assert ("fail", "board_fields.team/: board has no single-select field 'Team' (fields: Area, Priority)") in results
+
+    board_cfg(repo, 'board_fields = { "area/" = "Area" }\n')
+    fake.issues["labels"] = [{"name": "area/net"}]
+    assert ("ok", "board field Area for area/ labels (1)") in doctor.check_board(load())
 
 
 def test_jira_create_moves_to_the_requested_status(repo, monkeypatch):
