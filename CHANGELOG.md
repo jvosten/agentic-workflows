@@ -1,6 +1,15 @@
 # Changelog
 
-## 0.1.7
+## 0.1.7 — 2026-10-14 (#9)
+
+### Added
+
+- `aw issue create --field Name=Option` sets single-select fields of a `github_project` board (an `Area` lane, a
+  `Priority`) on the new card, and `aw issue set-field <id> Name=Option…` on an existing one. `board_fields` maps a
+  label prefix to a field (`"area/" = "Area"`), so a label picked on create sets the field too; `aw-backlog-item` and
+  `aw-to-story` pick one label per mapped prefix. Fields and options are checked before the create, and a failure
+  after it names `set-status` and `set-field` as the repair. `aw doctor` checks each mapped field and that every label
+  with its prefix has an option. Jira refuses `--field` for now.
 
 ### Fixed
 

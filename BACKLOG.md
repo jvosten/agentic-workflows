@@ -258,20 +258,6 @@ This repo's own hardening plan hit the second set right after it was written (20
 
 ---
 
-### [MEDIUM] Custom board fields on create
-
-**Context:** With `github_project`, `aw` writes the board's status field only. Boards that group or sort by other single-select fields (homelab #323: `Area` for swimlanes, `Priority` for order inside a lane) get those fields from nothing: GitHub's built-in board workflows set Status only, so every issue `aw issue create` files lands in a "No Area" lane until someone sets it by hand. A GitHub Action could set them, but writing a user-owned project needs a token with project scope stored as a repo secret, and it only sees labels, so the labels must stay as the field's input.
-
-**Scope:**
-- `aw issue create --field <name>=<value>` (repeatable): single-select fields of `github_project`, options matched case-insensitively and resolved before the create, like the status column; an unknown field or option fails before anything is created. Jira: the same flag sets a custom field by name (`jira_fields`).
-- Config `board_fields`: label prefix → field (`"area/" = "Area"`), so the first matching label on create also sets the field. Skills that already ask for labels then fill the field without a second question.
-- `aw-backlog-item` and `aw-to-story` ask for the fields the config names (e.g. Priority) the way they ask for labels.
-- `aw doctor` checks that every field and option the config names exists on the board.
-
-**Done when:** a homelab issue filed through `aw-backlog-item` appears in its area lane with its priority set, without a manual step.
-
----
-
 ### [LOW] Decisions in force filtered to the story's subject
 
 **Context:** `aw-plan-story` step 4 copies "the decision index from step 2, as printed" into **Decisions in force**. Homelab live test, 2026-10-07: the index has 111 decisions; for #323 (tracker migration) two applied. Pasting all 111 into every plan costs the context the gotcha design saved, and the agent filtered by text instead, which the skill does not say. Gotchas are already filtered by tags; homelab decisions carry no tags (`tags: []`), so the same filter finds nothing.
@@ -396,6 +382,20 @@ In every case the entry is in the commits that exist when the PR opens, and the 
 - Skills and documentation explain the distinction and do not instruct agents to promote every planning observation.
 
 **Effort:** Small — update skill guidance and examples; add focused coverage for any CLI behavior that changes.
+
+---
+
+### [LOW] Jira custom fields on create
+
+**Context:** `aw issue create --field Name=Option` and `aw issue set-field` set single-select fields on a `github_project` board. On Jira the same flag is refused before the create ("Jira custom fields are not supported yet"). Jira select fields take `{"value": …}` and their allowed values come from createmeta, so the option check before the create needs a lookup of its own.
+
+**Scope:**
+- `--field` on Jira: resolve the field id by name (createmeta for the project and issue type), check the option against its allowed values before the create, send it in the create.
+- `aw issue set-field` on Jira: the same field through `PUT /issue/{key}`.
+- `board_fields` applies to Jira the same way (label prefix → field).
+- `aw doctor` checks the mapped fields on Jira too.
+
+**Done when:** a Jira issue filed with `--field Area=net` has the field set, and an unknown option creates nothing.
 
 ## Considered and not planned
 

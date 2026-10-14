@@ -241,9 +241,39 @@ def check_board(cfg: Config) -> list[Result]:
         results.append(("fail", f"board has no column for {', '.join(missing)} (columns: {available}); set status_map"))
     else:
         results.append(("ok", f"board columns for {', '.join(used)}"))
+    results += _check_board_fields(cfg, tracker)
     for workflow in board.get("workflows", {}).get("nodes", []):
         if workflow["name"] in WORKFLOW_ADVICE and not workflow["enabled"]:
             results.append(("info", f"board workflow '{workflow['name']}' is off: {WORKFLOW_ADVICE[workflow['name']]}"))
+    return results
+
+
+def _check_board_fields(cfg: Config, tracker: GitHub) -> list[Result]:
+    """Each board_fields field exists, and each label with its prefix names one of its options."""
+    mapped = cfg.get("board_fields")
+    if not mapped:
+        return []
+    try:
+        labels = tracker.labels()
+    except AwError as e:
+        return [("fail", f"board_fields: labels unknown: {e}")]
+    results: list[Result] = []
+    for prefix, name in mapped.items():
+        try:
+            field = tracker.board_field(name)
+        except AwError as e:
+            results.append(("fail", f"board_fields.{prefix}: {e}"))
+            continue
+        options = {o["name"].casefold() for o in field["options"]}
+        matching = [label for label in labels if trackers.label_values(prefix, [label]) not in ([], [""])]
+        missing = [label for label in matching if label[len(prefix) :].casefold() not in options]
+        available = ", ".join(o["name"] for o in field["options"])
+        results += [
+            ("fail", f"board field {field['name']} has no option for label {label} (options: {available})")
+            for label in missing
+        ]
+        if not missing:
+            results.append(("ok", f"board field {field['name']} for {prefix} labels ({len(matching)})"))
     return results
 
 

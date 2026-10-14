@@ -216,7 +216,10 @@ class Jira(Tracker):
         issue_type: str | None,
         labels: list[str] | None = None,
         status: str | None = None,
+        fields: dict[str, str] | None = None,
     ) -> str:
+        if fields:
+            raise AwError("--field: Jira custom fields are not supported yet")
         project = self.cfg.get("jira_project")
         if not project:
             raise AwError("jira_project is not set")

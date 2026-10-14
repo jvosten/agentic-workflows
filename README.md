@@ -214,10 +214,11 @@ Skills never call a tracker directly; they call `aw issue <op>`, and `tracker` i
 | `set-parent <id> <parent>\|--none` (`--dry-run`) | sub-issue link, replaces an existing parent | `fields.parent` | – |
 | `dupes` (parent, terms, any state; `--tree-only`) | hits in the native sub-issue tree first, then the rest of the repo marked `[elsewhere: …]`, ranked by terms matched | one JQL over `jira_project`, tree first | unscoped search, says so |
 | `list`, `search` | ✓ | ✓ (`--raw` = JQL) | ✓ |
-| `create` (with `--parent`, `--type`, `--label`, `--status`, `--dry-run`) | one GraphQL call, so never left unlinked; `--type` on org-owned repos only | ✓ (Markdown → ADF) | – |
+| `create` (with `--parent`, `--type`, `--label`, `--status`, `--field`, `--dry-run`) | one GraphQL call, so never left unlinked; `--type` on org-owned repos only; `--field` with `github_project` | ✓ (Markdown → ADF; no `--field` yet) | – |
 | `update` (title, description; `--dry-run`) | ✓ | ✓ | – |
 | `comment` | ✓ | ✓ | ✓ |
 | `set-status` | open/closed, plus the board column with `github_project` | workflow transition via `status_map` | open/closed only |
+| `set-field <id> Name=Option…` | single-select fields of the card on `github_project` | – | – |
 | `rollup <subtask>` (`--close`) | whether the parent story can close once the subtask is done; `--close` closes it | ✓ | – |
 | `ref` / `pr-text` | `#12` / `Fixes #12` | `PROJ-12` / `PROJ-12` | `#12` / `Fixes #12` |
 
@@ -233,8 +234,9 @@ How states, boards and the hook fit together on each tracker: [docs/boards.md](d
 
 - `set-status` opens or closes the issue and sets the column named by `status_map`, matched case-insensitively, so the default title case finds `In progress`. Field and column ids are resolved at run time; a missing column fails before anything changes.
 - `aw issue create` puts the new issue on the board as `backlog`, also on boards without auto-add. If that step fails, it names the new issue and the repair (`aw issue set-status <id> backlog`).
+- Other single-select fields (an `Area` for swimlanes, a `Priority`): `aw issue create --field Area=net` sets them on the new card, `aw issue set-field <id> Area=net` on an existing one. `board_fields` maps a label prefix to a field, `board_fields = { "area/" = "Area" }`, so the label `area/net` sets `Area` to `net` on create; `--field` wins over a label. Fields and options match case-insensitively and are resolved before the create, so an unknown one creates nothing. The status field is set with `--status` only.
 - Session start and `aw finish` move the card, under the guard above.
-- `aw doctor` checks the token's `project` scope (`gh auth refresh -s project`), the board, the field and the columns, and notes board workflows that are off. It never changes board settings; board workflows can only be switched on in the GitHub UI.
+- `aw doctor` checks the token's `project` scope (`gh auth refresh -s project`), the board, the field and the columns, each `board_fields` field and that every label with its prefix has an option, and notes board workflows that are off. It never changes board settings; board workflows can only be switched on in the GitHub UI.
 - `status_field` names the field when it is not `Status`. Nothing touches a board without `github_project`.
 
 **Hook:** `on_issue_status` runs after every status change (`aw issue set-status`, session start, `aw finish`) with `{issue}`, `{status}` (canonical) and `{status_name}` (from `status_map`), for anything beyond the board: a notification, a board on another system. A failing hook makes `set-status` exit non-zero; at session start and finish it is a warning. In every hook (`on_start`, `on_merge`, `on_issue_status`) `aw` shell-quotes each placeholder value, so `In Progress` arrives as one argument and an empty `{issue}` as an empty one: write placeholders without quotes.
@@ -255,7 +257,7 @@ How states, boards and the hook fit together on each tracker: [docs/boards.md](d
 | `aw merge [--pr N]` | Merge one part; the branch catches up with main, worktree and issue stay, `on_merge` runs |
 | `aw finish [--pr N] [--close-parent]` | Last merge with `merge_method` (skipped when nothing is left); refuses a request that is not at the branch's head, so commits after it are never deleted; remove worktree, update main, delete local + remote branch; `--close-parent` also closes the parent story (see [Parent rollup](#issue-trackers)) |
 | `aw abandon [--discard] [--status backlog\|ready]` | End the session without a merge: an issue still in progress goes back (default backlog), worktree and branch (also on origin) are removed; refuses while the branch holds work main lacks or has an open merge request, unless `--discard` drops that work |
-| `aw issue view\|children\|list\|search\|create\|update\|set-parent\|comment\|set-status\|rollup\|ref\|pr-text` | Tracker operations; see [Issue trackers](#issue-trackers) |
+| `aw issue view\|children\|list\|search\|create\|update\|set-parent\|comment\|set-status\|set-field\|rollup\|ref\|pr-text` | Tracker operations; see [Issue trackers](#issue-trackers) |
 | `aw plan path <ref> [--slug S]` | Plan file of a story or subtask (subtask: through its parent); `--slug` composes the path to write |
 | `aw plan state <ref>` | What exists for the issue: plan file, subtasks |
 | `aw template <story\|subtask\|plan>` | Print a document template, project override from `templates` |

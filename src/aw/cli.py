@@ -86,14 +86,18 @@ def _issue(args: argparse.Namespace) -> None:
         return
     if op == "create":
         body = _body(args.body_file)
+        if args.field and not tracker.has_fields():
+            raise AwError(f"--field: tracker {tracker.name!r} has no board fields (GitHub with github_project has)")
+        fields = trackers.board_fields(cfg, args.label, args.field, from_labels=tracker.has_fields())
         if args.dry_run:
             print(
                 f"DRY RUN ({tracker.name}): title={args.title!r} parent={args.parent} type={args.type} "
-                f"labels={','.join(args.label) or None} status={args.status or 'default'}"
+                f"labels={','.join(args.label) or None} status={args.status or 'default'} "
+                f"fields={','.join(f'{n}={v}' for n, v in fields.items()) or None}"
             )
             print(f"body: {len(body.splitlines())} lines")
             return
-        new = tracker.create(args.title, body, args.parent, args.type, args.label, args.status)
+        new = tracker.create(args.title, body, args.parent, args.type, args.label, args.status, fields)
         print(tracker.ref(new))
         return
     if op == "dupes" and args.id is None:
@@ -151,6 +155,8 @@ def _issue(args: argparse.Namespace) -> None:
         print(tracker.set_status(issue, args.status))
         if message := trackers.status_hook(cfg, issue, args.status):
             print(message)
+    elif op == "set-field":
+        print(tracker.set_fields(issue, trackers.board_fields(cfg, [], args.pairs)))
     elif op == "rollup":
         print(
             "\n".join(rollup.close(cfg, tracker, issue))
@@ -714,6 +720,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="state of the new issue (default: backlog on a GitHub board, the workflow's first on Jira); "
         "none: on the board without a column, e.g. an epic",
     )
+    o.add_argument(
+        "--field",
+        action="append",
+        default=[],
+        metavar="NAME=OPTION",
+        help="single-select field of github_project to set; repeat for several (board_fields: also from labels)",
+    )
     o.add_argument("--dry-run", action="store_true")
     o = ops.add_parser("set-parent", help="link, re-parent or unlink an existing issue with the native parent link")
     o.add_argument("id")
@@ -731,6 +744,9 @@ def build_parser() -> argparse.ArgumentParser:
     o = ops.add_parser("set-status", help="move to a canonical status (mapped by status_map), then run on_issue_status")
     o.add_argument("id")
     o.add_argument("status", choices=STATUSES)
+    o = ops.add_parser("set-field", help="set single-select fields of the issue's card on github_project")
+    o.add_argument("id")
+    o.add_argument("pairs", nargs="+", metavar="NAME=OPTION")
     o = ops.add_parser("rollup", help="whether this subtask's story can close once it is done; --close closes it")
     o.add_argument("id", help="the subtask; it counts as closed")
     o.add_argument(

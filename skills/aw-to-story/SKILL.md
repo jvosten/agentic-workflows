@@ -57,7 +57,7 @@ New story:
 ```
 
 The parent (epic, parent story) goes in `--parent` only, as the tracker's native link, never into the body.
-Labels the project requires on new issues (`instructions_file`) → `--label` on the create.
+Labels the project requires on new issues (`instructions_file`) → `--label` on the create. With `board_fields` in `aw config`, include one label per mapped prefix (e.g. `area/...`, `priority/...`); `aw issue create` sets the board field from it.
 
 Existing story — follow the story-write protocol:
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 import sys
 from functools import cached_property
 from typing import Any
@@ -35,6 +36,7 @@ ADD_SUB = """mutation($parentId:ID!,$childId:ID!){
 BOARD = """query($login:String!,$number:Int!,$field:String!){repositoryOwner(login:$login){
   ... on ProjectV2Owner{projectV2(number:$number){id title
   field(name:$field){... on ProjectV2SingleSelectField{id name options{id name}}}
+  fields(first:50){nodes{... on ProjectV2SingleSelectField{id name options{id name}}}}
   workflows(first:20){nodes{name enabled}}}}}}"""
 CARD = """query($owner:String!,$repo:String!,$number:Int!,$field:String!){repository(owner:$owner,name:$repo){
   issue(number:$number){id projectItems(first:50){nodes{id project{id}
@@ -185,18 +187,24 @@ class GitHub(Tracker):
         issue_type: str | None,
         labels: list[str] | None = None,
         status: str | None = None,
+        fields: dict[str, str] | None = None,
     ) -> str:
         """One createIssue mutation, so the issue never exists without its parent link or labels.
 
         With github_project, the new issue then goes on the board in the column for status (default backlog;
-        "none": on the board without a column, e.g. an epic). The column is resolved first, so a board that
-        cannot take it fails before anything is created. Without a board, status other than none needs one.
+        "none": on the board without a column, e.g. an epic), with each of fields set. Column, fields and options
+        are resolved first, so a board that cannot take them fails before anything is created. Without a board,
+        status other than none and any field need one.
         """
         status = status or "backlog"
+        fields = fields or {}
         if self.has_states() and status != "none":
             self.option(status)
         elif not self.has_states() and status not in ("backlog", "none"):
             raise AwError(f"--status {status} needs a board (github_project); a new GitHub issue is just open")
+        if fields and not self.has_states():
+            raise AwError("--field needs a board (github_project)")
+        chosen = [self.field_option(name, value) for name, value in fields.items()]
         target = self.normalize(parent) if parent else None
         repo = self.graphql(CREATE_CONTEXT, parent=int(target or 0), withParent=bool(target))["repository"]
         ids = {"repoId": repo["id"]}
@@ -230,15 +238,20 @@ class GitHub(Tracker):
         )
         number = str(data["createIssue"]["issue"]["number"])
         if self.has_states():
-            try:
-                if status == "none":
-                    self._add_card(number)
-                else:
-                    self.set_status(number, status)
+            try:  # a new issue is open and has no card yet: add it, then set the column and the fields
+                item = self._add_card(number)
+                if status != "none":
+                    self._set_field(item, self.board["field"], self.option(status))
+                for field, option in chosen:
+                    self._set_field(item, field, option)
             except AwError as e:
-                repair = f"aw issue set-status {number} {'backlog' if status == 'none' else status}"
+                repair = [f"`aw issue set-status {number} {'backlog' if status == 'none' else status}`"]
+                if fields:
+                    pairs = [f"{name}={value}" for name, value in fields.items()]
+                    repair.append(f"`{shlex.join(['aw', 'issue', 'set-field', number, *pairs])}`")
                 raise AwError(
-                    f"created #{number}, but it is not on the board: {e}. Run `{repair}`; do not create it again"
+                    f"created #{number}, but it is not on the board as asked: {e}. "
+                    f"Run {' and '.join(repair)}; do not create it again"
                 ) from None
         return number
 
@@ -295,6 +308,34 @@ class GitHub(Tracker):
             raise AwError(f"github_project {spec} has no single-select field {field!r} (status_field)")
         return project
 
+    def has_fields(self) -> bool:
+        return self.has_states()
+
+    def board_field(self, name: str) -> dict:
+        """A single-select field of the board other than status_field, matched case-insensitively."""
+        status_field = self.cfg.get("status_field")
+        if name.casefold() == status_field.casefold():
+            raise AwError(f"{status_field} is the status field; set it with --status or aw issue set-status")
+        status = self.board["field"]["id"]
+        fields = [f for f in self.board["fields"]["nodes"] if "options" in f and f["id"] != status]
+        match = next((f for f in fields if f["name"].casefold() == name.casefold()), None)
+        if match is None:
+            available = ", ".join(f["name"] for f in fields) or "none"
+            raise AwError(f"board has no single-select field {name!r} (fields: {available})")
+        return match
+
+    def field_option(self, name: str, value: str) -> tuple[dict, dict]:
+        """A board field and its option, both matched case-insensitively."""
+        field = self.board_field(name)
+        option = next((o for o in field["options"] if o["name"].casefold() == value.casefold()), None)
+        if option is None:
+            available = ", ".join(o["name"] for o in field["options"])
+            raise AwError(f"board field {field['name']!r} has no option {value!r} (options: {available})")
+        return field, option
+
+    def labels(self) -> list[str]:
+        return [label["name"] for label in self.gh_json("label", "list", "--json", "name", "--limit", "1000")]
+
     def option(self, status: str) -> dict:
         """The board column for a canonical status: status_map name, matched case-insensitively."""
         name = status_name(self.cfg, status)
@@ -338,14 +379,24 @@ class GitHub(Tracker):
             return f"board already {option['name']}"
         if item is None:  # addProjectV2ItemById is idempotent, but only an absent card needs it
             item = self.graphql(ADD_CARD, projectId=self.board["id"], contentId=node_id)["addProjectV2ItemById"]["item"]
-        self.graphql(
-            SET_CARD,
-            projectId=self.board["id"],
-            itemId=item["id"],
-            fieldId=self.board["field"]["id"],
-            raw={"optionId": option["id"]},
-        )
+        self._set_field(item, self.board["field"], option)
         return f"board {option['name']}"
+
+    def _set_field(self, item: dict, field: dict, option: dict) -> None:
+        self.graphql(
+            SET_CARD, projectId=self.board["id"], itemId=item["id"], fieldId=field["id"], raw={"optionId": option["id"]}
+        )
+
+    def set_fields(self, issue: str, fields: dict[str, str]) -> str:
+        if not self.has_states():
+            raise AwError("set-field needs a board (github_project)")
+        chosen = [self.field_option(name, value) for name, value in fields.items()]  # unknown: nothing changes
+        _, item = self._card(issue)
+        if item is None:
+            raise AwError(f"#{issue} is not on the board; run `aw issue set-status {issue} backlog` first")
+        for field, option in chosen:
+            self._set_field(item, field, option)
+        return f"#{issue} board " + " · ".join(f"{field['name']} {option['name']}" for field, option in chosen)
 
     def set_status(self, issue: str, status: str) -> str:
         if status not in STATUSES:
