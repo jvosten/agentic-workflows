@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.7
+
+### Fixed
+
+- `aw restack` reports the actual commit count after conflict recovery in its human summary and JSON result,
+  counting only commits above the saved rebase target, not newly inherited base commits.
+
 ## 0.1.6 — 2026-10-13 (#6)
 
 ### Fixed

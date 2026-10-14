@@ -1,8 +1,10 @@
+import json
 import subprocess
+from pathlib import Path
 
 import pytest
 
-from aw import forge, restack, session, start_task
+from aw import cli, forge, restack, session, start_task
 from aw.config import git, load
 
 
@@ -125,25 +127,56 @@ def test_conflict_leaves_the_rebase_and_a_rerun_finishes_it(stacked, repo):
     )
     result = restack.run(load(), session.read())
     assert result.state == "restacked"
+    assert result.commits == 2
+    meta = session.read()
+    assert meta["fork_point"] == tip and meta["restack_onto"] == ""
+    assert git("rev-parse", "HEAD", cwd=stacked) == git("rev-parse", "@{upstream}", cwd=stacked)
+
+
+@pytest.mark.parametrize("json_output", [False, True])
+def test_cli_reports_recovered_commits(
+    stacked: Path, repo: Path, capsys: pytest.CaptureFixture[str], json_output: bool
+) -> None:
+    """Conflict recovery reports only the stacked commit."""
+    tip = base_commit(repo, "own.txt", "theirs\n")
+    assert cli.main(["restack"]) == 1
+    capsys.readouterr()
+
+    (stacked / "own.txt").write_text("resolved\n", encoding="utf-8")
+    git("add", "own.txt", cwd=stacked)
+    subprocess.run(
+        ["git", "-c", "core.editor=true", "rebase", "--continue"], cwd=stacked, check=True, capture_output=True
+    )
+    branch = session.read()["branch"]
+    assert cli.main(["restack", "--json"] if json_output else ["restack"]) == 0
+    out = capsys.readouterr().out
+    summary = f"restacked {branch}: 1 commit onto feat/a"
+    if json_output:
+        data = json.loads(out)
+        assert data["state"] == "restacked" and data["commits"] == 1
+        assert data["summary"] == summary
+    else:
+        assert out.splitlines() == [f"pushed {branch} (--force-with-lease)", summary]
+    assert own_commits(stacked, tip) == ["own.txt"]
     meta = session.read()
     assert meta["fork_point"] == tip and meta["restack_onto"] == ""
     assert git("rev-parse", "HEAD", cwd=stacked) == git("rev-parse", "@{upstream}", cwd=stacked)
 
 
 def test_cli_reports_lines_a_summary_and_json(stacked, repo, capsys):
-    import json
-
-    from aw import cli
-
     base_commit(repo, "more.txt")
     head = git("rev-parse", "HEAD", cwd=stacked)
+    meta = session.read()
+    branch = meta["branch"]
     assert cli.main(["restack", "--dry-run"]) == 0
     out = capsys.readouterr().out.splitlines()
     assert out[0].startswith("DRY RUN") and git("rev-parse", "HEAD", cwd=stacked) == head
+    assert out[-1] == f"would restack {branch}: 1 commit onto feat/a"
+    assert session.read() == meta
+    assert git("rev-parse", "@{upstream}", cwd=stacked) == head
 
     assert cli.main(["restack"]) == 0
     out = capsys.readouterr().out.splitlines()
-    branch = session.read()["branch"]
     assert out[-1] == f"restacked {branch}: 1 commit onto feat/a"
     assert len(out) <= 6
 
@@ -153,8 +186,6 @@ def test_cli_reports_lines_a_summary_and_json(stacked, repo, capsys):
 
 
 def test_cli_conflict_names_files_and_next_step(stacked, repo, capsys):
-    from aw import cli
-
     commit(stacked, "base.txt", "ours\n")
     git("push", "-q", "origin", "HEAD", cwd=stacked)
     base_commit(repo, "base.txt", "theirs\n")

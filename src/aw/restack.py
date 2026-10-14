@@ -117,6 +117,7 @@ def run(cfg: Config, meta: dict[str, Any], dry_run: bool = False) -> Result:
         log.append(f"base {base} merged into {main}")
     if pending and _contains(worktree, pending):  # a conflicted restack, resolved by hand
         onto = pending
+        result.commits = int(git("rev-list", "--count", f"{onto}..HEAD", cwd=worktree))
     elif onto == fork_point and not merged:
         result.state = "up_to_date"
         return result
