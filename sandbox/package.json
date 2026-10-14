@@ -1,9 +1,0 @@
-{
-  "name": "aw-sandbox",
-  "private": true,
-  "description": "Gondolin image and scripts that run an aw session inside a micro-VM",
-  "type": "module",
-  "devDependencies": {
-    "@earendil-works/gondolin": "0.13.0"
-  }
-}

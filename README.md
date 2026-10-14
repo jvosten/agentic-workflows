@@ -289,31 +289,6 @@ make format    # let ruff fix and format what it can
 
 Planned work: [BACKLOG.md](BACKLOG.md).
 
-## Sandbox
-
-`sandbox/` runs a session inside a [Gondolin](https://github.com/earendil-works/gondolin) micro-VM that sees only the project. It needs Node.js 22.19 or later, QEMU and KVM; `npm install` in `sandbox/` pins Gondolin.
-
-```bash
-sandbox/build-image.sh       # Alpine with git, gh, make, uv, Python, and aw from this checkout
-GONDOLIN_GUEST_DIR=sandbox/build/image GH_TOKEN="$(gh auth token)" GIT_NAME=… GIT_EMAIL=… \
-  node sandbox/run.mjs [--allow-host HOST]… [--mirror DIR] [--inbox DIR] [--checkpoint F | --resume F] SCRIPT ARG…
-```
-
-- **Network:** only `github.com` and `api.github.com`; `--allow-host` adds one (`pypi.org` and `files.pythonhosted.org` for `make check`).
-- **Credentials:** the guest gets `GH_TOKEN` as a placeholder. Gondolin swaps it for the real token in requests to the GitHub hosts, so git (through a credential helper) and `gh` authenticate and the token never enters the VM.
-- **Mounts:** `sandbox/guest/` read-only at `/sandbox/guest`, plus the optional host mirror and inbox, read-only. No other host path.
-- **State:** the VM owns its clone and `aw`'s worktrees. `--checkpoint` saves the root disk after the script; `--resume` boots from it.
-
-Guest scripts:
-
-| Script | Does |
-|---|---|
-| `start.sh MODE REPO [SLUG]` | gets the repository (`fresh` clone, `reference` to the mirror, `dissociate`, `warm` from a checkpoint), runs `aw start-task`, prints timings |
-| `session.sh open REPO TYPE SLUG` | start a session, copy in the change from the inbox, `aw verify`, commit, push, `aw mr create` |
-| `session.sh finish` | from the checkpoint `open` left: `aw mr checks --watch`, `aw finish` |
-
-`aw` goes into the image precompiled, with `python3-pyc` for the standard library: a fresh VM keeps no bytecode, and compiling on each start doubled `aw start-task`.
-
 ## License
 
 MIT, see [LICENSE](LICENSE). Skills copied from other projects keep their own `LICENSE` file.
