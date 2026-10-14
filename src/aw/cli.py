@@ -48,7 +48,7 @@ def _config(args: argparse.Namespace) -> None:
 
 
 def _start_task(args: argparse.Namespace) -> None:
-    for key, value in start_task.run(load(), args.type, args.slug, args.issue, args.number, args.base).items():
+    for key, value in start_task.run(load(), args.type, args.slug, args.issue, args.base).items():
         print(f"{key}={value}")
 
 
@@ -676,7 +676,6 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("type")
     s.add_argument("slug")
     s.add_argument("--issue")
-    s.add_argument("--number", type=int, help="session number (default: next in this clone)")
     s.add_argument("--base", help="start on this pending branch instead of main_branch (a stacked session)")
     s.set_defaults(func=_start_task)
 

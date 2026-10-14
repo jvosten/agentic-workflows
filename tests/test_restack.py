@@ -26,7 +26,7 @@ def stacked(repo, tmp_path, monkeypatch):
     git("push", "-q", "-u", "origin", "feat/a", cwd=repo)
     git("checkout", "-q", "main", cwd=repo)
     out = start_task.run(load(), "feat", "b", None, base="feat/a")
-    wt = tmp_path / "wt/s1-b"
+    wt = tmp_path / "wt/b"
     commit(wt, "own.txt")
     git("push", "-q", "-u", "origin", out["branch"], cwd=wt)
     monkeypatch.chdir(wt)

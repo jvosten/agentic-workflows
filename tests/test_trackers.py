@@ -768,7 +768,7 @@ def test_start_and_finish_sync_jira_status(repo, tmp_path, monkeypatch):
     assert start_task.run(load(), "docs", "no-issue", None)["branch"] == "docs/no-issue"
 
     wt = out["worktree"]
-    (tmp_path / "wt/s1-retries/f.txt").write_text("x")
+    (tmp_path / "wt/PROJ-12-retries/f.txt").write_text("x")
     git("add", ".", cwd=wt)
     git("commit", "-qm", "feat: x", cwd=wt)
     git("push", "-q", "-u", "origin", out["branch"], cwd=wt)

@@ -31,7 +31,7 @@ On error, show it and stop. If `.agents/aw.toml` is missing, tell the user to ru
 ~/.agents/bin/aw start-task <type> <slug> [--issue <id>] [--base <branch>]
 ```
 
-It syncs `main_branch`, picks the session number, creates branch and worktree, sets up direnv, moves the issue to in progress, and a subtask's parent story with it (trackers with workflow states, `sync_issue_status`), and runs `on_start` in the new worktree. It prints `session`, `branch`, `worktree`, `issue`.
+It syncs `main_branch`, creates branch and worktree, sets up direnv, moves the issue to in progress, and a subtask's parent story with it (trackers with workflow states, `sync_issue_status`), and runs `on_start` in the new worktree. It prints `branch`, `worktree`, `issue`.
 
 - The work builds on another session's branch whose merge request is still in review → `--base <that branch>`. The worktree starts from `origin/<branch>`, the merge request targets it, and `aw restack` moves the session onto the base's new tip, or onto `main_branch` once the base merged. Only with a forge; one level of stacking.
 - Do not create branches or worktrees any other way.
@@ -53,7 +53,7 @@ It syncs `main_branch`, picks the session number, creates branch and worktree, s
 Print:
 
 ```
-Session s<session> ready
+Session <worktree directory name> ready
   worktree: <worktree>
   branch:   <branch>
   issue:    <issue ref> | none
