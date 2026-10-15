@@ -103,4 +103,5 @@ The story grew past the size rule in step 3 → go back to that rule instead of 
 - One story per invocation.
 - Never invoke `/aw-start-task` or `/aw-finalize` yourself.
 - Out-of-scope items: propose them as issues; create them only when the user says so (`aw issue create --dry-run` first).
+- Every create (splits, out-of-scope items) sets each `board_required` field from `aw config`, as `aw-to-story` does.
 - No secret values in plans or issue comments.

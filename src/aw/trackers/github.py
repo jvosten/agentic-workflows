@@ -324,6 +324,10 @@ class GitHub(Tracker):
             raise AwError(f"board has no single-select field {name!r} (fields: {available})")
         return match
 
+    def field_options(self, name: str) -> tuple[str, list[str]]:
+        field = self.board_field(name)
+        return field["name"], [o["name"] for o in field["options"]]
+
     def field_option(self, name: str, value: str) -> tuple[dict, dict]:
         """A board field and its option, both matched case-insensitively."""
         field = self.board_field(name)

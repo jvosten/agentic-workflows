@@ -242,6 +242,11 @@ def check_board(cfg: Config) -> list[Result]:
     else:
         results.append(("ok", f"board columns for {', '.join(used)}"))
     results += _check_board_fields(cfg, tracker)
+    for name in cfg.get("board_required"):
+        try:
+            results.append(("ok", f"board_required: field {tracker.field_options(name)[0]}"))
+        except AwError as e:
+            results.append(("fail", f"board_required: {e}"))
     for workflow in board.get("workflows", {}).get("nodes", []):
         if workflow["name"] in WORKFLOW_ADVICE and not workflow["enabled"]:
             results.append(("info", f"board workflow '{workflow['name']}' is off: {WORKFLOW_ADVICE[workflow['name']]}"))

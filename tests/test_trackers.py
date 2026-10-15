@@ -1203,6 +1203,35 @@ def test_cli_create_and_set_field(repo, monkeypatch, capsys):
     assert field_sets(fake) == []
 
 
+def test_create_refuses_without_a_required_field(repo, monkeypatch, capsys):
+    board_cfg(repo, 'board_fields = { "area/" = "Area" }\nboard_required = ["area", "Priority"]\n')
+    fake = created_board()
+    monkeypatch.setattr(GitHub, "gh", fake)
+    monkeypatch.setattr(GitHub, "create", lambda *a: pytest.fail("created"))
+    argv = ["issue", "create", "--title", "T", "--body-file", "-", "--label", "area/net"]
+    for extra in (["--dry-run"], []):
+        monkeypatch.setattr("sys.stdin", io.StringIO("body"))
+        assert cli.main([*argv, *extra]) == 1
+        assert (
+            "board_required: no value for Priority (P1, P2); pass --field Name=Option for each, nothing created"
+            in capsys.readouterr().err
+        )
+    monkeypatch.setattr("sys.stdin", io.StringIO("body"))
+    assert cli.main([*argv, "--field", "priority=P2", "--dry-run"]) == 0
+    assert "fields=priority=P2,Area=net" in capsys.readouterr().out
+
+
+def test_doctor_checks_board_required_fields(repo, monkeypatch):
+    from aw import doctor
+
+    board_cfg(repo, 'board_required = ["priority", "Team"]\n')
+    monkeypatch.setattr(GitHub, "gh", board_gh())
+    monkeypatch.setattr(doctor, "_gh_scopes", lambda: ["repo", "project"])
+    results = doctor.check_board(load())
+    assert ("ok", "board_required: field Priority") in results
+    assert ("fail", "board_required: board has no single-select field 'Team' (fields: Area, Priority)") in results
+
+
 def test_jira_refuses_fields_before_create(repo, monkeypatch, capsys):
     jira_cfg(repo)
     monkeypatch.setattr(Jira, "create", lambda *a, **k: pytest.fail("created"))

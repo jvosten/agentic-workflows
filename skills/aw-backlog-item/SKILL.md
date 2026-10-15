@@ -95,7 +95,7 @@ Rows marked `[text link]` are linked to the tree only by a line in a body. They 
 
 ## 6. Create after confirmation
 
-Labels: read `instructions_file` for the labels the project requires on new issues of this kind, and pass each with `--label`. With `board_fields` in `aw config`, pick one label for each prefix it maps (`area/` → one `area/...` label) the way you pick the others; `aw issue create` sets the board field from it. A field the config maps but no label fits → ask, like a label.
+Labels: read `instructions_file` for the labels the project requires on new issues of this kind, and pass each with `--label`. With `board_fields` in `aw config`, pick one label for each prefix it maps (`area/` → one `area/...` label) the way you pick the others; `aw issue create` sets the board field from it. A field the config maps but no label fits → ask, like a label. With `board_required`, every field it lists gets a value: from a mapped label, otherwise `--field Name=Option`. Propose each value from the item (its urgency, its size) and show it in the payload, so the user confirms it with the rest; the dry run names the options of a field still missing.
 
 Show the payload — parent, issue type, labels, title, full body — and wait for an explicit go.
 

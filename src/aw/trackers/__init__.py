@@ -123,6 +123,10 @@ class Tracker:
     def set_fields(self, issue: str, fields: dict[str, str]) -> str:
         raise self._unsupported("set-field")
 
+    def field_options(self, name: str) -> tuple[str, list[str]]:
+        """A board field's name as the board spells it, and its option names."""
+        raise self._unsupported("board fields")
+
     def scoped(self) -> bool:
         """True when this tracker knows parent-child links, so dupes can be scoped."""
         return type(self).children is not Tracker.children
@@ -241,6 +245,12 @@ def board_fields(cfg: Config, labels: list[str], pairs: list[str], from_labels: 
             if value and name.casefold() not in {n.casefold() for n in fields}:
                 fields[name] = value
     return fields
+
+
+def missing_fields(cfg: Config, fields: dict[str, str]) -> list[str]:
+    """The board_required fields that fields does not set, in config order."""
+    named = {name.casefold() for name in fields}
+    return [name for name in cfg.get("board_required") if name.casefold() not in named]
 
 
 def status_hook(cfg: Config, issue: str, status: str) -> str | None:
