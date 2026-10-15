@@ -173,7 +173,7 @@ def test_a_session_moves_the_story_and_finish_closes_it_on_request(repo, tmp_pat
     out = start_task.run(load(), "feat", "thing", "2")
     assert board.moves == [("2", "in_progress"), ("1", "in_progress")]
     wt = out["worktree"]
-    (tmp_path / "wt/s1-thing/f.txt").write_text("x")
+    (tmp_path / "wt/2-thing/f.txt").write_text("x")
     git("add", ".", cwd=wt)
     git("commit", "-qm", "feat: x", cwd=wt)
     git("push", "-q", "-u", "origin", out["branch"], cwd=wt)

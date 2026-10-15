@@ -18,21 +18,19 @@ def configured(repo, tmp_path):
     return repo
 
 
-def test_numbering_hook_and_output(configured, tmp_path):
-    (configured / ".git/aw-last-session").write_text("12\n")
-    git("worktree", "add", "-q", "-b", "other", str(tmp_path / "wt/s15-parallel"), cwd=configured)
+def test_names_hook_and_output(configured, tmp_path):
     out = start_task.run(load(), "fix", "pbs-auth", "#42")
     today = date.today().strftime("%Y%m%d")
     assert out == {
-        "session": "16",
         "branch": f"fix/pbs-auth-{today}",
-        "worktree": str(tmp_path / "wt/s16-pbs-auth"),
+        "worktree": str(tmp_path / "wt/42-pbs-auth"),
         "issue": "42",
     }
-    assert (tmp_path / "wt/s16-pbs-auth/hook.txt").read_text() == "hook-42\n"
-    assert (configured / ".git/aw-last-session").read_text() == "16\n"
-    meta = session.read(tmp_path / "wt/s16-pbs-auth")
-    assert (meta["session"], meta["branch"], meta["issue"], meta["slug"]) == (16, out["branch"], "42", "pbs-auth")
+    assert (tmp_path / "wt/42-pbs-auth/hook.txt").read_text() == "hook-42\n"
+    meta = session.read(tmp_path / "wt/42-pbs-auth")
+    assert (meta["branch"], meta["issue"], meta["slug"]) == (out["branch"], "42", "pbs-auth")
+    assert "session" not in meta
+    assert not (configured / ".git/aw-last-session").exists()
 
 
 def fake_direnv(tmp_path, monkeypatch, script):
@@ -69,24 +67,34 @@ def test_a_tracked_envrc_is_never_overwritten(configured, tmp_path, monkeypatch)
     assert not git("status", "--porcelain", ".envrc", cwd=out["worktree"])
 
 
-def test_counter_survives_removed_worktrees(configured):
+def test_without_an_issue_the_worktree_is_the_slug(configured, tmp_path):
     first = start_task.run(load(), "docs", "one", None)
+    assert first["worktree"] == str(tmp_path / "wt/one")
     assert (Path(first["worktree"]) / "hook.txt").read_text() == "hook-\n"  # on_start runs without an issue too
-    git("worktree", "remove", "--force", first["worktree"], cwd=configured)
-    assert start_task.run(load(), "docs", "two", None)["session"] == "2"
-
-
-def test_number_override_never_lowers_counter(configured):
-    assert start_task.run(load(), "docs", "one", None, number=79)["session"] == "79"
-    assert start_task.run(load(), "docs", "two", None, number=5)["session"] == "5"
-    assert (configured / ".git/aw-last-session").read_text() == "79\n"
+    git("branch", "-q", "-m", first["branch"], "docs/one-earlier", cwd=configured)
+    with pytest.raises(AwError, match=f"path exists: {tmp_path}/wt/one"):
+        start_task.run(load(), "docs", "one", None)
 
 
 def test_from_inside_worktree(configured, tmp_path, monkeypatch):
     first = start_task.run(load(), "docs", "one", None)
     monkeypatch.chdir(first["worktree"])
     second = start_task.run(load(), "docs", "two", None)
-    assert (first["session"], second["session"]) == ("1", "2")
+    assert (Path(first["worktree"]).name, Path(second["worktree"]).name) == ("one", "two")
+
+
+@pytest.mark.parametrize("key", ["worktree_name", "branch_name", "on_start"])
+def test_a_config_with_the_session_number_is_refused(configured, tmp_path, monkeypatch, key):
+    monkeypatch.setenv(f"AW_{key.upper()}", "s{n}-{slug}")
+    with pytest.raises(AwError, match=f"{key} uses {{n}}, the session number, which is gone"):
+        start_task.run(load(), "docs", "one", None)
+    assert not (tmp_path / "wt").exists()
+
+
+def test_an_old_session_file_with_a_number_still_reads(configured, tmp_path):
+    out = start_task.run(load(), "docs", "one", None)
+    session.update(out["worktree"], session=7)
+    assert session.read(out["worktree"])["session"] == 7
 
 
 @pytest.mark.parametrize(
@@ -118,7 +126,7 @@ def test_starts_while_the_primary_checkout_is_on_another_branch(configured, tmp_
     git("checkout", "-q", "-b", "look-around", cwd=configured)
     push_to_origin(tmp_path, "upstream.txt")
     out = start_task.run(load(), "feat", "x", None)
-    assert (tmp_path / "wt/s1-x/upstream.txt").is_file()  # the session starts from origin's main
+    assert (tmp_path / "wt/x/upstream.txt").is_file()  # the session starts from origin's main
     assert git("branch", "--show-current", cwd=configured) == "look-around"
     assert git("rev-parse", "main", cwd=configured) == git("rev-parse", "origin/main", cwd=configured)
     assert out["branch"].startswith("feat/x-")
@@ -154,11 +162,6 @@ def test_existing_branch(configured):
     git("branch", f"feat/x-{today}", cwd=configured)
     with pytest.raises(AwError, match="branch exists"):
         start_task.run(load(), "feat", "x", None)
-
-
-def test_custom_name_pattern(repo, tmp_path):
-    match = start_task._name_pattern("{project}-{n}-{slug}").match("proj-7-abc")
-    assert match and match.group(1) == "7"
 
 
 def push_base(repo, name="feat/a"):

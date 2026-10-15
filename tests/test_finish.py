@@ -15,7 +15,7 @@ def started(repo, tmp_path):
     git("push", "-q", "origin", "main", cwd=repo)
     out = start_task.run(load(), "feat", "thing", None)
     wt = out["worktree"]
-    (tmp_path / "wt/s1-thing/new.txt").write_text("x\n")
+    (tmp_path / "wt/thing/new.txt").write_text("x\n")
     git("add", ".", cwd=wt)
     git("commit", "-qm", "feat: thing", cwd=wt)
     git("push", "-q", "-u", "origin", out["branch"], cwd=wt)

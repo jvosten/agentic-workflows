@@ -13,7 +13,7 @@ from aw.config import AwError, checkout_root, dump_toml, git, read_toml
 
 META = "aw-session.toml"
 FIELDS = {  # stored field -> type; branch and worktree are not stored, git tells them
-    "session": int,
+    "session": int,  # the session number, written before 0.1.8: still read, no longer written
     "issue": str,
     "type": str,
     "slug": str,

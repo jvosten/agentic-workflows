@@ -197,11 +197,11 @@ When a key changes shape, `schema.toml` lists a migration (rename, and a rewrite
 
 ## Sessions
 
-A session is one worktree on one branch, from `aw start-task` to `aw finish`, and implements one subtask: one vertical slice that is verifiable on its own. Its number is counted per clone (`.git/aw-last-session`) and never committed. It names the worktree and nothing else, so in a shared repo nobody's numbers collide. Session metadata (branch, worktree, issue) lives in the worktree's private git dir and disappears with it.
+A session is one worktree on one branch, from `aw start-task` to `aw finish`, and implements one subtask: one vertical slice that is verifiable on its own. Its worktree is named after the issue and the slug (`worktree_name`, default `{issue}-{slug}`, just `{slug}` without an issue); a path that exists already is refused, so two sessions never share one. Session metadata (branch, worktree, issue) lives in the worktree's private git dir and disappears with it.
 
 A session that should not land (parked, or superseded) ends with `aw abandon`, never with `aw finish`: on a branch without changes, `aw finish` takes the nothing-left path and closes the issue.
 
-The committed record of a session is its pull request and its changelog entry. Projects moving from their own numbering start once with `aw start-task ... --number N`; the counter continues from there.
+The committed record of a session is its pull request and its changelog entry.
 
 ## Issue trackers
 
@@ -250,7 +250,7 @@ How states, boards and the hook fit together on each tracker: [docs/boards.md](d
 | `aw install [--agent claude] [-v]` | Link skills into `~/.agents/skills` and agent dirs, CLI into `~/.agents/bin/aw` |
 | `aw init [-y] [--set K=V] [-v]` | Create or update `.agents/aw.toml`; reports what changed, `-v` every value and where it came from |
 | `aw config [--get KEY] [--sources]` | Print resolved configuration |
-| `aw start-task <type> <slug> [--issue N] [--number N] [--base B]` | Fast-forward the local main (the primary checkout may be on any branch), pick session number, create branch + worktree from main (`--base`: from `origin/B`, a [stacked session](#stacked-sessions)), direnv (a tracked `.envrc` is kept; a missing or failing `direnv` is a warning), `on_start` |
+| `aw start-task <type> <slug> [--issue N] [--base B]` | Fast-forward the local main (the primary checkout may be on any branch), create branch + worktree from main (`--base`: from `origin/B`, a [stacked session](#stacked-sessions)), direnv (a tracked `.envrc` is kept; a missing or failing `direnv` is a warning), `on_start` |
 | `aw restack [--dry-run] [--json]` | Stacked session: rebase onto the base's tip, or onto main once the base merged; push, retarget |
 | `aw session` | Print the current worktree's session metadata |
 | `aw verify` | Run `verify_cmd` in the current checkout (through direnv if enabled) |

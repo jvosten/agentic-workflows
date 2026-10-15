@@ -7,9 +7,9 @@
 # default: fallback when nothing else sets the key
 #
 # Placeholders, expanded when read: {project} {repo_parent} everywhere;
-# {type} {slug} {n} {date} {issue} in branch_name, worktree_name, on_start ({issue} empty without one);
+# {type} {slug} {date} {issue} in branch_name, worktree_name, on_start ({issue} empty without one; in a name,
+# {issue} drops together with its separator, so {issue}-{slug} is just {slug});
 # {issue} {status} {status_name} in on_issue_status; {pr} {final} {issue} {slug} {type} {date} in on_merge.
-# {n} is the session number, counted per clone and never committed.
 
 version = 1
 
@@ -241,8 +241,8 @@ help = "Directory that holds session worktrees"
 
 [keys.worktree_name]
 type = "str"
-default = "s{n}-{slug}"
-help = "Worktree directory name pattern"
+default = "{issue}-{slug}"
+help = "Worktree directory name pattern (an existing path is refused)"
 
 [keys.on_start]
 type = "str"

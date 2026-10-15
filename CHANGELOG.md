@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.8 — 2026-10-14 (#10)
+
+### Changed
+
+- Worktrees are named `{issue}-{slug}`, or `{slug}` without an issue; the session number is gone. `aw start-task`
+  no longer counts sessions (`.git/aw-last-session` is no longer read or written; delete it), drops `--number`, the
+  `{n}` placeholder and the `session=` line of its output, and refuses while `branch_name`, `worktree_name` or
+  `on_start` still uses `{n}`. A name that exists already is refused, as before. Session files that still hold a
+  number are read as before.
+
 ## 0.1.7 — 2026-10-14 (#9)
 
 ### Added
