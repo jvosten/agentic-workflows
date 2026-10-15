@@ -57,7 +57,7 @@ New story:
 ```
 
 The parent (epic, parent story) goes in `--parent` only, as the tracker's native link, never into the body.
-Labels the project requires on new issues (`instructions_file`) → `--label` on the create. With `board_fields` in `aw config`, include one label per mapped prefix (e.g. `area/...`, `priority/...`); `aw issue create` sets the board field from it.
+Labels the project requires on new issues (`instructions_file`) → `--label` on the create. With `board_fields` in `aw config`, include one label per mapped prefix (e.g. `area/...`, `priority/...`); `aw issue create` sets the board field from it. With `board_required`, every field it lists gets a value: from a mapped label, otherwise `--field Name=Option`. Propose each value from the story (its urgency, its size) and show it in the payload, so the user confirms it with the rest; the dry run names the options of a field still missing.
 
 Existing story — follow the story-write protocol:
 

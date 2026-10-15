@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.9 — 2026-10-15 (#11)
+
+### Added
+
+- `board_required` lists single-select fields of a `github_project` board that every new issue sets. `aw issue
+  create`, dry run included, creates nothing while one of them has neither a `--field` nor a `board_fields` label,
+  and names each missing field with its options. `aw-backlog-item`, `aw-to-story`, `aw-to-subtasks` and the splits
+  in `aw-plan-story` propose a value for each and show it before the create. `aw doctor` checks each field exists.
+
 ## 0.1.8 — 2026-10-14 (#10)
 
 ### Changed

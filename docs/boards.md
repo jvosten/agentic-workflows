@@ -96,6 +96,7 @@ A GitHub issue has no workflow state, but a Projects board does: its single-sele
 github_project = "jvosten/1"     # owner/number; user- or organization-owned
 status_field = "Status"          # the default
 board_fields = { "area/" = "Area", "priority/" = "Priority" }   # label prefix = field; optional
+board_required = ["Area", "Priority"]   # fields every new issue sets; optional
 ```
 
 `aw init` asks for `github_project` when `tracker = github`. The token needs the `project` scope: `gh auth refresh -s project`.
@@ -113,7 +114,7 @@ Details:
 - Field and column ids are read from the board at run time, so a renamed column fails loudly instead of writing to the wrong one. A missing column fails before anything changes and lists the columns that exist.
 - Create checks the `backlog` column before it creates the issue. If the issue is created but the board step fails, the error names the new issue and the repair, `aw issue set-status <id> backlog`; creating it again would make a duplicate.
 - A card already in the target column is left alone.
-- **Other fields.** GitHub's board workflows set Status only, so a board that groups or sorts by another single-select field (an `Area` per swimlane, a `Priority` inside it) would get every new issue in its "No Area" lane. `aw issue create --field Area=net` sets the field on the new card; with `board_fields`, the first label after a mapped prefix does the same (`area/net` → `Area` = `net`), so skills that already pick labels fill the field too. An explicit `--field` wins over a label. Fields and options are read from the board and checked before the create; the status field is set with `--status`, not `--field`. If a field fails after the create, the error names both repairs (`aw issue set-status …` and `aw issue set-field …`). Jira custom fields are not supported yet.
+- **Other fields.** GitHub's board workflows set Status only, so a board that groups or sorts by another single-select field (an `Area` per swimlane, a `Priority` inside it) would get every new issue in its "No Area" lane. `aw issue create --field Area=net` sets the field on the new card; with `board_fields`, the first label after a mapped prefix does the same (`area/net` → `Area` = `net`), so skills that already pick labels fill the field too. An explicit `--field` wins over a label. Fields and options are read from the board and checked before the create; the status field is set with `--status`, not `--field`. If a field fails after the create, the error names both repairs (`aw issue set-status …` and `aw issue set-field …`). With `board_required`, a create that leaves a listed field unset (no `--field`, no mapped label) creates nothing and names each missing field with its options; the skills that create issues set every listed field. Jira custom fields are not supported yet.
 
 **Board workflows.** GitHub boards have built-in workflows (item added → a column, item closed → Done, auto-add). They can be switched on only in the GitHub UI; the API can read them but not enable them. `aw` does not need them, and works next to them:
 
@@ -125,7 +126,7 @@ Details:
 
 When a workflow and `status_map` name different columns for the same moment, whichever runs last wins. Keep them consistent.
 
-`aw doctor` checks the scope, the board, the field, the columns for `backlog`, `in_progress`, `done` and every `status_map` key, and each `board_fields` field: it exists, and every repository label with its prefix has an option. Workflows that are off appear as notes, not problems:
+`aw doctor` checks the scope, the board, the field, the columns for `backlog`, `in_progress`, `done` and every `status_map` key, each `board_fields` field (it exists, and every repository label with its prefix has an option), and each `board_required` field exists. Workflows that are off appear as notes, not problems:
 
 ```
   ✓ Tools         6 checks ok · 2 notes

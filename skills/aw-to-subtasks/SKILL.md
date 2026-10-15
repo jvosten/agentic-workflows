@@ -66,6 +66,7 @@ Then publish in dependency order, blockers first:
 - Relinks: `~/.agents/bin/aw issue set-parent <existing> <story> --dry-run`, then without `--dry-run`. A `Part of` line left in its body can go in the same `update`.
 - The parent is set by `--parent` or `set-parent` only. Never write it into a body.
 - Labels the project requires on new issues (`instructions_file`) → `--label` on each create.
+- `board_required` in `aw config` → each listed field on each create: from a `board_fields` label, otherwise `--field Name=Option`, proposed from the subtask and shown with the dry run.
 - Obsolete subtasks: list them and say why they fell out. Close one only when the user says so (`aw issue set-status <id> done`), with a comment naming the replacement.
 
 ## 5. Link back

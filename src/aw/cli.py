@@ -89,6 +89,9 @@ def _issue(args: argparse.Namespace) -> None:
         if args.field and not tracker.has_fields():
             raise AwError(f"--field: tracker {tracker.name!r} has no board fields (GitHub with github_project has)")
         fields = trackers.board_fields(cfg, args.label, args.field, from_labels=tracker.has_fields())
+        if tracker.has_fields() and (missing := trackers.missing_fields(cfg, fields)):
+            wanted = "; ".join(f"{n} ({', '.join(o)})" for n, o in map(tracker.field_options, missing))
+            raise AwError(f"board_required: no value for {wanted}; pass --field Name=Option for each, nothing created")
         if args.dry_run:
             print(
                 f"DRY RUN ({tracker.name}): title={args.title!r} parent={args.parent} type={args.type} "

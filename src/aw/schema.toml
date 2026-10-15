@@ -92,6 +92,11 @@ type = "table"
 default = {}
 help = "Label prefix = single-select field of github_project that aw issue create sets from the label (e.g. \"area/\" = \"Area\")"
 
+[keys.board_required]
+type = "list"
+default = []
+help = "Single-select fields of github_project every new issue sets, from --field or a board_fields label; aw issue create refuses without them"
+
 [keys.status_map]
 type = "table"
 default = {}
