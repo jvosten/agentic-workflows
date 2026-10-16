@@ -327,34 +327,6 @@ This repo's own hardening plan hit the second set right after it was written (20
 
 ---
 
-### [MEDIUM] Promote memory only after experience or settled plans
-
-**Context:** A planning-only session promoted tentative design choices and isolated library-probe observations into active project memory. Further plan revisions produced overlapping and superseded records before implementation began. Cleanup was needed because several entries described future behavior as if it already existed.
-
-**Problem:** Project memory becomes noisy and misleading when every planning answer or probe result creates a gotcha or decision file. The plan and memory compete as sources of truth, and provisional choices look settled to later sessions.
-
-**Scope:**
-
-- Planning skills keep hypotheses, alternative choices, open questions and plan-validation probes in the plan. Plans must not automatically produce gotchas.
-- Gotchas are empirical post-experience records: an observed implementation, debugging or operational problem, a verified cause, and a tested fix. A predicted pitfall or isolated planning probe is not enough to promote it into active project memory.
-- Record decisions only after the overall plan has settled and the operator explicitly approves it, not after each provisional answer during drafting or grilling.
-- Distinguish accepted design intent from implemented behavior when an approved decision precedes implementation.
-- Keep one canonical source for each choice. Link to the settled plan or record only the durable rationale instead of duplicating the plan's full contract.
-- Align planning, remembrance and finalization skill instructions and examples with this promotion boundary.
-
-**Acceptance criteria:**
-
-- Drafting, grilling or revising a plan does not automatically add gotcha files.
-- Planning probes remain plan evidence until an actual implementation/debugging/operational experience justifies a gotcha.
-- A decision enters project memory only after explicit approval of a settled plan; unresolved alternatives remain in the plan.
-- Accepted-but-unimplemented decisions are marked as intent and do not claim current runtime behavior.
-- Repeated planning revisions do not produce duplicate active memory records.
-- Skills and documentation explain the distinction and do not instruct agents to promote every planning observation.
-
-**Effort:** Small — update skill guidance and examples; add focused coverage for any CLI behavior that changes.
-
----
-
 ### [LOW] Jira custom fields on create
 
 **Context:** `aw issue create --field Name=Option` and `aw issue set-field` set single-select fields on a `github_project` board. On Jira the same flag is refused before the create ("Jira custom fields are not supported yet"). Jira select fields take `{"value": …}` and their allowed values come from createmeta, so the option check before the create needs a lookup of its own.
