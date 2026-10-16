@@ -411,7 +411,8 @@ def _memory(args: argparse.Namespace) -> None:
     cfg = load()
     op = args.op
     if op == "add":
-        path = memory.add(cfg, args.kind, args.title, _body(args.body_file), _ids(args.tags or ""), args.ref)
+        text = _body(args.body_file)
+        path = memory.add(cfg, args.kind, args.title, text, _ids(args.tags or ""), args.ref, args.intent)
         print(f"wrote {path.relative_to(cfg.checkout)}")
     elif op == "find":
         found = memory.find(cfg, args.kind, _ids(args.tags or ""), args.text or [], args.retired)
@@ -435,6 +436,9 @@ def _memory(args: argparse.Namespace) -> None:
     elif op == "supersede":
         path = memory.supersede(cfg, args.id, args.reason, args.by)
         print(f"retired {path.relative_to(cfg.checkout)}")
+    elif op == "implemented":
+        path = memory.implemented(cfg, args.id, args.ref)
+        print(f"implemented {path.relative_to(cfg.checkout)}")
     elif op == "import":
         lines = (sys.stdin.read() if args.json == "-" else Path(args.json).read_text()).splitlines()
         written = memory.import_json(cfg, lines)
@@ -843,6 +847,9 @@ def build_parser() -> argparse.ArgumentParser:
     o.add_argument("--body-file", required=True, help="Markdown file, or - for stdin")
     o.add_argument("--tags", help="comma-separated tags from tags.toml (a gotcha needs at least one)")
     o.add_argument("--ref", help="issue the entry came from")
+    o.add_argument(
+        "--intent", action="store_true", help="a decision accepted in a settled plan and not built yet (decisions only)"
+    )
     o = memory_ops.add_parser("find", help="entries with any of the tags and all of the text terms")
     o.add_argument("--kind", choices=sorted(memory.KINDS))
     o.add_argument("--tags", help="comma-separated; any of them")
@@ -857,6 +864,9 @@ def build_parser() -> argparse.ArgumentParser:
     o.add_argument("id", help="slug or alias")
     o.add_argument("--reason", required=True, help="why it no longer holds")
     o.add_argument("--by", help="the entry that replaces it")
+    o = memory_ops.add_parser("implemented", help="an intent decision is built: it becomes active")
+    o.add_argument("id", help="slug or alias")
+    o.add_argument("--ref", help="issue that built it")
     o = memory_ops.add_parser("import", help="write entries from JSON lines; all are checked before any is written")
     o.add_argument("--json", required=True, metavar="FILE", help="one JSON object per line, or - for stdin")
     o = memory_ops.add_parser("load", help="what a session start reads, per gotchas_load")

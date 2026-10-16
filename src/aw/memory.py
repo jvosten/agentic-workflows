@@ -21,11 +21,12 @@ from typing import Any
 from aw.config import AwError, Config
 
 KINDS = {"gotcha": "gotchas", "decision": "decisions"}
-STATUSES = ("active", "retired")
+STATUSES = ("active", "intent", "retired")  # intent: a decision accepted in a plan, not built yet
 FIELDS = ("title", "tags", "status", "superseded_by", "aliases", "date", "issue")
 LOG = ".agents/gotchas-experiment.log"
 SLUG = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")  # what slugify produces: the file name, so never a path
 KNOWN_GOTCHAS = "## Known gotchas"
+INTENT_ONLY = "only a decision can be intent: a gotcha records what happened, not what is planned"
 
 
 @dataclass
@@ -59,8 +60,11 @@ class Entry:
         return "---\n" + "\n".join(lines) + "\n---\n\n" + self.body.strip() + "\n"
 
     def compact(self) -> str:
-        retired = f" (retired → {self.superseded_by or 'nothing'})" if self.status == "retired" else ""
-        return f"{self.slug} · {self.title}{retired}"
+        marks = {
+            "retired": f" (retired → {self.superseded_by or 'nothing'})",
+            "intent": " (intent: accepted, not built yet)",
+        }
+        return f"{self.slug} · {self.title}{marks.get(self.status, '')}"
 
 
 def directory(cfg: Config, kind: str) -> Path:
@@ -106,6 +110,8 @@ def _entry(kind: str, slug: str, meta: dict[str, Any], body: str) -> Entry:
     status = text("status") or "active"
     if status not in STATUSES:
         raise ValueError(f"status must be one of {', '.join(STATUSES)}, not {status!r}")
+    if status == "intent" and kind != "decision":
+        raise ValueError(INTENT_ONLY)
     return Entry(
         kind=kind,
         slug=slug,
@@ -190,7 +196,11 @@ def _taken(cfg: Config, slug: str) -> str | None:
     return next((kind for kind in KINDS if (directory(cfg, kind) / f"{slug}.md").exists()), None)
 
 
-def add(cfg: Config, kind: str, title: str, text: str, tags: list[str], issue: str | None) -> Path:
+def add(
+    cfg: Config, kind: str, title: str, text: str, tags: list[str], issue: str | None, intent: bool = False
+) -> Path:
+    if intent and kind != "decision":
+        raise AwError(INTENT_ONLY)
     _check_tags(cfg, kind, tags)
     slug = slugify(title)
     path = directory(cfg, kind) / f"{slug}.md"
@@ -199,7 +209,8 @@ def add(cfg: Config, kind: str, title: str, text: str, tags: list[str], issue: s
     if taken:
         raise AwError(f"{slug} exists as a {taken}; slugs are unique across kinds: a more specific title")
     path.parent.mkdir(parents=True, exist_ok=True)
-    entry = Entry(kind, slug, title, tags, date=date.today().isoformat(), issue=issue or "", body=text)
+    status = "intent" if intent else "active"
+    entry = Entry(kind, slug, title, tags, status, date=date.today().isoformat(), issue=issue or "", body=text)
     with path.open("x") as handle:  # exclusive: never overwrite an entry written in the meantime
         handle.write(entry.text())
     return path
@@ -237,6 +248,19 @@ def supersede(cfg: Config, ref: str, reason: str, by: str | None) -> Path:
         by = successor.slug
     entry.status, entry.superseded_by = "retired", by or ""
     entry.body = entry.body.rstrip() + f"\n\n_Retired {date.today().isoformat()}: {reason}_"
+    path = directory(cfg, entry.kind) / f"{entry.slug}.md"
+    path.write_text(entry.text())
+    return path
+
+
+def implemented(cfg: Config, ref: str, issue: str | None) -> Path:
+    """An intent decision is built now: it becomes active, with a dated note naming the issue that built it."""
+    entry = resolve(cfg, ref)
+    if entry.status != "intent":
+        raise AwError(f"{entry.slug} is {entry.status}, not intent")
+    entry.status = "active"
+    built = f"_Implemented {date.today().isoformat()}" + (f" ({issue})" if issue else "") + "_"
+    entry.body = entry.body.rstrip() + "\n\n" + built
     path = directory(cfg, entry.kind) / f"{entry.slug}.md"
     path.write_text(entry.text())
     return path
@@ -324,7 +348,7 @@ def start_text(cfg: Config, has_plan: bool) -> str:
         if active:
             parts.append("# Gotchas\n\n" + "\n\n".join(f"## {e.title}\n\n{e.body}" for e in active))
     if not has_plan:
-        decisions = [e.compact() for e in entries(cfg, "decision") if e.status == "active"]
+        decisions = [e.compact() for e in entries(cfg, "decision") if e.status != "retired"]
         if decisions:
             parts.append(
                 "Decisions in force (`aw memory show <id>` for one; do not reopen them):\n"

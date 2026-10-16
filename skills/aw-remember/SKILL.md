@@ -1,7 +1,7 @@
 ---
 name: aw-remember
 description: Record a decision or a gotcha in the project's memory - one file per entry under .agents/memory, tagged, so later sessions find it. Use when the user says "remember this", "note that down", or wants a decision or pitfall kept for later sessions.
-allowed-tools: Bash(~/.agents/bin/aw config) Bash(~/.agents/bin/aw session) Bash(~/.agents/bin/aw memory add:*) Bash(~/.agents/bin/aw memory find:*) Bash(~/.agents/bin/aw memory show:*) Bash(~/.agents/bin/aw memory tags:*) Bash(~/.agents/bin/aw memory supersede:*)
+allowed-tools: Bash(~/.agents/bin/aw config) Bash(~/.agents/bin/aw session) Bash(~/.agents/bin/aw memory add:*) Bash(~/.agents/bin/aw memory find:*) Bash(~/.agents/bin/aw memory show:*) Bash(~/.agents/bin/aw memory tags:*) Bash(~/.agents/bin/aw memory supersede:*) Bash(~/.agents/bin/aw memory implemented:*)
 metadata:
   package: agentic-workflows
 ---
@@ -16,11 +16,13 @@ Put one fact into the project's committed memory, now, while it is fresh.
 
 | Kind | What it is | Where it goes |
 |---|---|---|
-| **gotcha** | External tool behavior that bites: a symptom, its cause, the fix. A version pin, an API quirk, an ordering rule, a tool that lies. | `aw memory add gotcha` |
-| **decision** | What the project settled, and why it won over the alternatives. | `aw memory add decision` |
+| **gotcha** | External tool behavior that bit: a symptom someone saw, a cause they verified, a fix they tested. A version pin, an API quirk, an ordering rule, a tool that lies. | `aw memory add gotcha` |
+| **decision** | What the project settled, and why it won over the alternatives. Settled: the user approved it, not one answer in a plan still being drafted. | `aw memory add decision`; `--intent` while nothing builds it yet |
 | **rule** | A workflow pitfall that bites whatever the tool: "never commit generated files", "run X before Y". | Not memory: propose the rule text for `instructions_file`; the user decides. |
 
 Drop: anything derivable from the code, personal preferences, secrets of any kind. Not sure it will matter next month → say so and stop.
+
+Not memory yet, keep it in the plan: a pitfall you only predict, what a planning probe showed, a hypothesis, an alternative still open, a decision the user has not approved. It becomes a gotcha when implementation, debugging or operation runs into it, and a decision when the plan has settled and the user approved it.
 
 ## 2. Check for an entry that already covers it
 
@@ -57,7 +59,8 @@ An existing entry says something weaker, narrower, or now wrong → write the ne
   What to do instead, concretely.
   ```
 
-- **Decision body**: what was decided, the reason it won, the alternatives it beat, and what would reopen it.
+- **Decision body**: what was decided, the reason it won, the alternatives it beat, and what would reopen it. It came from a plan → link the plan; do not copy its contract.
+- **Intent**: a decision accepted but not built → `--intent`. It is marked `(intent: accepted, not built yet)` in `find` and `load`, so no session reads it as current behavior. The session that builds it runs `~/.agents/bin/aw memory implemented <id> --ref <issue>`.
 - `--ref`: the issue of the current session (`aw session` prints it) when there is one.
 
 ## 4. Confirm

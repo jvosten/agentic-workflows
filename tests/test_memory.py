@@ -87,6 +87,38 @@ def test_find_show_tags_and_supersede(vocab, tmp_path, capsys):
     assert "_Retired " in capsys.readouterr().out
 
 
+def test_an_intent_decision_is_marked_until_it_is_implemented(vocab, tmp_path, capsys):
+    args = ["memory", "add", "decision", "--title", "Plans live in git", "--body-file", body(tmp_path, "Why.\n")]
+    assert cli.main([*args, "--intent", "--ref", "12"]) == 0
+    text = (vocab / ".agents/memory/decisions/plans-live-in-git.md").read_text()
+    assert 'status: "intent"' in text
+    capsys.readouterr()
+
+    assert cli.main(["memory", "find", "--kind", "decision", "--compact"]) == 0
+    assert capsys.readouterr().out == "- plans-live-in-git · Plans live in git (intent: accepted, not built yet)\n"
+    assert cli.main(["memory", "load"]) == 0
+    assert "- plans-live-in-git · Plans live in git (intent: accepted, not built yet)" in capsys.readouterr().out
+
+    assert cli.main(["memory", "implemented", "plans-live-in-git", "--ref", "14"]) == 0
+    assert capsys.readouterr().out == "implemented .agents/memory/decisions/plans-live-in-git.md\n"
+    text = (vocab / ".agents/memory/decisions/plans-live-in-git.md").read_text()
+    assert 'status: "active"' in text and "_Implemented " in text and "(14)_" in text
+    assert cli.main(["memory", "find", "--kind", "decision", "--compact"]) == 0
+    assert capsys.readouterr().out == "- plans-live-in-git · Plans live in git\n"
+
+    assert cli.main(["memory", "implemented", "plans-live-in-git"]) == 1
+    assert "plans-live-in-git is active, not intent" in capsys.readouterr().err
+
+
+def test_only_a_decision_can_be_intent(vocab, tmp_path, capsys):
+    args = ["memory", "add", "gotcha", "--title", "Flux hangs", "--tags", "flux", "--body-file", body(tmp_path, "x\n")]
+    assert cli.main([*args, "--intent"]) == 1
+    assert "only a decision can be intent" in capsys.readouterr().err
+    line = json.dumps({"kind": "gotcha", "title": "Flux hangs", "tags": ["flux"], "status": "intent"})
+    assert cli.main(["memory", "import", "--json", body(tmp_path, line + "\n")]) == 1
+    assert "only a decision can be intent" in capsys.readouterr().err
+
+
 def test_import_validates_everything_before_writing(vocab, capsys):
     lines = [
         {
@@ -225,7 +257,7 @@ def test_slugs_are_unique_across_decisions_and_gotchas(vocab, tmp_path, capsys):
     [
         ("tags: [flux, sops]", 'tags must be a JSON list of strings, like ["git", "gh"]'),
         ('tags: "flux"', 'tags must be a JSON list of strings, like ["git", "gh"]'),
-        ('status: "gone"', "status must be one of active, retired"),
+        ('status: "gone"', "status must be one of active, intent, retired"),
         ("title: 12", "title must be a string"),
         ('aliases: [{"n": 1}]', "aliases must be a JSON list of strings"),
         ('superseded_by: ["other"]', "superseded_by must be a string"),

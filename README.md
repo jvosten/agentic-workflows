@@ -81,18 +81,19 @@ What the project learned is committed under `memory_dir` (default `.agents/memor
 | Path | Holds |
 |---|---|
 | `gotchas/<slug>.md` | External tool behavior that cost someone time: symptom, cause, fix |
-| `decisions/<slug>.md` | What the project settled, and why it won |
+| `decisions/<slug>.md` | What the project settled, and why it won; `intent` while it is accepted but not built |
 | `tags.toml` | The tag vocabulary: `flux = "Flux CD: kustomizations, HelmReleases"` |
 
 Each file has a small frontmatter (title, tags, status, aliases, date, issue), one JSON value per field; a value of the wrong type, such as a YAML list `tags: [git, gh]`, is an error that names the file and the field. The slug comes from the title and is the entry's permanent id, unique across decisions and gotchas; numbers from an older numbering live on as aliases (`aw memory show 95`). Titles are claims (`boto3 is pinned below 1.36`): plans list entries by title alone. Entries are retired, never deleted. Parallel sessions write different files, so they never conflict. A workflow pitfall that bites whatever the tool is not a gotcha but a rule for `instructions_file`.
 
 | Command | Does |
 |---|---|
-| `aw memory add <gotcha\|decision> --title T --tags a,b --body-file F [--ref ID]` | Writes one entry; unknown tags are refused, a gotcha needs one, and a slug taken by either kind is refused |
+| `aw memory add <gotcha\|decision> --title T --tags a,b --body-file F [--ref ID] [--intent]` | Writes one entry; unknown tags are refused, a gotcha needs one, and a slug taken by either kind is refused. `--intent` (decisions only): accepted, not built yet |
 | `aw memory find [--kind K] [--tags a,b] [--text terms…] [--compact]` | Entries with any of the tags and all of the terms; `--compact` prints `id · title` |
 | `aw memory show <id\|alias>` | One entry |
 | `aw memory tags [-v]` | The vocabulary with the number of active gotchas per tag |
 | `aw memory supersede <id> --reason R [--by ID]` | Retires an entry |
+| `aw memory implemented <id> [--ref ID]` | An intent decision is built: it becomes active, with a dated note |
 | `aw memory import --json F` | Writes entries from JSON lines (`kind`, `title`, `slug`, `tags`, `aliases`, `date`, `issue`, `body` or `sections`); every line is checked before any file is written: a `slug` must look like one made from a title, and an existing entry is never overwritten |
 | `aw memory load [--plan]` | What a session start reads |
 | `aw memory log --relevant IDS --missed IDS` | One line for the gotchas experiment (gitignored) |
@@ -101,7 +102,9 @@ Converting an existing pitfalls table or decision log is a matter of producing t
 
 **Loading.** `gotchas_load = full` (default) loads every active gotcha at session start. `gotchas_load = tags` loads only the tags that have gotchas, with counts (about 150 tokens); `/aw-plan-story` pulls the gotchas matching the story's tags into the plan as `id · title` lines, and the session looks up the rest when a tool errors. The decision index goes into the plan; a session without a plan loads it at start. `tags` is an experiment: `/aw-finalize` records per session which gotchas mattered and which bit although they existed (`aw memory log`), and the defaults follow the result.
 
-Writers: `aw-plan-story` after accepted grilling decisions that outlive the story, `aw-finalize` for gotchas the session paid for, `/aw-remember` any time in between. Entries are written in the session worktree, so they are reviewed and merged with the work that taught them. `aw doctor` checks unknown tags, retired entries pointing nowhere and aliases claimed twice, and says how many tokens a session start loads.
+**Plan or memory.** A plan holds what is still provisional: hypotheses, alternatives, open questions, probe results, predicted pitfalls. Memory holds what held up. A gotcha is empirical: a symptom someone hit in implementation, debugging or operation, with a verified cause and a tested fix; a probe while planning is plan evidence, not a gotcha. A decision enters memory once, after the user approved the settled plan, never after a single grilling answer, and links the plan instead of copying it. Until something builds it, it is `intent` and every listing marks it `(intent: accepted, not built yet)`, so no session reads planned behavior as existing; the session that builds it runs `aw memory implemented`. A revised plan supersedes an entry, never adds a second one.
+
+Writers: `aw-plan-story` once the plan is approved, for decisions that outlive the story, `aw-finalize` for gotchas the session paid for and intents it built, `/aw-remember` any time in between. Entries are written in the session worktree, so they are reviewed and merged with the work that taught them. `aw doctor` checks unknown tags, retired entries pointing nowhere and aliases claimed twice, and says how many tokens a session start loads.
 
 ## Backlog
 
@@ -262,7 +265,7 @@ How states, boards and the hook fit together on each tracker: [docs/boards.md](d
 | `aw plan path <ref> [--slug S]` | Plan file of a story or subtask (subtask: through its parent); `--slug` composes the path to write |
 | `aw plan state <ref>` | What exists for the issue: plan file, subtasks |
 | `aw template <story\|subtask\|plan>` | Print a document template, project override from `templates` |
-| `aw memory add\|find\|show\|tags\|supersede\|import\|load\|log` | Project memory; see [Project memory](#project-memory) |
+| `aw memory add\|find\|show\|tags\|supersede\|implemented\|import\|load\|log` | Project memory; see [Project memory](#project-memory) |
 | `aw backlog add --title T --body-file F` | Add an item to `backlog_file`, matching the file's item shape |
 | `aw backlog list` / `aw backlog pop --title T` | Item titles; remove one (sent or discarded). An emptied inbox is deleted |
 | `aw doctor [-v]` | Check installation, skill frontmatter, project config, tools, tracker auth; one line per area plus every problem, `-v` (`make doctor V=1`) lists passing checks too |
