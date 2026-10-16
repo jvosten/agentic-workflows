@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from aw import finish, forge, session, start_task
+from aw import finish, forge, rollup, session, start_task, trackers
 from aw.config import AwError, git, load
 
 
@@ -290,3 +290,48 @@ def test_finish_after_main_moved_on_since_the_last_part(started, repo, tmp_path,
     log = finish.run(load(), session.read(), None)
     assert log[0] == f"nothing left to merge: {branch} has no changes against main"
     assert not wt.exists()
+
+
+def branch_sets_hook_and_gate(wt, marker):
+    config = wt / ".agents/aw.toml"
+    config.write_text(config.read_text() + f'on_merge = "touch {marker}"\nmerge_gate = "auto"\n')
+    git("commit", "-qam", "chore: hooks", cwd=wt)
+    git("push", "-q", "origin", "HEAD", cwd=wt)
+
+
+def test_finish_ignores_a_hook_and_a_gate_the_branch_sets(started, repo, tmp_path, monkeypatch):
+    wt, branch, marker = Path(started["worktree"]), started["branch"], tmp_path / "hook-ran"
+    branch_sets_hook_and_gate(wt, marker)
+    monkeypatch.chdir(wt)
+    monkeypatch.setenv("AW_FORGE", "github")
+    merge_by_hand(repo, branch)  # merged on the forge: the last merge, so on_merge would run
+    head = git("rev-parse", "HEAD", cwd=wt)
+    monkeypatch.setattr(forge, "merged", lambda kind, b, cwd: [forge.MergeRequest("7", "u", head=head)])
+    cfg = load()
+    assert cfg.get("merge_gate") == "approve"
+    log = finish.run(cfg, session.read(), None)
+    assert log[:2] == ["ignored from the branch: merge_gate, on_merge", "#7 was merged outside aw"]
+    assert not marker.exists()
+
+
+def test_merge_ignores_a_hook_the_branch_sets(started, repo, tmp_path, monkeypatch):
+    wt, marker = Path(started["worktree"]), tmp_path / "hook-ran"
+    branch_sets_hook_and_gate(wt, marker)
+    monkeypatch.chdir(wt)
+    merge_by_hand(repo, started["branch"])
+    log = finish.merge(load(), session.read(), None)
+    assert log[0] == "ignored from the branch: merge_gate, on_merge"
+    assert not marker.exists()
+
+
+def test_a_sandboxed_session_refuses_to_merge_finish_or_close(started, monkeypatch):
+    monkeypatch.chdir(started["worktree"])
+    monkeypatch.setenv("AW_SANDBOXED", "true")
+    cfg, meta = load(), session.read()
+    for what, step in (
+        ("aw finish", lambda: finish.run(cfg, meta, None)),
+        ("aw merge", lambda: finish.merge(cfg, meta, None)),
+        ("aw issue rollup --close", lambda: rollup.close(cfg, trackers.get(cfg), "12")),
+    ):
+        with pytest.raises(AwError, match=f"sandboxed: {what} runs on the host"):
+            step()

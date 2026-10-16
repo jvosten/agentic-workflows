@@ -110,6 +110,7 @@ def report(tracker: Tracker, issue: str, result: Decision) -> str:
 
 def close(cfg: Config, tracker: Tracker, issue: str) -> list[str]:
     """Close issue's story as done, with a comment naming its children; refuses unless the decision is CanClose."""
+    cfg.on_host("aw issue rollup --close")
     result = check(cfg, tracker, issue)
     if not isinstance(result, CanClose):
         raise AwError(f"{report(tracker, issue, result)}; nothing closed")

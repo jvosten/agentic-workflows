@@ -149,6 +149,8 @@ def run(assume_yes: bool, sets: list[str]) -> Report:
         key, sep, text = item.partition("=")
         if not sep or key not in schema:
             raise AwError(f"--set expects KEY=VALUE with a known key: {item!r}")
+        if schema[key].get("env_only"):
+            raise AwError(f"{key} is set by the environment only (AW_{key.upper()}), not in {PROJECT_FILE}")
         overrides[key] = parse_text(key, schema[key], text)
 
     detected = detect(root, schema)

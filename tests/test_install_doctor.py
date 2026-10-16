@@ -1,5 +1,6 @@
 import os
 import stat
+from pathlib import Path
 
 import pytest
 
@@ -83,11 +84,12 @@ def test_doctor_healthy(env, repo, tmp_path):
 
 def test_doctor_reports_problems(env, repo):
     (repo / ".agents").mkdir()
-    (repo / ".agents/aw.toml").write_text('instructions_file = "MISSING.md"\nbogus = 1\n')
+    (repo / ".agents/aw.toml").write_text('instructions_file = "MISSING.md"\nbogus = 1\nsandboxed = true\n')
     results = {msg: level for level, msg in doctor.run()}
     assert results[".agents/aw.toml: aw_version missing; run `aw init`"] == "fail"
     assert results["instructions_file MISSING.md not found"] == "fail"
     assert results["project: unknown key 'bogus'"] == "warn"
+    assert results["project: sandboxed is set by the environment only (AW_SANDBOXED); ignored"] == "warn"
     assert any(level == "fail" and "run `aw install`" in msg for msg, level in results.items())
 
 
@@ -153,3 +155,20 @@ def test_doctor_names_a_template_outside_the_checkout(env, repo, tmp_path):
     (repo / ".agents/aw.toml").write_text(f'forge = "github"\ntemplates = {{ mr = "{shared}" }}\n')
     results = {msg: level for level, msg in doctor.run()}
     assert results[f"merge request template: {shared}"] == "ok"
+
+
+def test_doctor_in_a_worktree_names_the_keys_it_ignores_from_the_branch(repo, tmp_path, monkeypatch):
+    from aw import start_task
+    from aw.config import load
+
+    (repo / ".agents").mkdir()
+    (repo / ".agents/aw.toml").write_text(f'worktree_root = "{tmp_path}/wt"\n')
+    git("add", ".", cwd=repo)
+    git("commit", "-qm", "cfg", cwd=repo)
+    git("push", "-q", "origin", "main", cwd=repo)
+    wt = Path(start_task.run(load(), "feat", "thing", None)["worktree"])
+    config = wt / ".agents/aw.toml"
+    config.write_text(config.read_text() + 'merge_method = "squash"\n')
+    monkeypatch.chdir(wt)
+    infos = [msg for level, msg in doctor.check_project() if level == "info"]
+    assert any(msg.startswith("ignored from the branch: merge_method;") for msg in infos)
