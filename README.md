@@ -197,6 +197,10 @@ aw doctor
 
 Later layers win. `aw config --sources` shows which layer set each value. All keys, types and help texts are in [`src/aw/schema.toml`](src/aw/schema.toml).
 
+**Trusted keys.** `merge_gate`, `merge_method`, `on_start`, `on_merge` and `on_issue_status` decide what runs or merges on the host. In a session worktree their project value comes from the primary checkout's `.agents/aw.toml`, not from the branch's: a branch, perhaps written by an agent, never picks its own merge gate or hooks. The user, local and env layers apply as usual; `aw config --sources` shows such a value as `primary`. A branch that changes one of them takes effect once it has merged; until then `aw finish`, `aw merge` and `aw doctor` print `ignored from the branch: <keys>`.
+
+**Sandboxed sessions.** A sandbox runner sets `AW_SANDBOXED=1` (env only; a config file cannot set it). `aw finish`, `aw merge` and `aw issue rollup --close` then refuse with `sandboxed: <command> runs on the host`: the session pushes its branch, and the host merges, with its own configuration. This is a contract for runners, not a security boundary.
+
 When a key changes shape, `schema.toml` lists a migration (rename, and a rewrite of the value where its meaning changed). A config file in the old shape keeps working: loading applies the migration in memory, `aw doctor` reports it as pending, and `aw init` writes it into `.agents/aw.toml`. Example: `on_issue_start = "make setup"` becomes `on_start = "[ -n {issue} ] && make setup"`, which still runs only when the session has an issue. Since `aw` quotes hook placeholder values itself, a second migration removes quotes written around a placeholder (`sync.sh "{status_name}"` becomes `sync.sh {status_name}`); a placeholder inside a longer quoted text (`"merged {pr}"`) cannot be rewritten safely, and `aw doctor` warns about it until it is moved out of the quotes.
 
 ## Sessions
