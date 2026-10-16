@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.11 — 2026-10-16 (#12)
+
+### Added
+
+- `aw mr next` prints the number the next merge request gets, and `aw mr create --expect N` refuses before the
+  create when it moved, or exits 1 naming the line to fix when a race gave the request another. `aw-finalize` writes
+  the changelog entry before it commits and opens the request, so the entry is in the request's first pushed state
+  and a review bot that runs once on open finds it; no `docs: changelog for #N` commit follows.
+
 ## 0.1.10 — 2026-10-16
 
 ### Fixed
