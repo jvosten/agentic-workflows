@@ -269,30 +269,6 @@ This repo's own hardening plan hit the second set right after it was written (20
 
 ---
 
-### [HIGH] Changelog entry lands before the pull request is opened
-
-**Context:** `aw-finalize` step 8 adds the changelog entry after the merge request exists, because the entry names the PR number. It lands as a second commit (`docs: changelog for #N`) after the PR was opened. Review bots that run once on open (homelab's claude-review triggers on `pull_request: [opened, reopened]`) review the diff without the entry and flag "CHANGELOG missing" on every PR (homelab #333, #335). The finding is noise, and the session then answers it by hand each time. The work also ships as two commits where one would do.
-
-**Problem:** the PR number is unknown until the PR exists, so the entry comes late, and every reviewer that looks at the opening diff sees an incomplete change.
-
-**Evidence for "number up front":** this repository's PRs #2–#5 had their changelog entry, `(#N)` included, in the commit pushed before `aw mr create`: the number was the expected next one, and it held each time. Nothing checked it.
-
-**Scope:** decide one of these, then make `aw-finalize` follow it:
-- **Draft first:** `aw mr create --draft`, write the entry with the real number into the same commit series, push, then `aw mr ready`. Needs the project's review trigger to fire on `ready_for_review` and skip drafts; `aw doctor` could detect a review workflow that triggers only on `opened` and say so.
-- **Entry without the PR number:** the entry names the issue only; the PR is reachable from the issue's closing reference. A format change for projects whose changelog names PRs.
-- **Number up front:** read the repository's next issue/PR number before creating, write it into the entry, and have `aw mr create` check that the created number matches (a mismatch only on a race; then fix the line before review starts).
-
-In every case the entry is in the commits that exist when the PR opens, and the changelog is not a separate commit.
-
-**Acceptance criteria:**
-- A PR opened by `aw-finalize` contains its changelog entry in its first pushed state.
-- No session produces a `docs: changelog for #N` commit after the PR was opened.
-- A review bot that runs on open finds the entry.
-
-**Effort:** small to medium. Skill order plus, depending on the option, `aw mr ready` or a number check in `aw mr create`.
-
----
-
 ### [MEDIUM] Text-link children only from task lists that hold child refs
 
 **Context:** Homelab live test, 2026-10-07: `aw issue children 323` and `aw plan state 323` report #162 as a `[text link]` child of story #323. The story's acceptance criterion "- [ ] Phase epics #162–#165 are closed; …" is a checkbox line with an issue reference, and the GitHub adapter's `TASK_REF` pattern reads every such line as a task-list child. Acceptance criteria and checklists that name other issues are common, so `--text-only` migrations and `aw-to-subtasks` mappings get false children; `aw-to-subtasks` had to explain it away by hand.

@@ -115,6 +115,67 @@ def test_create_never_opens_a_second_request(branch, tmp_path, monkeypatch, caps
     assert capsys.readouterr().out == "#8 https://x/pull/8\n"
 
 
+def test_next_number_follows_the_forge_sequence(tmp_path, monkeypatch):
+    calls = []
+
+    def github(args, cwd, stdin=None):
+        calls.append(args)
+        nodes = {"issues": [{"number": 41}], "pullRequests": [{"number": 43}], "discussions": []}
+        return json.dumps({"data": {"repository": {k: {"nodes": v} for k, v in nodes.items()}}})
+
+    monkeypatch.setattr(forge, "_run", github)
+    assert forge.next_number("github", tmp_path) == "44"  # issues, pull requests and discussions share one sequence
+    assert calls[0][:3] == ["gh", "api", "graphql"]
+
+    monkeypatch.setattr(
+        forge, "_run", lambda args, cwd, stdin=None: json.dumps({"data": {"repository": {"issues": {"nodes": []}}}})
+    )
+    assert forge.next_number("github", tmp_path) == "1"  # a new repository; discussions off
+
+    monkeypatch.setattr(forge, "_run", lambda args, cwd, stdin=None: json.dumps([{"iid": 7}]))
+    assert forge.next_number("gitlab", tmp_path) == "8"  # merge requests have their own sequence
+    monkeypatch.setattr(forge, "_run", lambda args, cwd, stdin=None: "[]")
+    assert forge.next_number("gitlab", tmp_path) == "1"
+
+
+def test_mr_next_prints_the_reference(branch, monkeypatch, capsys):
+    monkeypatch.setattr(forge, "next_number", lambda kind, cwd: "12")
+    assert cli.main(["mr", "next"]) == 0
+    assert capsys.readouterr().out == "#12\n"
+
+
+def test_create_expect_refuses_a_moved_number_and_names_a_raced_one(branch, tmp_path, monkeypatch, capsys):
+    git("push", "-qu", "origin", "feat/retries", cwd=branch)
+    body = tmp_path / "body.md"
+    body.write_text("x\n")
+    created = []
+    monkeypatch.setattr(forge, "find_open", lambda kind, b, cwd: None)
+    monkeypatch.setattr(forge, "next_number", lambda kind, cwd: "13")
+    monkeypatch.setattr(forge, "create", lambda *a: created.append(a) or forge.MergeRequest("13", "https://x/pull/13"))
+    argv = ["mr", "create", "--title", "t", "--body-file", str(body)]
+
+    assert cli.main([*argv, "--expect", "#12", "--dry-run"]) == 0
+    assert "expect #12, but the next request is #13" in capsys.readouterr().out
+
+    assert cli.main([*argv, "--expect", "12"]) == 1
+    err = capsys.readouterr().err
+    assert "the next request is #13, not #12: fix the entry that names #12, push, then create with --expect 13" in err
+    assert created == []
+
+    assert cli.main([*argv, "--expect", "#13"]) == 0
+    assert capsys.readouterr().out == "#13 https://x/pull/13\n"
+    assert len(created) == 1
+
+    monkeypatch.setattr(forge, "create", lambda *a: forge.MergeRequest("14", "https://x/pull/14"))  # a race
+    assert cli.main([*argv, "--expect", "13"]) == 1
+    out = capsys.readouterr()
+    assert out.out == "#14 https://x/pull/14\n"
+    assert "#14 opened, not #13 (--expect): change #13 to #14 where it names this request, and push" in out.err
+
+    assert cli.main([*argv, "--expect", "x1"]) == 1
+    assert "--expect takes a request number" in capsys.readouterr().err
+
+
 def test_create_in_a_stacked_session_targets_the_base(branch, tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(session, "read", lambda: {"issue": "", "base": "feat/a"})
     body = tmp_path / "body.md"

@@ -1,8 +1,8 @@
 ---
 name: aw-finalize
-description: Finish an implementation session - document, verify, commit, open the pull request, add the changelog entry, wait for CI, then merge after your approval (or directly with merge_gate = auto) and clean up the worktree. Use only when the user invokes it.
+description: Finish an implementation session - document, verify, add the changelog entry, commit, open the pull request, wait for CI, then merge after your approval (or directly with merge_gate = auto) and clean up the worktree. Use only when the user invokes it.
 disable-model-invocation: true
-allowed-tools: Bash(~/.agents/bin/aw session) Bash(~/.agents/bin/aw config) Bash(~/.agents/bin/aw verify) Bash(~/.agents/bin/aw issue ref:*) Bash(~/.agents/bin/aw template mr) Bash(~/.agents/bin/aw mr create:*) Bash(~/.agents/bin/aw mr update:*) Bash(~/.agents/bin/aw mr view:*) Bash(~/.agents/bin/aw mr checks:*) Bash(~/.agents/bin/aw mr comments:*) Bash(~/.agents/bin/aw memory add:*) Bash(~/.agents/bin/aw memory log:*) Bash(~/.agents/bin/aw memory find:*) Bash(~/.agents/bin/aw memory show:*) Bash(~/.agents/bin/aw memory tags:*) Bash(~/.agents/bin/aw backlog add:*) Bash(~/.agents/bin/aw backlog list) Bash(~/.agents/bin/aw backlog pop:*) Bash(~/.agents/bin/aw issue dupes:*) Bash(~/.agents/bin/aw issue children:*) Bash(~/.agents/bin/aw issue create:*) Bash(~/.agents/bin/aw issue set-parent:*) Bash(~/.agents/bin/aw issue set-status:*) Bash(~/.agents/bin/aw issue rollup:*) Bash(~/.agents/bin/aw restack:*)
+allowed-tools: Bash(~/.agents/bin/aw session) Bash(~/.agents/bin/aw config) Bash(~/.agents/bin/aw verify) Bash(~/.agents/bin/aw issue ref:*) Bash(~/.agents/bin/aw template mr) Bash(~/.agents/bin/aw mr next) Bash(~/.agents/bin/aw mr create:*) Bash(~/.agents/bin/aw mr update:*) Bash(~/.agents/bin/aw mr view:*) Bash(~/.agents/bin/aw mr checks:*) Bash(~/.agents/bin/aw mr comments:*) Bash(~/.agents/bin/aw memory add:*) Bash(~/.agents/bin/aw memory log:*) Bash(~/.agents/bin/aw memory find:*) Bash(~/.agents/bin/aw memory show:*) Bash(~/.agents/bin/aw memory tags:*) Bash(~/.agents/bin/aw backlog add:*) Bash(~/.agents/bin/aw backlog list) Bash(~/.agents/bin/aw backlog pop:*) Bash(~/.agents/bin/aw issue dupes:*) Bash(~/.agents/bin/aw issue children:*) Bash(~/.agents/bin/aw issue create:*) Bash(~/.agents/bin/aw issue set-parent:*) Bash(~/.agents/bin/aw issue set-status:*) Bash(~/.agents/bin/aw issue rollup:*) Bash(~/.agents/bin/aw restack:*)
 metadata:
   package: agentic-workflows
 ---
@@ -75,18 +75,28 @@ With `backlog_home = file`, the items stay in `backlog_file` and are committed w
 
 Non-zero exit → fix the cause and re-run. Do not continue on a failing check.
 
-## 7. Commit and open the merge request
+## 7. Changelog
 
-- Commit in logical units, using the project's commit conventions: `contributing_file` (default `CONTRIBUTING.md`) first, then `instructions_file`, else conventional commits. Push with `git -C <worktree> push -u origin <branch>`.
-- Load the `aw-merge-request` skill to write and open the merge request against `main_branch`, or against the base while the session is stacked. It follows the contribution rules and the merge request template, and `aw mr create` adds the issue's closing line.
+The entry is part of the work: it is in the commits the merge request opens with, so a reviewer or review bot that runs once on open sees it. Never a commit after the request opened.
+
+If `changelog_file` is set: add one entry for this session, matching the file's existing format (position, heading style, level of detail). When the format names the merge request, take its number from
+
+```bash
+~/.agents/bin/aw mr next      # the number the next merge request gets, e.g. #12
+```
+
+and remember it for step 8. `forge = none` → no number; name what the format allows without one.
+
+After checkpoints: one entry for the whole session, naming every part, this one by `aw mr next`. A part already merged it → do not write a second one. It misses later parts → extend it in the final merge request, but never open a merge request just for that.
+
+## 8. Commit and open the merge request
+
+- Commit in logical units, using the project's commit conventions: `contributing_file` (default `CONTRIBUTING.md`) first, then `instructions_file`, else conventional commits. The changelog entry goes with them, not in a commit of its own after the request. Push with `git -C <worktree> push -u origin <branch>`.
+- Load the `aw-merge-request` skill to write and open the merge request against `main_branch`, or against the base while the session is stacked. It follows the contribution rules and the merge request template, and `aw mr create` adds the issue's closing line. The entry names a number → pass it as `--expect <N>`.
+- `the next request is #M, not #N` → nothing was created: another request or issue took the number. Change the entry to `#M`, commit, push, and create with `--expect M`.
+- `#M opened, not #N` (exit 1; the request exists) → a race between the check and the create. Change the entry to `#M`, commit and push; the only changelog commit after opening, and only then.
 - `forge = none`: no merge request; tell the user to merge by hand.
 - Nothing left to commit after checkpoints → no merge request; go to step 11. `aw finish` sees that nothing is left to merge, skips the merge and the gate does not apply, and closes the issue itself.
-
-## 8. Changelog
-
-If `changelog_file` is set: add one entry for this session, matching the file's existing format (position, heading style, level of detail) and naming the merge request. Commit and push.
-
-After checkpoints: one entry for the whole session, naming every part. A part already merged it → do not write a second one. It misses later parts → extend it in the final merge request, but never open a merge request just for that.
 
 ## 9. Review and CI
 

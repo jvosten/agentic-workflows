@@ -261,6 +261,9 @@ def _mr(args: argparse.Namespace) -> int:
         if branch == cfg.get("main_branch"):
             raise AwError(f"on {branch}: create the merge request from the session branch")
         body = _body(args.body_file)
+        expect = args.expect.removeprefix(mark) if args.expect else None
+        if expect is not None and not expect.isdigit():
+            raise AwError(f"--expect takes a request number, got {args.expect!r}")
         target = _target(cfg)
         done = [f"{mark}{r.number}" for r in forge.merged(kind, branch, cwd)]
         part = len(done) + 1 if args.part else None
@@ -272,6 +275,8 @@ def _mr(args: argparse.Namespace) -> int:
                 + (f" part={part}" if part else "")
             )
             print(body, end="" if body.endswith("\n") else "\n")
+            if expect and (upcoming := forge.next_number(kind, cwd)) != expect:
+                print(f"expect {mark}{expect}, but the next request is {mark}{upcoming}")
             return 0
         try:
             unpushed = git("rev-list", "--count", "@{upstream}..HEAD", cwd=cwd)
@@ -282,9 +287,24 @@ def _mr(args: argparse.Namespace) -> int:
         if existing := forge.find_open(kind, branch, cwd):
             print(f"{mark}{existing.number} already open: {existing.url} (aw mr update changes it)")
             return 0
+        if expect and (upcoming := forge.next_number(kind, cwd)) != expect:  # moved since: nothing is created
+            raise AwError(
+                f"the next request is {mark}{upcoming}, not {mark}{expect}: fix the entry that names {mark}{expect}, "
+                f"push, then create with --expect {upcoming}"
+            )
         made = forge.create(kind, branch, target, args.title, body, args.draft, cwd)
         print(f"{mark}{made.number} {made.url}")
+        raced = expect is not None and made.number != expect
+        if raced:  # another request or issue took the number between the check and the create
+            print(
+                f"error: {mark}{made.number} opened, not {mark}{expect} (--expect): change {mark}{expect} to "
+                f"{mark}{made.number} where it names this request, and push",
+                file=sys.stderr,
+            )
         _check_closes(cfg, kind, f"{mark}{made.number}", made.number, part)
+        return 1 if raced else 0
+    if args.op == "next":
+        print(f"{mark}{forge.next_number(kind, cwd)}")
     elif args.op == "update":
         body = _body(args.body_file) if args.body_file else None
         if args.title is None and body is None:
@@ -773,7 +793,14 @@ def build_parser() -> argparse.ArgumentParser:
     o.add_argument(
         "--part", action="store_true", help="one part of a multi-merge session: references the issue without closing it"
     )
+    o.add_argument(
+        "--expect",
+        metavar="N",
+        help="the number already written down (aw mr next, e.g. in the changelog): refuse when the next request "
+        "would get another; exit 1 when a race gave it another anyway",
+    )
     o.add_argument("--dry-run", action="store_true")
+    mr_ops.add_parser("next", help="the number the next merge request gets, for a changelog entry written first")
     o = mr_ops.add_parser("update", help="replace title and description")
     o.add_argument("ref", nargs="?", help="number or branch (default: the current branch)")
     o.add_argument("--title")
