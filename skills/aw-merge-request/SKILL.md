@@ -52,9 +52,11 @@ Fill the template following [Sections](#sections). Do not add the issue's closin
 ## 5. Create or update
 
 ```bash
-~/.agents/bin/aw mr create --title "<title>" --body-file - [--draft] [--part] --dry-run
-~/.agents/bin/aw mr create --title "<title>" --body-file - [--draft] [--part]
+~/.agents/bin/aw mr create --title "<title>" --body-file - [--draft] [--part] [--expect <N>] --dry-run
+~/.agents/bin/aw mr create --title "<title>" --body-file - [--draft] [--part] [--expect <N>]
 ```
+
+- `--expect <N>`: the number the changes already name (the changelog entry from `aw mr next`). `create` refuses when the next request would get another, and exits 1 naming the line to fix when a race gave it another anyway; the dry run says when it moved. `/aw-finalize` handles both.
 
 - Standalone: show the title and body and wait for a go before the real create. From `/aw-finalize` or `/aw-checkpoint`: create directly; the merge gate comes later.
 - One part of a multi-merge session (from `/aw-checkpoint`): `--part`. The request then references the issue as `Refs #12 (part N)` instead of closing it; the dry run prints N. Add ` (part N)` to the title unless the rules define titles. Without `--part`, after earlier parts, `aw mr create` lists them (`Earlier parts: #314, #315`) and closes the issue.

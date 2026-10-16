@@ -37,7 +37,7 @@ One session, start to finish:
 2. `/aw-plan-story #12` — reads the issue, its parent, children and the project docs, drafts a plan in session-sized sections, grills it with you, saves it under `.agents/plans/` (see [Plans](#plans)).
 3. `/aw-to-subtasks #12` — one subtask per plan section, reconciled with the subtasks that exist, published after your approval, linked back into the plan.
 4. `/aw-start-task PROJ-13` — creates the branch and worktree, loads that subtask's plan section as a task list, then implements it with you.
-5. `/aw-finalize` — docs, `aw verify`, commit, pull request, changelog entry, review and CI. Then it stops at the green PR and merges only on your go (`merge_gate = approve`, the default; `auto` merges once CI and review are green).
+5. `/aw-finalize` — docs, `aw verify`, changelog entry, commit, pull request, review and CI. Then it stops at the green PR and merges only on your go (`merge_gate = approve`, the default; `auto` merges once CI and review are green).
 
 For design work before planning, `/aw-grill-with-docs` interviews you and keeps `GLOSSARY.md` and `docs/adr/` current.
 
@@ -50,7 +50,7 @@ For design work before planning, `/aw-grill-with-docs` interviews you and keeps 
 | `aw-start-task` | user only | Creates the session worktree via `aw start-task`, loads the plan section, hands over to implementation |
 | `aw-checkpoint` | user or model | Merge one part mid-session: verify, part merge request, CI, gate, `aw merge`, live check, then the session goes on |
 | `aw-merge-request` | user or model | Title and description from `CONTRIBUTING.md`, the merge request template and a show-the-change style; opens or updates it through `aw mr` |
-| `aw-finalize` | user only | Docs, `aw verify`, commit, merge request (`aw-merge-request`), changelog entry, review + CI, your go at the green PR (`merge_gate`), then `aw finish` |
+| `aw-finalize` | user only | Docs, `aw verify`, changelog entry, commit, merge request (`aw-merge-request`), review + CI, your go at the green PR (`merge_gate`), then `aw finish` |
 | `aw-grilling` | user or model | Interview in rounds over a design tree until nothing is assumed |
 | `aw-grill-with-docs` | user only | `aw-grilling` plus `aw-domain-modeling` |
 | `aw-domain-modeling` | user or model | Challenge terms, keep `GLOSSARY.md` and `docs/adr/` current |
@@ -128,7 +128,8 @@ Pushing an item to the tracker: `aw issue dupes <backlog_parent> --terms ...` sh
 
 | Command | Does |
 |---|---|
-| `aw mr create --title T --body-file F [--draft] [--dry-run]` | Opens the request from the current branch against `main_branch` (a stacked session: its base); refuses unpushed work; an open request for the branch is reported, never duplicated; appends the issue's closing line (`Fixes #12`) unless the body already closes exactly that issue (a closing keyword before `#12`; `see #12` or `#123` does not count); then checks what the request will close: the session issue missing is an error, any other issue a warning |
+| `aw mr next` | The number the next request gets (`#12`): one above the newest issue, pull request or discussion on GitHub, merge request on GitLab. `/aw-finalize` writes it into the changelog entry before the request opens, so the entry is in the request's first pushed state |
+| `aw mr create --title T --body-file F [--draft] [--expect N] [--dry-run]` | Opens the request from the current branch against `main_branch` (a stacked session: its base); refuses unpushed work; an open request for the branch is reported, never duplicated; appends the issue's closing line (`Fixes #12`) unless the body already closes exactly that issue (a closing keyword before `#12`; `see #12` or `#123` does not count); then checks what the request will close: the session issue missing is an error, any other issue a warning. `--expect N`: refuses before the create when the next number is not N, and exits 1 when a race gave the request another |
 | `aw mr update [ref] --title T --body-file F` | Replaces title and description; keeps the closing line or the part reference `create` appended, and checks what the request closes, as `create` does |
 | `aw mr view [ref]` | State, the issues it closes, CI, review, unresolved threads, files and lines changed: what the merge gate shows |
 | `aw mr checks [ref] [--watch]` | One line of counts plus the failing and pending checks; `--watch` waits without streaming progress. Exit 0 passed, 1 failed, 2 pending. With CI in the checkout (`.github/workflows/*.yml`, `.gitlab-ci.yml`), no checks reported is `no checks yet` and exit 2, never a pass: `--watch` waits up to two minutes for the first one |
