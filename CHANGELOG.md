@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.12 — 2026-10-16 (#13)
+
+### Added
+
+- Decisions take a status `intent`: accepted in a settled plan, not built yet. `aw memory add decision --intent`
+  writes one, every listing marks it `(intent: accepted, not built yet)`, and `aw memory implemented <id>` makes it
+  active with a dated note. A gotcha cannot be intent; `add` and `import` refuse it.
+
+### Changed
+
+- Memory gets only what held up. `aw-plan-story` writes nothing while a plan is drafted or grilled: probes,
+  hypotheses and predicted pitfalls stay in the plan, and decisions go in once, after the plan is approved, as
+  intent, linking the plan and superseding instead of duplicating. `aw-remember` takes gotchas only from a symptom
+  someone hit; `aw-finalize` marks the intents a session built.
+
 ## 0.1.11 — 2026-10-16 (#12)
 
 ### Added
