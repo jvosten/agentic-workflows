@@ -41,7 +41,7 @@ It syncs `main_branch`, creates branch and worktree, sets up direnv, moves the i
 
 - Read `<worktree>/<instructions_file>`.
 - Plan source, first match: a plan path in the request; `~/.agents/bin/aw plan path <issue>` (for a subtask it resolves the parent story's plan); the issue from `aw issue view`.
-- Project memory, from the worktree: `~/.agents/bin/aw memory load` (add `--plan` when there is a plan). Depending on `gotchas_load` it prints every gotcha, or only the tags that have gotchas; without a plan it adds the decisions in force. With a plan, its **Known gotchas** and **Decisions in force** sections are the memory for this session.
+- Project memory, from the worktree: `~/.agents/bin/aw memory load` (add `--plan` when there is a plan). Depending on `gotchas_load` it prints every gotcha, or only the tags that have gotchas; without a plan it adds the decisions in force. A decision marked `(intent: accepted, not built yet)` binds the design, but the behavior it describes does not exist yet: check the code before relying on it. With a plan, its **Known gotchas** and **Decisions in force** sections are the memory for this session.
 - With `gotchas_load = tags`: before working with a tool that has gotchas, and whenever a tool errors, look first: `aw memory find --tags <tag> --compact` (or `--text <error words>`), then `aw memory show <id>` for the one that fits.
 - The issue is a subtask → work only the plan section whose `**Subtask:**` line names it. No match → ask which section applies.
 - Create one task per plan step. No plan → plan the approach with the user before any code.

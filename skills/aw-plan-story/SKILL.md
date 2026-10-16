@@ -1,7 +1,7 @@
 ---
 name: aw-plan-story
 description: Plan one story - gather the issue, its parent, children and linked docs, draft an implementation plan in session-sized sections, grill it with the user, and save it for /aw-to-subtasks. Use when the user says "plan story", "plan issue #N", "plan PROJ-123", or wants to turn an issue into a session plan.
-allowed-tools: Bash(~/.agents/bin/aw config) Bash(~/.agents/bin/aw template plan) Bash(~/.agents/bin/aw plan path:*) Bash(~/.agents/bin/aw plan state:*) Bash(~/.agents/bin/aw issue view:*) Bash(~/.agents/bin/aw issue children:*) Bash(~/.agents/bin/aw issue list:*) Bash(~/.agents/bin/aw issue search:*) Bash(~/.agents/bin/aw issue update:*) Bash(~/.agents/bin/aw issue comment:*) Bash(~/.agents/bin/aw memory add:*) Bash(~/.agents/bin/aw memory find:*) Bash(~/.agents/bin/aw memory show:*) Bash(~/.agents/bin/aw memory tags:*)
+allowed-tools: Bash(~/.agents/bin/aw memory supersede:*) Bash(~/.agents/bin/aw config) Bash(~/.agents/bin/aw template plan) Bash(~/.agents/bin/aw plan path:*) Bash(~/.agents/bin/aw plan state:*) Bash(~/.agents/bin/aw issue view:*) Bash(~/.agents/bin/aw issue children:*) Bash(~/.agents/bin/aw issue list:*) Bash(~/.agents/bin/aw issue search:*) Bash(~/.agents/bin/aw issue update:*) Bash(~/.agents/bin/aw issue comment:*) Bash(~/.agents/bin/aw memory add:*) Bash(~/.agents/bin/aw memory find:*) Bash(~/.agents/bin/aw memory show:*) Bash(~/.agents/bin/aw memory tags:*)
 metadata:
   package: agentic-workflows
 ---
@@ -68,7 +68,9 @@ A story that fits one session has one section.
 
 ## 5. Grill the plan
 
-Load and follow the `aw-grilling` skill on the draft. After each round, update the plan and record the settled points under **Decisions from grilling**: the question, the decision, and why it won. Unresolved external inputs stay under Open questions. Flag contradictions between the issue, decision records and the code. Do not finalize until the user confirms shared understanding.
+Load and follow the `aw-grilling` skill on the draft. After each round, update the plan and record the settled points under **Decisions from grilling**: the question, the decision, and why it won. Unresolved external inputs stay under Open questions.
+
+The plan is the only record while it is drafted and grilled. Write nothing to project memory in this step: no decision after an answer, no gotcha from a probe. Hypotheses, alternatives, open questions and what a probe showed (a library call that worked, a limit you hit) stay in the plan as evidence; a pitfall you predict is a risk in the plan, not a gotcha. Flag contradictions between the issue, decision records and the code. Do not finalize until the user confirms shared understanding.
 
 ## 6. Write the story back when grilling moved it
 
@@ -88,13 +90,17 @@ The story grew past the size rule in step 3 → go back to that rule instead of 
 ```
 
 - Write the plan to that path, creating directories as needed. An existing plan for the story is updated in place, never duplicated.
-- Decisions from grilling that outlive this story (they bind work beyond it) also go into the project's memory, one entry each:
+- Decisions go into the project's memory once, here, and only after the user approved the settled plan as a whole: not after each answer, not for alternatives still open. Only decisions that outlive this story (they bind work beyond it) and that a later session would otherwise reopen, one entry each:
 
   ```bash
-  ~/.agents/bin/aw memory add decision --title "<the decision as a claim>" [--tags <tag,tag>] --body-file - --ref <id>
+  ~/.agents/bin/aw memory find --kind decision --text <two or three words> --compact    # one already covers it?
+  ~/.agents/bin/aw memory add decision --intent --title "<the decision as a claim>" [--tags <tag,tag>] --body-file - --ref <id>
   ```
 
-  Only after the user accepted them, and only the ones a later session would otherwise reopen.
+  - `--intent`: the plan accepts it, nothing builds it yet. It shows as `(intent: accepted, not built yet)` until the session that builds it runs `aw memory implemented`. Without `--intent` only when the code already does what it says.
+  - Body: the decision, why it won, the alternatives it beat, what would reopen it, and the plan path. Not the plan's contract: the plan stays the one source for steps and details.
+  - An entry already covers it: the same → write nothing; changed by this plan → write the new one and `aw memory supersede <old> --by <new>`. A revised plan never adds a second entry for the same choice.
+- No gotchas from planning. A gotcha needs an experience: a session that hit the symptom, verified the cause and tested the fix.
 - Post a short comment on the issue linking the plan, by its path relative to the repo root: `~/.agents/bin/aw issue comment <id> --body-file -`. `plan_scope = local` → no path; say only that a plan exists and who holds it.
 - Tell the user the next step is `/aw-to-subtasks <id>`.
 

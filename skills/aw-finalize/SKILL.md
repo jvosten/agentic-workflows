@@ -2,7 +2,7 @@
 name: aw-finalize
 description: Finish an implementation session - document, verify, add the changelog entry, commit, open the pull request, wait for CI, then merge after your approval (or directly with merge_gate = auto) and clean up the worktree. Use only when the user invokes it.
 disable-model-invocation: true
-allowed-tools: Bash(~/.agents/bin/aw session) Bash(~/.agents/bin/aw config) Bash(~/.agents/bin/aw verify) Bash(~/.agents/bin/aw issue ref:*) Bash(~/.agents/bin/aw template mr) Bash(~/.agents/bin/aw mr next) Bash(~/.agents/bin/aw mr create:*) Bash(~/.agents/bin/aw mr update:*) Bash(~/.agents/bin/aw mr view:*) Bash(~/.agents/bin/aw mr checks:*) Bash(~/.agents/bin/aw mr comments:*) Bash(~/.agents/bin/aw memory add:*) Bash(~/.agents/bin/aw memory log:*) Bash(~/.agents/bin/aw memory find:*) Bash(~/.agents/bin/aw memory show:*) Bash(~/.agents/bin/aw memory tags:*) Bash(~/.agents/bin/aw backlog add:*) Bash(~/.agents/bin/aw backlog list) Bash(~/.agents/bin/aw backlog pop:*) Bash(~/.agents/bin/aw issue dupes:*) Bash(~/.agents/bin/aw issue children:*) Bash(~/.agents/bin/aw issue create:*) Bash(~/.agents/bin/aw issue set-parent:*) Bash(~/.agents/bin/aw issue set-status:*) Bash(~/.agents/bin/aw issue rollup:*) Bash(~/.agents/bin/aw restack:*)
+allowed-tools: Bash(~/.agents/bin/aw session) Bash(~/.agents/bin/aw config) Bash(~/.agents/bin/aw verify) Bash(~/.agents/bin/aw issue ref:*) Bash(~/.agents/bin/aw template mr) Bash(~/.agents/bin/aw mr next) Bash(~/.agents/bin/aw mr create:*) Bash(~/.agents/bin/aw mr update:*) Bash(~/.agents/bin/aw mr view:*) Bash(~/.agents/bin/aw mr checks:*) Bash(~/.agents/bin/aw mr comments:*) Bash(~/.agents/bin/aw memory add:*) Bash(~/.agents/bin/aw memory log:*) Bash(~/.agents/bin/aw memory implemented:*) Bash(~/.agents/bin/aw memory supersede:*) Bash(~/.agents/bin/aw memory find:*) Bash(~/.agents/bin/aw memory show:*) Bash(~/.agents/bin/aw memory tags:*) Bash(~/.agents/bin/aw backlog add:*) Bash(~/.agents/bin/aw backlog list) Bash(~/.agents/bin/aw backlog pop:*) Bash(~/.agents/bin/aw issue dupes:*) Bash(~/.agents/bin/aw issue children:*) Bash(~/.agents/bin/aw issue create:*) Bash(~/.agents/bin/aw issue set-parent:*) Bash(~/.agents/bin/aw issue set-status:*) Bash(~/.agents/bin/aw issue rollup:*) Bash(~/.agents/bin/aw restack:*)
 metadata:
   package: agentic-workflows
 ---
@@ -39,7 +39,11 @@ Something in this session cost you time and is not visible in the code, then rec
 - external tool behavior (a version pin, an API quirk, a tool that lies) → a gotcha, tagged, with Symptom / Cause / Fix: `~/.agents/bin/aw memory add gotcha --title "<claim>" --tags <tag,tag> --body-file - --ref <issue>`;
 - a workflow pitfall that bites whatever the tool → no memory entry: propose the rule text for `instructions_file` and let the user decide.
 
-It is committed with this session, so it lands in the same review. Nothing cost you time → write nothing.
+Only what this session ran into counts: a symptom you saw, a cause you verified, a fix you tested. A pitfall you only expect goes to the backlog (step 5), not into memory.
+
+This session built a decision recorded as intent (`aw memory find --kind decision --compact` marks them `(intent: …)`) → `~/.agents/bin/aw memory implemented <id> --ref <issue>`. It built it differently → write the new decision and `aw memory supersede <old> --by <new>`.
+
+It is committed with this session, so it lands in the same review. Nothing cost you time and no intent was built → write nothing.
 
 Then record the session for the gotchas experiment (the log is gitignored, one line per session):
 
