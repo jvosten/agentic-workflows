@@ -48,11 +48,11 @@ Deferred features and open checks. Each entry has enough context to be picked up
 
 **Scope:** `aw-to-spec` skill (synthesis of a conversation, no interview, after `mattpocock/skills` `to-spec`), a `spec` template, a committed spec document under `spec_dir` that optionally publishes as an epic, and `aw-to-story` deriving stories from it. Decide the home first: repo document with a tracker pointer, as the planning decision records.
 
-### [LOW] Native blocking links between subtasks
+### [LOW] Native blocking links between issues
 
-**Context:** `aw-to-subtasks` writes blocking edges as a `## Blocked by` section in the body, because Jira link types are per-instance (`Blocks`, `is blocked by`, renamed schemes). GitHub now has native issue dependencies: GraphQL `addBlockedBy` / `removeBlockedBy`, and `blockedBy` / `blocking` on issues (also `gh issue view --json blockedBy,blocking`).
+**Context:** `aw-to-subtasks` writes blocking edges as a `## Blocked by` section in the body, because Jira link types are per-instance (`Blocks`, `is blocked by`, renamed schemes). The story template does the same with `- Blocked by: <id>` under `## Links`. GitHub now has native issue dependencies: GraphQL `addBlockedBy` / `removeBlockedBy`, and `blockedBy` / `blocking` on issues (also `gh issue view --json blockedBy,blocking`). Seen in a real run: an epic with seven ordered stories (workflow-orchestrator, AIDA-1925) carried its order only as body text; the user had to add every Jira link by hand.
 
-**Scope:** `aw issue link <id> blocks <other>`: GitHub through `addBlockedBy`, Jira with link-type discovery, text fallback elsewhere; `aw issue view` shows blocked-by and blocking; `aw doctor` reports the available Jira link types.
+**Scope:** `aw issue link <id> blocks <other>`: GitHub through `addBlockedBy`, Jira with link-type discovery, text fallback elsewhere. Works for stories and subtasks alike; `aw-to-story` and `aw-to-subtasks` call it for each `Blocked by` entry. `aw issue view` shows blocked-by and blocking; `aw doctor` reports the available Jira link types.
 
 ### [MEDIUM] Fetch linked design docs (Confluence)
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.10 — 2026-10-16
+
+### Fixed
+
+- `aw mr view` accepts external issue references returned by GitLab, such as Jira keys, instead of crashing when
+  they have no `iid`; native GitLab issues still use their `iid`.
+
 ## 0.1.9 — 2026-10-15 (#11)
 
 ### Added

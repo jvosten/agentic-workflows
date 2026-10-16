@@ -170,14 +170,14 @@ def body(kind: str, ref: str, cwd: Path) -> str:
 
 
 def closes(kind: str, ref: str, cwd: Path) -> list[str]:
-    """Issue numbers the request closes when it merges, as the forge parsed them from its description."""
+    """Issue references the request closes when it merges, as the forge parsed them from its description."""
     if kind == "github":
         refs = _json(["gh", "pr", "view", ref, "--json", "closingIssuesReferences"], cwd)["closingIssuesReferences"]
         return [str(i["number"]) for i in refs or []]
     if kind == "gitlab":  # from the API documentation, not tested against a live instance
         iid = ref if ref.isdigit() else str(_json(["glab", "mr", "view", ref, "--output", "json"], cwd)["iid"])
         issues = _json(["glab", "api", f"projects/:id/merge_requests/{iid}/closes_issues"], cwd) or []
-        return [str(i["iid"]) for i in issues]
+        return [str(i["iid"] if "iid" in i else i["id"]) for i in issues]
     raise _unsupported(kind)
 
 

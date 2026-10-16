@@ -1,5 +1,6 @@
 import json
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -502,6 +503,51 @@ def test_view_shows_what_the_request_closes(repo, monkeypatch, capsys):
     monkeypatch.setattr(forge.subprocess, "run", fake)
     assert cli.main(["mr", "view", "5"]) == 0
     assert "\ncloses   #12, #162\n" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("issues", "closing_line"),
+    [
+        pytest.param([{"id": "PROJECT-123", "title": "Retry failed requests"}], "#PROJECT-123", id="external"),
+        pytest.param([{"id": 76, "iid": 12}, {"id": 77, "iid": 162}], "#12, #162", id="native"),
+        pytest.param([{"id": 76, "iid": 12}, {"id": "PROJECT-123"}], "#12, #PROJECT-123", id="mixed"),
+        pytest.param([], "nothing", id="empty"),
+        pytest.param(None, "nothing", id="null"),
+    ],
+)
+def test_gitlab_view_closing_references(
+    repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    issues: list[dict[str, str | int]] | None,
+    closing_line: str,
+) -> None:
+    project(repo, 'forge = "gitlab"\ntracker = "jira"\n')
+    view = {
+        "iid": 5,
+        "web_url": "https://example.invalid/group/project/-/merge_requests/5",
+        "title": "fix: retries",
+        "description": "Fixes PROJECT-123",
+        "state": "opened",
+        "changes_count": "1",
+    }
+    fake = FakeProcess(
+        {
+            ("glab", "mr", "view"): (0, json.dumps(view), ""),
+            ("glab", "api", "--paginate", "projects/:id/merge_requests/5/discussions"): (0, "[]", ""),
+            ("glab", "api", "projects/:id/merge_requests/5/closes_issues"): (
+                0,
+                json.dumps(issues),
+                "",
+            ),
+        }
+    )
+    monkeypatch.setattr(forge.subprocess, "run", fake)
+
+    assert cli.main(["mr", "view", "5"]) == 0
+    captured = capsys.readouterr()
+    assert f"\ncloses   {closing_line}\n" in captured.out
+    assert captured.err == ""
 
 
 def test_a_missing_forge_tool_is_an_aw_error(repo, tmp_path, monkeypatch):
