@@ -339,6 +339,26 @@ This repo's own hardening plan hit the second set right after it was written (20
 
 **Done when:** a Jira issue filed with `--field Area=net` has the field set, and an unknown option creates nothing.
 
+---
+
+### [LOW] Show a comment-only review verdict in aw mr view
+
+**Context:** homelab PRs #368 and #370 (2026-10-16). The claude-review GitHub workflow posts its review as an issue comment that ends with a `### Decision` line (`APPROVE`, ...). It cannot submit a formal review. `aw mr view` builds its `review` line from `reviewDecision` (`src/aw/forge.py`, printed at `src/aw/cli.py:342`), so it shows `review   none` while an APPROVE comment exists. The user read `none` as "the review did not run, or aw did not wait long enough".
+
+**Problem:** the merge gate shows `aw mr view` as the review state. A comment-only review is invisible there, and nothing says which commit it covered. In homelab the review workflow runs only on `opened, reopened`, so later pushes (a conflict resolution, a fix the review asked for) are never re-reviewed, and the gate does not show that either.
+
+**Scope:**
+- Detect a comment-only review verdict from a configured bot author (e.g. `claude[bot]`) and a verdict pattern; keep both configurable, not hard-coded.
+- Show it on the `review` line next to the formal state, with the commit it covered or its time against the last push, e.g. `review   none (formal) · claude: APPROVE at 0a0fd77, 2 commits behind`.
+- Leave `reviewDecision` as the formal state; do not count the comment as an approval.
+
+**Acceptance criteria:**
+- With an APPROVE comment from the configured author and no formal review, `aw mr view` shows the verdict and says whether commits came after it.
+- Without such a comment, or without configuration, the output is unchanged.
+- GitLab: same behaviour or a documented "not supported".
+
+**Effort:** small — one comment fetch, one regex and a line format in `mr view`; tests with recorded responses.
+
 ## Considered and not planned
 
 - **Personas and multi-agent roles** (BMAD), **spec-driven phases** (spec-kit), **label-based handoff queues** (zaks-io): full methods of their own; out of scope for a session-workflow standard.
