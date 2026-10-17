@@ -5,6 +5,9 @@
 # when:    ask only if these keys already have these values
 # detect:  name of a detector in init.py that proposes the default
 # default: fallback when nothing else sets the key
+# trusted: decides what runs or merges on the host; in a session worktree the project value comes from the primary
+#          checkout's .agents/aw.toml, never from the branch's
+# env_only: describes where aw runs, not the project; only AW_<KEY> sets it
 #
 # Placeholders, expanded when read: {project} {repo_parent} everywhere;
 # {type} {slug} {date} {issue} in branch_name, worktree_name, on_start ({issue} empty without one; in a name,
@@ -144,6 +147,7 @@ help = "Changelog that aw-finalize adds an entry to (empty: none)"
 type = "choice"
 choices = ["merge", "squash", "rebase"]
 ask = true
+trusted = true
 default = "merge"
 help = "How aw finish merges the pull/merge request"
 
@@ -161,6 +165,7 @@ help = "Contribution rules (commit style, merge request title and sections, labe
 type = "choice"
 choices = ["approve", "auto"]
 ask = true
+trusted = true
 default = "approve"
 help = "approve: aw-finalize stops at the green pull request and waits for your go; auto: it merges once CI and review are green"
 
@@ -251,18 +256,27 @@ help = "Worktree directory name pattern (an existing path is refused)"
 
 [keys.on_start]
 type = "str"
+trusted = true
 default = ""
 help = "Shell command run in the new worktree after every session start, e.g. worktree setup: direnv exec . uv sync"
 
 [keys.on_merge]
 type = "str"
+trusted = true
 default = ""
 help = "Shell command run in the primary checkout after every merge (aw merge and aw finish), e.g. flux reconcile source git flux-system; {pr} {issue} {slug} {type} {date}, {final} = true on the last one"
 
 [keys.on_issue_status]
 type = "str"
+trusted = true
 default = ""
 help = "Shell command run after an issue changes status (aw issue set-status, start-task, finish), e.g. a board move: scripts/board-sync.sh {issue} {status_name}"
+
+[keys.sandboxed]
+type = "bool"
+env_only = true
+default = false
+help = "Set by a sandbox runner (AW_SANDBOXED=1): aw finish, aw merge and aw issue rollup --close refuse, the host runs them"
 
 [keys.pr_close_keyword]
 type = "str"

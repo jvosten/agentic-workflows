@@ -158,15 +158,21 @@ def _on_merge(cfg: Config, meta: dict[str, Any], pr: str, final: bool, log: list
     log.append(f"on_merge: {cmd}" if r.returncode == 0 else f"warning: on_merge exited {r.returncode}: {cmd}")
 
 
+def _ignored(cfg: Config) -> list[str]:
+    """The trusted keys the branch sets and aw did not take: the primary checkout's values decide."""
+    return [f"ignored from the branch: {', '.join(cfg.ignored)}"] if cfg.ignored else []
+
+
 def merge(cfg: Config, meta: dict[str, Any], pr: str | None) -> list[str]:
     """Merge one part and bring the branch to main's tip; worktree, branch and issue stay."""
+    cfg.on_host("aw merge")
     root, main, branch = cfg.root, cfg.get("main_branch"), meta["branch"]
     worktree, kind = Path(meta["worktree"]), cfg.get("forge")
     if branch == main:
         raise AwError(f"on {main}: aw merge runs in a session worktree")
     _refuse_stacked(meta)
     _preflight(cfg, worktree, branch, ignore_inbox=True)
-    log: list[str] = []
+    log = _ignored(cfg)
 
     if kind == "none":
         _merged_by_hand(root, main, branch)
@@ -205,12 +211,13 @@ def run(cfg: Config, meta: dict[str, Any], pr: str | None, close_parent: bool = 
 
     close_parent: also close the issue's parent story, when nothing else keeps it open (rollup.close).
     """
+    cfg.on_host("aw finish")
     root, main, branch = cfg.root, cfg.get("main_branch"), meta["branch"]
     if close_parent and not meta.get("issue"):
         raise AwError("--close-parent needs a session with an issue")
     worktree = Path(meta["worktree"])
     kind = cfg.get("forge")
-    log: list[str] = []
+    log = _ignored(cfg)
     _refuse_stacked(meta)
 
     if backlog.home(cfg) == "tracker" and cfg.get("backlog_file") and (left := backlog.titles(cfg, worktree)):

@@ -70,6 +70,8 @@ It merges the branch's open request, refuses commits the request does not contai
 
 `on_merge` warned (exited non-zero) → stop and report before the live check: checking a system that did not reconcile tells nothing.
 
+`ignored from the branch: <keys>` → this part changes trusted keys (hooks, `merge_gate`, `merge_method`); the merge ran with the primary checkout's values, and the branch's apply now that they are in `main_branch`. Tell the user. `sandboxed: aw merge runs on the host` → stop: the session runs in a sandbox, and the host merges the part; report that it is pushed and green.
+
 ## 7. Live check
 
 What to check: the plan section's **Checks** for this part, and what `instructions_file` says about verifying deployments. Check read-only, the way the project's rules allow (for GitOps: the reconciled resources and their state, not a manual apply).

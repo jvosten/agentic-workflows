@@ -1,8 +1,10 @@
 import tomllib
+from pathlib import Path
 
 import pytest
 
-from aw.config import AwError, dump_toml, load
+from aw import start_task
+from aw.config import AwError, dump_toml, git, load
 
 
 def test_defaults_and_placeholders(repo):
@@ -44,3 +46,23 @@ def test_unknown_keys_reported(repo):
 def test_dump_roundtrip():
     values = {"a": 'quote " and \\ back', "b": True, "c": ["x", "y"], "d": ""}
     assert tomllib.loads(dump_toml(values)) == values
+
+
+def test_keys_that_run_on_the_host_come_from_the_primary_checkout_not_the_session(repo, tmp_path, monkeypatch):
+    (repo / ".agents").mkdir()
+    (repo / ".agents/aw.toml").write_text(f'worktree_root = "{tmp_path}/wt"\nmerge_gate = "approve"\n')
+    git("add", ".", cwd=repo)
+    git("commit", "-qm", "cfg", cwd=repo)
+    git("push", "-q", "origin", "main", cwd=repo)
+    wt = Path(start_task.run(load(), "feat", "thing", None)["worktree"])
+    (wt / ".agents/aw.toml").write_text(
+        f'worktree_root = "{tmp_path}/wt"\nmerge_gate = "auto"\non_merge = "touch marker"\nverify_cmd = "branch"\n'
+    )
+    monkeypatch.chdir(wt)
+    cfg = load()
+    assert (cfg.get("merge_gate"), cfg.get("on_merge")) == ("approve", "")
+    assert cfg.get("verify_cmd") == "branch"  # not trusted: verifying runs the branch's own code anyway
+    assert cfg.ignored == ["merge_gate", "on_merge"]
+    assert (cfg.sources["merge_gate"], cfg.sources["verify_cmd"]) == ("primary", "project")
+    monkeypatch.chdir(repo)
+    assert load().ignored == []

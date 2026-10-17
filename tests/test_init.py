@@ -182,3 +182,8 @@ def test_doctor_flags_a_placeholder_inside_a_quoted_string(repo):
     (repo / ".agents/aw.toml").write_text("aw_version = 1\non_merge = 'notify \"merged {pr} into main\"'\n")
     warnings = [message for level, message in doctor.check_config(load()) if level == "warn"]
     assert any("on_merge: a placeholder inside quotes" in m for m in warnings)
+
+
+def test_an_env_only_key_cannot_be_set_in_the_project_file(repo):
+    with pytest.raises(AwError, match="environment only"):
+        init.run(True, ["sandboxed=true"])

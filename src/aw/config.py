@@ -6,6 +6,10 @@ Resolution order, later wins:
   <checkout>/.agents/aw.toml      project, committed (current checkout or worktree)
   <primary>/.agents/aw.local.toml machine, gitignored (primary checkout only)
   AW_<KEY> environment variables
+
+A trusted key (schema: trusted = true) decides what runs or merges on the host. Its project value comes from the
+primary checkout's .agents/aw.toml, never from a session worktree's: the branch being merged does not choose its own
+merge gate or hooks. An env-only key (env_only = true) describes where aw runs, not the project: only AW_<KEY> sets it.
 """
 
 from __future__ import annotations
@@ -163,6 +167,8 @@ class Config:
     file_version: int | None = None
     unknown: list[tuple[str, str]] = field(default_factory=list)
     migrated: list[tuple[str, str]] = field(default_factory=list)  # layer, note: migrations applied in memory only
+    ignored: list[str] = field(default_factory=list)  # trusted keys the worktree's project file sets differently
+    misplaced: list[tuple[str, str]] = field(default_factory=list)  # layer, key: env-only keys set in a file
 
     @property
     def project(self) -> str:
@@ -180,6 +186,11 @@ class Config:
     def expand(self, template: str, **placeholders: str) -> str:
         base = {"project": self.project, "repo_parent": str(self.root.parent)}
         return expand(template, base | placeholders)
+
+    def on_host(self, command: str) -> None:
+        """Refuse a command that merges or closes when aw runs sandboxed: the host runs it, with its own config."""
+        if self.values["sandboxed"]:
+            raise AwError(f"sandboxed: {command} runs on the host; push the branch and run it there")
 
 
 def read_toml(path: Path) -> dict[str, Any]:
@@ -232,21 +243,25 @@ def load(cwd: Path | str | None = None) -> Config:
         ("project", cfg.checkout / PROJECT_FILE),
         ("local", cfg.root / LOCAL_FILE),
     ]
+    from_primary: set[str] = set()
     for layer, path in layers:
-        if not path.is_file():
-            continue
-        data, notes = migrate(read_toml(path), migrations)
+        data, notes = _read_layer(path, migrations)
         cfg.migrated += [(layer, note) for note in notes]
         if layer == "project":
             cfg.file_version = data.get("aw_version")
+            if cfg.checkout != cfg.root:  # a session worktree: the trusted keys come from the primary checkout
+                data, from_primary = _trust_primary(cfg, data, _read_layer(cfg.root / PROJECT_FILE, migrations)[0])
         for key, value in data.items():
             if key == "aw_version":
                 continue
             if key not in schema:
                 cfg.unknown.append((layer, key))
                 continue
+            if schema[key].get("env_only"):
+                cfg.misplaced.append((layer, key))
+                continue
             cfg.values[key] = coerce(key, schema[key], value)
-            cfg.sources[key] = layer
+            cfg.sources[key] = "primary" if layer == "project" and key in from_primary else layer
 
     for key, spec in schema.items():
         env = os.environ.get("AW_" + key.upper())
@@ -254,6 +269,28 @@ def load(cwd: Path | str | None = None) -> Config:
             cfg.values[key] = parse_text(key, spec, env)
             cfg.sources[key] = "env"
     return cfg
+
+
+def _read_layer(path: Path, migrations: list[dict[str, Any]]) -> tuple[dict[str, Any], list[str]]:
+    return migrate(read_toml(path), migrations) if path.is_file() else ({}, [])
+
+
+def _trust_primary(cfg: Config, branch: dict[str, Any], primary: dict[str, Any]) -> tuple[dict[str, Any], set[str]]:
+    """The worktree's project data with every trusted key taken from the primary checkout's, and the keys taken.
+
+    Differences are noted in cfg.ignored.
+    """
+    data, taken = dict(branch), set()
+    for key, spec in cfg.schema.items():
+        if not spec.get("trusted"):
+            continue
+        if branch.get(key, spec["default"]) != primary.get(key, spec["default"]):
+            cfg.ignored.append(key)
+        data.pop(key, None)
+        if key in primary:
+            data[key] = primary[key]
+            taken.add(key)
+    return data, taken
 
 
 BARE_KEY = re.compile(r"^[A-Za-z0-9_-]+$")

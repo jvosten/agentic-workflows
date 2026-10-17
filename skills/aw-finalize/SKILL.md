@@ -127,6 +127,8 @@ Then ask whether to merge, and wait for an explicit go ("merge", "go", "yes"). W
 
 `merge_gate = auto`: continue without asking.
 
+`merge_gate` is the primary checkout's: a branch that changes it does not change this gate (`aw config` in the worktree already prints the value that applies).
+
 ## 11. Merge and clean up
 
 Stacked session (`aw session` shows a non-empty `base`) → `aw finish` refuses until the base merged. Base not merged yet → stop and report: the session waits for the base, and `/aw-finalize` resumes here. Base merged:
@@ -142,6 +144,9 @@ Tell the user its summary line. A conflict → name the files to the user, resol
 ```
 
 It merges the branch's open request with `merge_method` (a request you merged on the forge yourself counts as that merge; it skips the merge when nothing is left after checkpoints), moves the issue to done where a closing keyword does not (`sync_issue_status`) and runs `on_issue_status`, removes the worktree, fast-forwards the local `main_branch` (whatever the primary checkout has checked out), runs `on_merge`, and deletes the local and remote branch. It refuses on uncommitted or unpushed work, and while the backlog inbox holds items.
+
+- `ignored from the branch: <keys>` → the branch changes trusted keys (hooks, `merge_gate`, `merge_method`); this merge ran with the primary checkout's values, the branch's apply from now on. Tell the user.
+- `sandboxed: aw finish runs on the host` → stop: the session runs in a sandbox. Report that the branch is pushed and the request is green; the merge happens on the host.
 
 The user said yes to closing the parent story at the gate → `~/.agents/bin/aw finish --close-parent`: after the issue, it moves the story to done and comments with its children. It leaves the story open with a warning when something still keeps it open; report that. No yes, `merge_gate = auto`, or a gate that did not apply → never pass it; `aw finish` then prints whether the story can close.
 

@@ -125,6 +125,18 @@ def check_config(cfg: Config) -> list[Result]:
     else:
         results.append(("ok", f"{PROJECT_FILE}: aw_version {current}"))
     results += [("warn", f"{layer}: unknown key {key!r}") for layer, key in cfg.unknown]
+    results += [
+        ("warn", f"{layer}: {key} is set by the environment only (AW_{key.upper()}); ignored")
+        for layer, key in cfg.misplaced
+    ]
+    if cfg.ignored:
+        results.append(
+            (
+                "info",
+                f"ignored from the branch: {', '.join(cfg.ignored)}; the primary checkout's {PROJECT_FILE} decides "
+                "what runs and merges on the host, the branch's values apply once it merged",
+            )
+        )
     for layer, note in cfg.migrated:
         fix = "`aw init` applies it" if layer == "project" else "edit that file"
         results.append(("warn", f"{layer}: pending migration {note}; {fix}"))
