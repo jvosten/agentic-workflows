@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.13 — 2026-10-17 (#14)
+
+### Fixed
+
+- A branch no longer decides what runs or merges on the host. In a session worktree, `merge_gate`, `merge_method`,
+  `on_start`, `on_merge` and `on_issue_status` come from the primary checkout's `.agents/aw.toml`, not from the
+  branch's (schema: `trusted = true`); user, local and env layers apply as before. A branch that changes one of them
+  takes effect once it has merged; until then `aw finish`, `aw merge` and `aw doctor` print `ignored from the branch:
+  <keys>`, and `aw config --sources` shows the value as `primary`.
+
+### Added
+
+- `AW_SANDBOXED=1`, set by a sandbox runner, makes `aw finish`, `aw merge` and `aw issue rollup --close` refuse with
+  `sandboxed: <command> runs on the host`. It is env only: a config file that sets `sandboxed` is ignored with an `aw
+  doctor` warning, and `aw init --set` refuses it.
+
 ## 0.1.12 — 2026-10-16 (#13)
 
 ### Added
