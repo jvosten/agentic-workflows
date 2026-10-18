@@ -359,6 +359,31 @@ This repo's own hardening plan hit the second set right after it was written (20
 
 **Effort:** small — one comment fetch, one regex and a line format in `mr view`; tests with recorded responses.
 
+---
+
+### [MEDIUM] Tagged releases with built wheels
+
+**Context:** S11 of the hardening plan (2026-10-18) made `aw` installable without a clone: `uv tool install git+https://github.com/jvosten/agentic-workflows`, then `aw install`, and `aw update` runs `uv tool upgrade`. CI installs that package non-editable and checks the skills link into the packaged `aw/_skills`. Asked at the end: is this now comparable to a binary install?
+
+**Problem:** Not yet. The package bundles CLI and skills at one version, but:
+- each install builds the wheel from git source, so it needs git, network access to the repository (credentials while it is private) and a build backend;
+- `uv tool upgrade` follows the default branch's HEAD: there are no releases to pin or to move between, only commits;
+- there is no artifact to checksum or to keep for an offline or sandboxed install;
+- installing takes two steps: `aw install` must run after `uv tool install`, or no agent sees the skills, and a wheel cannot run that step on install.
+
+**Scope:**
+- A release workflow on version tags (`v0.1.14`): build the wheel and sdist with `uv build` and attach them to a GitHub release, with checksums. PyPI once the repository is public.
+- The release process: the version bump commit gets its tag; a check that the tag, `pyproject.toml` and `aw --version` agree.
+- Install from a release: `uv tool install <wheel URL>` or `agentic-workflows==X`, documented. `aw update` moves to the newest release for such an install, and says which release it left and which it installed.
+- Open: whether `aw` links its skills on first run (any command, when `~/.agents/bin/aw` or the skill links are missing or point at another version), so the install becomes one step. It writes into `$HOME`, so it must stay off in a sandbox (`AW_SANDBOXED`).
+
+**Acceptance criteria:**
+- A pushed version tag produces a GitHub release with the wheel, the sdist and their checksums, and fails when the tag and the package version differ.
+- A machine without a clone or git credentials installs a given release from its wheel, and `aw doctor` passes after `aw install`.
+- `aw update` on a release install installs the newest release and names both versions.
+
+**Effort:** medium; the workflow is small, `aw update` needs a third install kind, and first-run linking needs a design decision.
+
 ## Considered and not planned
 
 - **Personas and multi-agent roles** (BMAD), **spec-driven phases** (spec-kit), **label-based handoff queues** (zaks-io): full methods of their own; out of scope for a session-workflow standard.
