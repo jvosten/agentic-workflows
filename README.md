@@ -21,6 +21,25 @@ The editable install means edits to this repo take effect without reinstalling. 
 
 `make install` installs the tool; `aw init` (below) configures one project.
 
+Without a clone, install the package (not editable; the skills come from the package):
+
+```bash
+uv tool install git+https://github.com/jvosten/agentic-workflows
+aw install
+```
+
+### Update
+
+```bash
+aw update          # from anywhere; inside a project it also checks that project
+```
+
+- Editable install: fast-forwards the clone's default branch from `origin`, whatever branch the clone has checked out, and lists the commits it gained. It refuses when the branch diverged from `origin` or when the update would overwrite uncommitted changes. With another branch checked out it warns: the installed `aw` runs that branch's code, not the updated one.
+- Packaged install: `uv tool upgrade agentic-workflows`.
+- Then, with the new code: `aw install` relinks the skills, adding new ones and pruning removed ones. Inside a project, `aw init --check` reports what `aw init` would change (pending migrations, a new `aw_version`, new keys it asks for) and writes nothing.
+
+Agent sessions see the update without a restart: the CLI runs the new code on its next call, and Claude Code watches its skill directories (added, edited and removed skills). A skill already loaded into a conversation keeps the text it was loaded with; start the skill again, or a new session, to use the new version.
+
 ## Use the skills
 
 This is the point of the package: one session workflow that you drive from your coding agent, in any repo. Set the repo up once with `aw init` (see [Set up a project](#set-up-a-project)), then call the skills.
@@ -183,7 +202,7 @@ aw init --set verify_cmd="make check"
 aw doctor
 ```
 
-`aw init` writes `.agents/aw.toml` (commit it) and `.agents/.gitignore`. Re-running it keeps existing answers as defaults and asks only what `schema.toml` added since.
+`aw init` writes `.agents/aw.toml` (commit it) and `.agents/.gitignore`. Re-running it keeps existing answers as defaults and asks only what `schema.toml` added since. `aw init --check` shows what a run with `--yes` would change, writes nothing, and exits 1 when anything would change.
 
 ## Configuration
 
@@ -256,7 +275,8 @@ How states, boards and the hook fit together on each tracker: [docs/boards.md](d
 | Command | Does |
 |---|---|
 | `aw install [--agent claude] [-v]` | Link skills into `~/.agents/skills` and agent dirs, CLI into `~/.agents/bin/aw` |
-| `aw init [-y] [--set K=V] [-v]` | Create or update `.agents/aw.toml`; reports what changed, `-v` every value and where it came from |
+| `aw init [-y] [--set K=V] [-v] [--check]` | Create or update `.agents/aw.toml`; reports what changed, `-v` every value and where it came from; `--check` reports what would change and writes nothing (exit 1 when anything would) |
+| `aw update [--agent claude]` | Update `aw` (editable: fast-forward the clone; packaged: `uv tool upgrade`), relink the skills, and inside a project run `aw init --check` |
 | `aw config [--get KEY] [--sources]` | Print resolved configuration |
 | `aw start-task <type> <slug> [--issue N] [--base B]` | Fast-forward the local main (the primary checkout may be on any branch), create branch + worktree from main (`--base`: from `origin/B`, a [stacked session](#stacked-sessions)), direnv (a tracked `.envrc` is kept; a missing or failing `direnv` is a warning), `on_start` |
 | `aw restack [--dry-run] [--json]` | Stacked session: rebase onto the base's tip, or onto main once the base merged; push, retarget |
