@@ -21,12 +21,14 @@ The editable install means edits to this repo take effect without reinstalling. 
 
 `make install` installs the tool; `aw init` (below) configures one project.
 
-Without a clone, install the package (not editable; the skills come from the package):
+Without a clone, install the package (not editable; the skills come from the package). While the repository is private, this needs read access and git credentials for it:
 
 ```bash
 uv tool install git+https://github.com/jvosten/agentic-workflows
 aw install
 ```
+
+`npx skills add jvosten/agentic-workflows --list` finds the skills too, but installs only the skills: they call `~/.agents/bin/aw`, which `aw install` creates, and the skills `aw install` links into `~/.claude/skills` take precedence over a project's copies. Install with `uv` and `aw install`.
 
 ### Update
 
