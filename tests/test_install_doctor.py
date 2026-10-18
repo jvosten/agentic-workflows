@@ -101,6 +101,28 @@ def test_skill_frontmatter_check(tmp_path):
     assert levels == {"fail"}
 
 
+@pytest.mark.parametrize(
+    ("value", "problem"),
+    [
+        ('Plan it. Use when the user says "plan issue #N"', "' #' starts a YAML comment"),
+        ("Plan it: one story", "': ' is a YAML mapping"),
+    ],
+)
+def test_an_unquoted_description_that_yaml_cuts_or_rejects_fails(tmp_path, value, problem):
+    skill = tmp_path / "aw-x"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text(f"---\nname: aw-x\ndescription: {value}\n---\n")
+    assert doctor.check_skill(skill) == [
+        ("fail", f"skill aw-x: description: {problem} in an unquoted value; quote the value")
+    ]
+    (skill / "SKILL.md").write_text(f"---\nname: aw-x\ndescription: '{value}'\n---\n")
+    assert doctor.check_skill(skill) == [("ok", "skill aw-x: frontmatter valid")]
+
+
+def test_every_bundled_skill_has_valid_frontmatter():
+    assert [r for skill in install.source_skills() for r in doctor.check_skill(skill) if r[0] != "ok"] == []
+
+
 def test_menu_lists_skills_before_commands(capsys):
     from aw import cli
 
