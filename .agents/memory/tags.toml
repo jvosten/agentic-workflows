@@ -1,0 +1,3 @@
+claude-code = "Claude Code: how it finds, loads and reloads skills"
+skills = "SKILL.md files: frontmatter, layout, install locations"
+yaml = "YAML parsing, here of SKILL.md frontmatter"
