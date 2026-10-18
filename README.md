@@ -28,7 +28,7 @@ uv tool install git+https://github.com/jvosten/agentic-workflows
 aw install
 ```
 
-`npx skills add jvosten/agentic-workflows --list` finds the skills too, but installs only the skills: they call `~/.agents/bin/aw`, which `aw install` creates, and the skills `aw install` links into `~/.claude/skills` take precedence over a project's copies. Install with `uv` and `aw install`.
+The package is the bundle: CLI and skills ship together, at one version. Not through `npx skills add`: it copies the skills without the `aw` CLI they call.
 
 ### Update
 
