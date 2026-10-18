@@ -28,6 +28,7 @@ from aw import (
     templates,
     trackers,
     ui,
+    update,
 )
 from aw.config import PROJECT_FILE, AwError, Config, git, load, toml_value
 from aw.trackers import STATUSES
@@ -504,10 +505,12 @@ def _restack(args: argparse.Namespace) -> int:
     return 1 if result.state == "conflict" else 0
 
 
-def _init(args: argparse.Namespace) -> None:
-    report = init.run(args.yes, args.set)
+def _init(args: argparse.Namespace) -> int:
+    report = init.run(args.yes, args.set, check=args.check)
     values, previous = report.values, report.previous
     name = PROJECT_FILE
+    verbs = ("created", "updated", "added") if report.written else ("would create", "would update", "would add")
+    created, updated, added = verbs
     print(ui.style("aw init", ui.BOLD))
     if previous is None:
         origin = [
@@ -515,16 +518,17 @@ def _init(args: argparse.Namespace) -> None:
             for src in ("detected", "answered", "--set", "default")
             if (n := sum(s == src for s in report.sources.values()))
         ]
-        status = ui.style("created", ui.GREEN) + f" · {ui.plural(len(values), 'key')}: {', '.join(origin)}"
+        status = ui.style(created, ui.GREEN) + f" · {ui.plural(len(values), 'key')}: {', '.join(origin)}"
         changed: list[str] = []
         new: list[str] = []
     else:
         changed = [k for k in values if k in previous and previous[k] != values[k]]
         new = [k for k in values if k not in previous]
-        counts = [f"{len(changed)} changed" if changed else "", f"{len(new)} new" if new else ""]
+        n_changed = len(changed) + (report.version is not None)
+        counts = [f"{n_changed} changed" if n_changed else "", f"{len(new)} new" if new else ""]
         status = (
-            ui.style("updated", ui.GREEN) + " · " + ", ".join(filter(None, counts))
-            if changed or new
+            ui.style(updated, ui.GREEN) + " · " + ", ".join(filter(None, counts))
+            if n_changed or new
             else ui.style("up to date", ui.DIM)
         )
     print(f"  {name:<20}{status}")
@@ -538,16 +542,24 @@ def _init(args: argparse.Namespace) -> None:
             print(f"    {key:<{width}}{show(value):<28}{ui.style(report.sources.get(key, ''), ui.DIM)}")
     else:
         old = previous or {}
+        if report.version and previous is not None:
+            before, after = report.version
+            print(f"    aw_version  {show(before)} → {ui.style(str(after), ui.GREEN)}")
         for key in changed:
             print(f"    {key}  {show(old[key])} → {ui.style(show(values[key]), ui.GREEN)}")
         for key in new:
             print(f"    {key}  {ui.style(show(values[key]), ui.GREEN)} {ui.style('(new)', ui.DIM)}")
     if report.ignored:
-        print(f"  {'.agents/.gitignore':<20}added {', '.join(report.ignored)}")
+        print(f"  {'.agents/.gitignore':<20}{added} {', '.join(report.ignored)}")
     for warning in report.warnings:
         ui.warn(warning)
-    if previous is None or changed or new or report.ignored:
-        print(f"next: review and commit {name} and .agents/.gitignore, then `aw doctor`")
+    if not report.changes:
+        return 0
+    if not report.written:
+        print("next: aw init")
+        return 1
+    print(f"next: review and commit {name} and .agents/.gitignore, then `aw doctor`")
+    return 0
 
 
 def _install(args: argparse.Namespace) -> None:
@@ -577,6 +589,18 @@ def _install(args: argparse.Namespace) -> None:
                 print(f"  {action + ':':<9}{', '.join(names)}")
     for warning in report.warnings:
         print(ui.style(f"! {warning}", "33"))
+
+
+def _update(args: argparse.Namespace) -> int:
+    print(ui.style("aw update", ui.BOLD), flush=True)
+    for line in update.update_code():
+        print(f"  {line}", flush=True)
+    exe = update.executable()
+    if code := update.relink(exe, args.agent):
+        return code
+    if root := update.project_root():
+        update.check_project(exe, root)  # exit 1: changes pending, which it reports itself
+    return 0
 
 
 DOCTOR_MARKS = {"ok": ("✓", "32"), "info": ("·", "2"), "warn": ("!", "33"), "fail": ("✗", "31")}
@@ -688,10 +712,17 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("-v", "--verbose", action="store_true", help="one line per link instead of a summary")
     s.set_defaults(func=_install)
 
+    s = sub.add_parser("update", help="update aw (git pull or uv tool upgrade), relink skills, check this project")
+    s.add_argument("--agent", action="append", default=None, help="also link skills for this agent (default: claude)")
+    s.set_defaults(func=_update)
+
     s = sub.add_parser("init", help="create or update .agents/aw.toml in this repo")
     s.add_argument("-y", "--yes", action="store_true", help="accept detected defaults, no prompts")
     s.add_argument("-v", "--verbose", action="store_true", help="list every value written and where it came from")
     s.add_argument("--set", action="append", default=[], metavar="KEY=VALUE")
+    s.add_argument(
+        "--check", action="store_true", help="report what aw init --yes would change; write nothing, exit 1 if it would"
+    )
     s.set_defaults(func=_init)
 
     s = sub.add_parser("config", help="print the resolved configuration")
@@ -938,7 +969,7 @@ def main(argv: list[str] | None = None) -> int:
         print(menu(parser))
         return 0
     args = parser.parse_args(argv)
-    if args.command == "install" and args.agent is None:
+    if args.command in ("install", "update") and args.agent is None:
         args.agent = ["claude"]
     try:
         return args.func(args) or 0

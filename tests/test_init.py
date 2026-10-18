@@ -187,3 +187,30 @@ def test_doctor_flags_a_placeholder_inside_a_quoted_string(repo):
 def test_an_env_only_key_cannot_be_set_in_the_project_file(repo):
     with pytest.raises(AwError, match="environment only"):
         init.run(True, ["sandboxed=true"])
+
+
+def test_init_check_reports_what_init_would_change_and_writes_nothing(repo, capsys):
+    from aw import cli
+
+    assert cli.main(["init", "--check"]) == 1
+    out = capsys.readouterr().out.splitlines()
+    assert out[1].split()[:3] == [".agents/aw.toml", "would", "create"]
+    assert out[-1] == "next: aw init"
+    assert not (repo / ".agents").exists()
+
+    assert cli.main(["init", "--yes"]) == 0
+    capsys.readouterr()
+    assert cli.main(["init", "--check"]) == 0
+    assert capsys.readouterr().out.splitlines()[1:] == ["  .agents/aw.toml     up to date"]
+
+    path = repo / ".agents/aw.toml"
+    path.write_text(path.read_text().replace("aw_version = 1", "aw_version = 0") + 'on_issue_start = "make setup"\n')
+    before = path.read_text()
+    assert cli.main(["init", "--check"]) == 1
+    captured = capsys.readouterr()
+    out = captured.out.splitlines()
+    assert out[1].split() == [".agents/aw.toml", "would", "update", "·", "1", "changed,", "1", "new"]
+    assert out[2].split() == ["aw_version", "0", "→", "1"]
+    assert out[3].split() == ["on_start", "[", "-n", "{issue}", "]", "&&", "make", "setup", "(new)"]
+    assert "migrated on_issue_start → on_start, run only with an issue as before" in captured.out + captured.err
+    assert path.read_text() == before
