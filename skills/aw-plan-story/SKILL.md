@@ -1,6 +1,6 @@
 ---
 name: aw-plan-story
-description: Plan one story - gather the issue, its parent, children and linked docs, draft an implementation plan in session-sized sections, grill it with the user, and save it for /aw-to-subtasks. Use when the user says "plan story", "plan issue #N", "plan PROJ-123", or wants to turn an issue into a session plan.
+description: 'Plan one story - gather the issue, its parent, children and linked docs, draft an implementation plan in session-sized sections, grill it with the user, and save it for /aw-to-subtasks. Use when the user says "plan story", "plan issue #N", "plan PROJ-123", or wants to turn an issue into a session plan.'
 allowed-tools: Bash(~/.agents/bin/aw memory supersede:*) Bash(~/.agents/bin/aw config) Bash(~/.agents/bin/aw template plan) Bash(~/.agents/bin/aw plan path:*) Bash(~/.agents/bin/aw plan state:*) Bash(~/.agents/bin/aw issue view:*) Bash(~/.agents/bin/aw issue children:*) Bash(~/.agents/bin/aw issue list:*) Bash(~/.agents/bin/aw issue search:*) Bash(~/.agents/bin/aw issue update:*) Bash(~/.agents/bin/aw issue comment:*) Bash(~/.agents/bin/aw memory add:*) Bash(~/.agents/bin/aw memory find:*) Bash(~/.agents/bin/aw memory show:*) Bash(~/.agents/bin/aw memory tags:*)
 metadata:
   package: agentic-workflows

@@ -128,19 +128,28 @@ def prompt(key: str, spec: dict, default: Any, source: str = "default") -> Any:
 class Report:
     path: Path
     values: dict[str, Any]  # what was written, without aw_version
-    previous: dict[str, Any] | None  # the file before, None when it is new
+    previous: dict[str, Any] | None  # the file before (as written, before migrations), None when it is new
     sources: dict[str, str]  # --set | answered | kept | detected | default
     ignored: list[str] = field(default_factory=list)  # entries added to .agents/.gitignore
     warnings: list[str] = field(default_factory=list)
+    version: tuple[int | None, int] | None = None  # aw_version before and after, when it changes
+    written: bool = True  # False: a check, nothing written
+
+    @property
+    def changes(self) -> bool:
+        """Whether the file or .agents/.gitignore changed (or, for a check, would change)."""
+        return self.previous != self.values or bool(self.ignored) or self.version is not None
 
 
-def run(assume_yes: bool, sets: list[str]) -> Report:
+def run(assume_yes: bool, sets: list[str], check: bool = False) -> Report:
+    """Write .agents/aw.toml; check: compute the same report as `--yes` would, and write nothing."""
     full = load_schema()
     schema = full["keys"]
     root = checkout_root()
     path = root / PROJECT_FILE
-    existing = read_toml(path) if path.is_file() else {}
-    existing, notes = migrate(existing, full.get("migrations", []))
+    existed = path.is_file()
+    raw = read_toml(path) if existed else {}
+    existing, notes = migrate(raw, full.get("migrations", []))
     warnings = [f"migrated {note}" for note in notes]
     warnings += [f"dropped unknown key {key!r}" for key in existing if key != "aw_version" and key not in schema]
 
@@ -154,7 +163,7 @@ def run(assume_yes: bool, sets: list[str]) -> Report:
         overrides[key] = parse_text(key, schema[key], text)
 
     detected = detect(root, schema)
-    interactive = not assume_yes and sys.stdin.isatty()
+    interactive = not (assume_yes or check) and sys.stdin.isatty()
     if interactive:
         print(f"{ui.style('aw init', ui.BOLD)} {ui.style(ui.home(root), ui.DIM)}")
         print(ui.style("  Enter keeps the value in brackets.", ui.DIM))
@@ -174,8 +183,9 @@ def run(assume_yes: bool, sets: list[str]) -> Report:
     if interactive:
         print()
 
-    path.parent.mkdir(exist_ok=True)
-    path.write_text(dump_toml(values))
+    if not check:
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(dump_toml(values))
     ignore = path.parent / ".gitignore"
     entries = [Path(LOCAL_FILE).name, Path(LOG).name]
     merged = {key: spec["default"] for key, spec in schema.items()} | values
@@ -184,9 +194,10 @@ def run(assume_yes: bool, sets: list[str]) -> Report:
         entries.append(plans.relative_to(path.parent.name).as_posix() + "/")
     present = ignore.read_text().split() if ignore.is_file() else []
     missing = [entry for entry in entries if entry not in present]
-    if missing:
+    if missing and not check:
         with ignore.open("a") as f:
             f.write("".join(f"{entry}\n" for entry in missing))
     written = {k: v for k, v in values.items() if k != "aw_version"}
-    previous = {k: v for k, v in existing.items() if k != "aw_version"} if existing else None
-    return Report(path, written, previous, sources, missing, warnings)
+    previous = {k: v for k, v in raw.items() if k != "aw_version"} if existed else None
+    version = (raw.get("aw_version"), full["version"]) if existed and raw.get("aw_version") != full["version"] else None
+    return Report(path, written, previous, sources, missing, warnings, version, written=not check)

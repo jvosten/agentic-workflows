@@ -42,3 +42,29 @@ jobs:
       - run: uv run ruff check src tests
       - run: uv run ruff format --check src tests
       - run: uv run ty check src tests
+
+  packaged:
+    name: packaged install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.0  # no major-version tags: pin the release
+        with:
+          python-version: "3.11"  # the requires-python floor
+      # Not editable, from git: the skills must come from the package (aw/_skills), not from this checkout.
+      - run: |
+          uv tool install "git+file://$GITHUB_WORKSPACE@$(git rev-parse HEAD)"
+          uv tool dir --bin >> "$GITHUB_PATH"
+      - name: aw install links the packaged skills
+        working-directory: ${{ runner.temp }}  # outside any repo: aw doctor checks the install only
+        env:
+          HOME: ${{ runner.temp }}/home
+        run: |
+          mkdir -p "$HOME"
+          test "$(aw --version)" = "aw $(grep -m1 '^version' "$GITHUB_WORKSPACE/pyproject.toml" | cut -d'"' -f2)"
+          aw install
+          expected=$(find "$GITHUB_WORKSPACE/skills" -name SKILL.md | wc -l)
+          test "$(find "$HOME/.claude/skills/" -mindepth 2 -maxdepth 2 -name SKILL.md -follow | wc -l)" = "$expected"
+          target=$(readlink -f "$HOME/.claude/skills/aw-finalize")
+          case "$target" in */aw/_skills/aw-finalize) ;; *) echo "aw-finalize links to $target"; exit 1 ;; esac
+          aw doctor

@@ -26,8 +26,8 @@ WORKFLOW_ADVICE = {
 }
 
 
-def frontmatter(skill_md: Path) -> dict[str, str]:
-    """Top-level scalar keys of a SKILL.md frontmatter block."""
+def raw_frontmatter(skill_md: Path) -> dict[str, str]:
+    """Top-level scalar keys of a SKILL.md frontmatter block, each value as written (quotes kept)."""
     lines = skill_md.read_text().splitlines()
     if not lines or lines[0] != "---":
         return {}
@@ -36,14 +36,35 @@ def frontmatter(skill_md: Path) -> dict[str, str]:
         if line == "---":
             break
         if m := re.match(r"^([a-z][a-z0-9-]*):\s*(.*)$", line):
-            fields[m.group(1)] = m.group(2).strip().strip("\"'")
+            fields[m.group(1)] = m.group(2).strip()
     return fields
 
 
+def frontmatter(skill_md: Path) -> dict[str, str]:
+    """Top-level scalar keys of a SKILL.md frontmatter block."""
+    return {key: value.strip("\"'") for key, value in raw_frontmatter(skill_md).items()}
+
+
+def yaml_problem(value: str) -> str | None:
+    """What a YAML parser (the agent's) does to an unquoted value that this reader takes whole."""
+    if value[:1] in ("'", '"'):
+        return None
+    if " #" in value:
+        return "' #' starts a YAML comment"
+    if ": " in value:
+        return "': ' is a YAML mapping"
+    return None
+
+
 def check_skill(skill: Path) -> list[Result]:
+    raw = raw_frontmatter(skill / "SKILL.md")
     fm = frontmatter(skill / "SKILL.md")
     name, desc = fm.get("name", ""), fm.get("description", "")
-    problems = []
+    problems = [
+        f"{key}: {problem} in an unquoted value; quote the value"
+        for key, value in raw.items()
+        if (problem := yaml_problem(value))
+    ]
     if name != skill.name:
         problems.append(f"name {name!r} does not match directory")
     if not NAME.match(name) or len(name) > 64:

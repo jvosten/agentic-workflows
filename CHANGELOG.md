@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.1.14 — 2026-10-18 (#15)
+
+### Added
+
+- `aw update` brings `aw` current and relinks its skills. An editable install fast-forwards its clone's default branch
+  from `origin`, whatever the clone has checked out, and lists the commits it gained; it refuses a diverged branch or
+  one the update would overwrite changes in, and warns when the clone runs another branch. A packaged install runs
+  `uv tool upgrade agentic-workflows`. Then the updated `aw` relinks the skills (`aw install`) and, inside a project,
+  runs `aw init --check`.
+- `aw init --check` reports what `aw init --yes` would change (pending migrations, a new `aw_version`, new keys),
+  writes nothing, and exits 1 when anything would change. A migrated key now shows as new in `aw init`'s report.
+- CI installs `aw` non-editable from git and checks that `aw install` links the skills from the package. The README
+  covers that install, `aw update`, and why `npx skills add` is not an install path: it copies the skills without
+  the CLI they call.
+
+### Fixed
+
+- `aw-plan-story`'s description is quoted: YAML read the ` #` in `"plan issue #N"` as a comment and cut it there.
+  `aw doctor` fails a frontmatter value that YAML would cut (` #`) or reject (`: `) unquoted.
+
 ## 0.1.13 — 2026-10-17 (#14)
 
 ### Fixed
