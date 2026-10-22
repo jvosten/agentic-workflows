@@ -248,7 +248,7 @@ Skills never call a tracker directly; they call `aw issue <op>`, and `tracker` i
 | `comment` | ✓ | ✓ | ✓ |
 | `set-status` | open/closed, plus the board column with `github_project` | workflow transition via `status_map` | open/closed only |
 | `set-field <id> Name=Option…` | single-select fields of the card on `github_project` | – | – |
-| `rollup <subtask>` (`--close`) | whether the parent story can close once the subtask is done; `--close` closes it | ✓ | – |
+| `rollup <subtask>` (`--close` \| `--json`) | whether the parent story can close once the subtask is done; `--close` closes it; `--json` gives the decision (`can_close`, `stays_open`, `unknown`, `no_story`) with `story`, `children`, `open`, `unsplit`, `reason` and the printed `line`, where `children`, `open` and `unsplit` are `null` unless the children were read | ✓ | – |
 | `ref` / `pr-text` | `#12` / `Fixes #12` | `PROJ-12` / `PROJ-12` | `#12` / `Fixes #12` |
 
 **Parent links** are always the tracker's own: GitHub sub-issues, Jira `parent`. Skills never write `Part of #N` or `Epic: KEY` into a body. On GitHub, `view` still reads a `Part of #N` line and `children` a task-list ref, marked `[text link]`, so older projects keep working while they move: `aw issue children <root> --text-only` lists what is linked only by text (task-list refs in the root, `Part of #<root>` lines in other issues), `aw issue set-parent <id> <root>` links each one natively, and an empty `--text-only` confirms none remain. Jira rejects parents that break its hierarchy (a sub-task under an epic, mixed team- and company-managed projects); `set-parent` passes the error through with both issue types.

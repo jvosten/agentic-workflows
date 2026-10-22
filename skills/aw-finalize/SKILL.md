@@ -121,9 +121,9 @@ After checkpoints: one entry for the whole session, naming every part, this one 
 - `~/.agents/bin/aw mr view`: link and title, state, CI, review and unresolved threads, files changed with lines added and removed — print it as it is;
 - the few lines of step 2: what changed and why;
 - what `aw finish` will do: merge with `merge_method`, move the issue, remove the worktree, delete the branch;
-- with an `issue`, the parent story: `~/.agents/bin/aw issue rollup <issue>` — print its line as it is.
+- with an `issue`, the parent story: `~/.agents/bin/aw issue rollup <issue> --json` — print its `line` as it is.
 
-Then ask whether to merge, and wait for an explicit go ("merge", "go", "yes"). When the story `can close`, ask too whether to close it with the merge; that answer is separate, and only an explicit yes closes it. A story can hold work never cut into a subtask, so never assume it. Anything else, or no answer → stop, report as in step 12, and say that `/aw-finalize` resumes at this step or `aw finish --pr <pr>` merges by hand. A push after the go (a late fix) means CI again, and the gate again.
+Then ask whether to merge, and wait for an explicit go ("merge", "go", "yes"). When its `decision` is `can_close`, ask too whether to close the story with the merge; that answer is separate, and only an explicit yes closes it. A story can hold work never cut into a subtask, so never assume it. Anything else, or no answer → stop, report as in step 12, and say that `/aw-finalize` resumes at this step or `aw finish --pr <pr>` merges by hand. A push after the go (a late fix) means CI again, and the gate again.
 
 `merge_gate = auto`: continue without asking.
 

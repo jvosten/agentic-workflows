@@ -162,11 +162,12 @@ def _issue(args: argparse.Namespace) -> None:
     elif op == "set-field":
         print(tracker.set_fields(issue, trackers.board_fields(cfg, [], args.pairs)))
     elif op == "rollup":
-        print(
-            "\n".join(rollup.close(cfg, tracker, issue))
-            if args.close
-            else rollup.report(tracker, issue, rollup.check(cfg, tracker, issue))
-        )
+        if args.close:
+            print("\n".join(rollup.close(cfg, tracker, issue)))
+        elif args.json:
+            print(json.dumps(rollup.decide(cfg, tracker, issue), indent=2, ensure_ascii=False))
+        else:
+            print(rollup.report(tracker, issue, rollup.check(cfg, tracker, issue)))
     elif op == "ref":
         print(tracker.ref(issue))
     elif op == "pr-text":
@@ -806,10 +807,14 @@ def build_parser() -> argparse.ArgumentParser:
     o.add_argument("pairs", nargs="+", metavar="NAME=OPTION")
     o = ops.add_parser("rollup", help="whether this subtask's story can close once it is done; --close closes it")
     o.add_argument("id", help="the subtask; it counts as closed")
-    o.add_argument(
+    acts = o.add_mutually_exclusive_group()
+    acts.add_argument(
         "--close",
         action="store_true",
         help="close the story with a comment naming its children; refuses while anything keeps it open",
+    )
+    acts.add_argument(
+        "--json", action="store_true", help="the decision as JSON: can_close, stays_open, unknown, no_story"
     )
     o = ops.add_parser("ref", help="how to reference the issue in text (#12, PROJ-123)")
     o.add_argument("id")

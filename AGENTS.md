@@ -32,7 +32,7 @@ CI (`.github/workflows/ci.yml`) runs the tests on Python 3.11 (the `requires-pyt
 ## Rules
 
 - **Deterministic steps go into `aw`, judgement into skills.** A skill calls `aw` for anything that must not vary (branches, merges, tracker writes); `aw` never asks the model to decide.
-- **The CLI output is a contract.** Skills read `aw`'s output: `key=value` lines from `start-task`, the `can close` / `stays open` lines of `aw issue rollup`, issue rows. Do not reword them in passing; a change to them is a change to every skill that reads them.
+- **The CLI output is a contract.** Skills read `aw`'s output: `key=value` lines from `start-task` and `session`, the JSON of `aw issue rollup --json`, issue rows and their markers, and the phrases skills branch on. `tests/test_cli_protocol.py` pins them. Do not reword them in passing; a change to them is a change to every skill that reads them, made in the same change.
 - **Safety before convenience.** Anything that closes, merges or deletes refuses on an uncertain fact (a failed or partial listing, unpushed work, a request that does not cover HEAD). Report-only paths may say "unknown".
 - **Sandbox-ready.** Skills will run in micro-VMs that see only the project. New code adds no runtime dependence on `$HOME` paths, makes network calls only through the provider adapters (with a timeout), never assumes the primary checkout is reachable, and never checks a credential's shape (sandboxes pass placeholders).
 - **Docs move with the code.** `README.md` (commands, configuration, trackers), `docs/boards.md` (status moves), and the skills that call a changed command.
