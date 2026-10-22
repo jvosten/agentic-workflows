@@ -386,24 +386,27 @@ This repo's own hardening plan hit the second set right after it was written (20
 
 ---
 
-### [MEDIUM] aw mr create: warn when a description closes a pull request, not only an issue
+### [MEDIUM] aw mr create: warn when a description closes another pull request
 
-**Context:** a pull request in another repository (2026-10-18). Its "Merge danger" section said "Renovate closes #A and #B …". #A was an open Renovate pull request; GitHub read "closes #A" as a closing keyword and closed it the moment the request merged. Nobody noticed until that dependency update was missing. `aw mr create` and `aw mr update` read what a request will close from `closingIssuesReferences` (`src/aw/forge.py`, `closes()`), which lists issues only, so the "also closes #N" warning never fired.
+**Context:** a pull request in another repository (2026-10-18). Its "Merge danger" section said "Renovate closes #A and #B …", and #A, an open Renovate pull request, was closed when that request merged. Nobody noticed until the dependency update was missing. `aw mr create` and `aw mr update` read what a request will close from `closingIssuesReferences` (`src/aw/forge.py`, `closes()`), which lists issues only, so the existing `also closes #N` warning cannot see a pull request.
 
-**Problem:** prose in a merge request description can close other pull requests (and, on GitLab, other merge requests) silently. The check that exists to catch accidental closing keywords covers only half the cases.
+**Open first:** confirm the mechanism in a scratch repository. GitHub documents closing keywords for issues. Whether a keyword in a merged pull request's description also closes another pull request, or whether Renovate closed its own pull request (for example because the merge changed the dependency it was updating), decides whether this item is needed at all.
 
-**Scope:**
-- After create/update, find every closing keyword in the description (`close[sd]?`, `fix(e[sd])?`, `resolve[sd]?`, case-insensitive, followed by `#N`, `owner/repo#N` or a URL) and resolve each `N` with the forge: issue or pull/merge request.
-- Warn for any target that is a pull/merge request, with the phrase that names it, like the existing `also closes #N` warning.
+**Problem:** if GitHub closes pull requests this way, prose in a description closes unrelated pull requests silently, and the check meant to catch accidental closing keywords covers only issues.
+
+**Scope (GitHub only):**
+- After create and update, scan the description with the existing `CLOSING` pattern (`src/aw/cli.py`; it already accepts `Closes: #N`), and resolve each reference (`#N`, `owner/repo#N`, a URL) with the forge: issue or pull request.
+- Warn for each pull request, naming the phrase, like the existing `also closes #N` warning.
+- Run the scan whatever the tracker. `_check_closes` (`src/aw/cli.py`) returns early without a session issue or when issues live elsewhere (Jira); this risk depends on the forge alone.
 - Keep `closingIssuesReferences` as the source for the issue the request must close.
-- GitLab: the same scan; merge requests referenced with `!N` are not closed, but `#N` pointing at an MR id is checked.
+- GitLab needs nothing: `#N` always refers to an issue there, merge requests are `!N` with their own numbering, and closing patterns close issues only.
 
 **Acceptance criteria:**
-- A description containing "closes #<open PR>" makes `aw mr create` print a warning naming that PR.
+- A description containing "closes #<open PR>" or "Closes: #<open PR>" makes `aw mr create` warn, naming that pull request, also in a project whose tracker is Jira.
 - Descriptions without such phrases produce no new output.
-- Tests with recorded responses for both forges.
+- Tests with recorded GitHub responses.
 
-**Effort:** small: a regex over the body plus one lookup per referenced number.
+**Effort:** small once the mechanism is confirmed: one scan reusing `CLOSING`, one lookup per referenced number.
 
 ## Considered and not planned
 
