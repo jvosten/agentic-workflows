@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.15 — 2026-10-22 (#16)
+
+### Added
+
+- `aw issue rollup <subtask> --json` gives the decision skills branch on: `decision` (`can_close`, `stays_open`,
+  `unknown`, `no_story`), `story`, `children`, `open` (children still open), `unsplit` (plan sections without a
+  subtask), `reason` and the printed `line`. `children`, `open` and `unsplit` are `null` unless the children were
+  read, and a lookup that fails before the decision is `unknown`, never an error without JSON. `--json` and
+  `--close` exclude each other. `aw-finalize` reads the JSON at the merge gate instead of matching "can close".
+- `tests/test_cli_protocol.py` pins, byte for byte, the output skills read: `start-task` and `session` lines,
+  `plan path` and `plan state`, issue rows with their `[text link]` and `[elsewhere: …]` markers, the four rollup
+  lines and the rollup JSON, `backlog list` and `memory find --compact`. It also fails when a phrase a skill
+  branches on disappears from the code or from the skill.
+
 ## 0.1.14 — 2026-10-18 (#15)
 
 ### Added
