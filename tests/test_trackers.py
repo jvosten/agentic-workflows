@@ -865,7 +865,7 @@ BOARD = {
     "repositoryOwner": {
         "projectV2": {
             "id": "P1",
-            "title": "Homelab",
+            "title": "Workflows",
             "field": {
                 "id": "F1",
                 "name": "Status",
@@ -1054,7 +1054,7 @@ def test_doctor_checks_scope_columns_and_advises_on_workflows(repo, monkeypatch)
 
     monkeypatch.setattr(doctor, "_gh_scopes", lambda: ["repo", "project"])
     results = doctor.check_board(load())
-    assert results[0] == ("ok", "board jvosten/1 (Homelab), field Status")
+    assert results[0] == ("ok", "board jvosten/1 (Workflows), field Status")
     assert results[1][0] == "fail" and "in_review → In review" in results[1][1]
     assert results[2] == (
         "info",
