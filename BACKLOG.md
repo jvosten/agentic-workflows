@@ -431,6 +431,27 @@ This repo's own hardening plan hit the second set right after it was written (20
 
 **Effort:** medium — the hook contract, the copy rules and the sandbox guard, tested with faked hook input.
 
+---
+
+### [MEDIUM] Finish cleanup after the forge deletes the merged remote branch
+
+**Context:** A live session reported that `aw finish` refused after the merge because the forge had already deleted the remote source branch. The session skipped `aw finish` and needed manual cleanup. This report has not yet been reproduced here.
+
+**Problem:** Remote branch deletion after a merge can block local branch and worktree cleanup and leave final tracker updates unfinished, even when the request contains all session work.
+
+**Scope:**
+- Reproduce the missing-remote-branch case with a local bare origin and fake forge responses, across merge, squash and rebase merges.
+- Confirm the merged request covers the local session head without requiring the remote source branch to exist.
+- Treat a confirmed missing remote branch as already removed; distinguish it from failed or uncertain remote queries.
+- Preserve the existing checks for unmerged or unpushed work before local cleanup, tracker updates and hooks.
+
+**Acceptance criteria:**
+- `aw finish` completes its normal cleanup and final updates when the merged request covers the session head and the remote source branch is already gone.
+- An absent remote branch alone never authorizes cleanup: unknown merge state, local commits not covered by the request, and failed remote queries still refuse without destructive effects.
+- Tests cover forge-driven source branch deletion for merge, squash and rebase merges without network access.
+
+**Effort:** medium; merge verification and cleanup must distinguish expected branch deletion from uncertain or incomplete work.
+
 ## Considered and not planned
 
 - **Personas and multi-agent roles** (BMAD), **spec-driven phases** (spec-kit), **label-based handoff queues** (zaks-io): full methods of their own; out of scope for a session-workflow standard.

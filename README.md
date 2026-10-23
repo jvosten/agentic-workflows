@@ -182,7 +182,7 @@ aw start-task feat <slug> --base <branch>    # worktree from origin/<branch>
 aw restack [--dry-run] [--json]              # follow the base, or move onto main once it merged
 ```
 
-The session records the base and its *fork point*: the base commit it was cut from or last restacked onto. Every restack is `git rebase --onto <upstream> <fork point>`, so only the session's own commits are replayed, whatever happened to the base. Its merge request targets the base until the base merges; `aw merge` and `aw finish` refuse before that. `aw merge` and `aw finish` in the base session warn about every session stacked on it.
+The session records the base and its *fork point*: the base commit it was cut from or last restacked onto. When rebasing, it runs `git rebase --onto <upstream> <fork point>`, so only the session's own commits are replayed, whatever happened to the base. Its merge request targets the base until the base merges; `aw merge` and `aw finish` refuse before that. `aw merge` and `aw finish` in the base session warn about every session stacked on it.
 
 | Event | `merge` | `squash` | `rebase` |
 |---|---|---|---|
@@ -190,7 +190,13 @@ The session records the base and its *fork point*: the base commit it was cut fr
 | Base merged into `main` | restack onto `origin/main` (the base's commits are in `main` under the same ids, so nothing is replayed twice) | restack onto `origin/main`; without the fork point the base's commits would be replayed onto their own squash | same as squash |
 | Merge request target | GitLab retargets on the base's merge, GitHub when the base branch is deleted after it; `aw restack` retargets when the forge did not | same | same |
 
-After the base merged, `aw restack` force-pushes (`--force-with-lease`), retargets and clears the base; the session is an ordinary one from then on. A conflict leaves the rebase in progress: resolve, `git rebase --continue`, `aw restack` again. Output is one line per action and a summary line; `--json` gives the same as a structured result.
+After the base merged, `aw restack` force-pushes (`--force-with-lease`), retargets and then clears the base; the session is an ordinary one from then on. The base's local worktree, local branch and remote branch may already be deleted: the forge confirms the merge, and restack uses `origin/main` and the recorded fork point, not the base's checkout.
+
+Before rebasing, restack records its target as `restack_onto`. A conflict leaves the rebase in progress: resolve, `git rebase --continue`, `aw restack` again. While a rebase is active, restack refuses to start another one. Once the recorded target is an ancestor of `HEAD` and no rebase is active, it can recover even if the old fork point is no longer in the branch's history. If upstream still matches the target, it finishes the push and retarget without rebasing again. If upstream changed, including a base that merged while the rebase was paused, it uses the recovered target as the fork point and rebases only the session's own commits onto the current upstream. A failed push or retarget keeps the recovery metadata; rerun `aw restack` after addressing the failure. A changed remote branch still blocks the lease-protected push.
+
+With no pending work and an unchanged base, a repeat run reports `up_to_date` without changing the branch; after the base is cleared it reports `not_stacked`. An unrelated manual rebase without a recorded target is not inferred: an invalid fork point still refuses. `--dry-run` may fetch, but never rebases, pushes, retargets or changes session metadata, including during recovery.
+
+Output is one line per action and a summary line; `--json` gives the same as a structured result.
 
 Not covered: a stacked branch ready before its base, `forge = none`, stacks deeper than two, and part merges (`aw merge`) in the base session beyond the warning.
 

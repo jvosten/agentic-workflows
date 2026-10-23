@@ -100,7 +100,8 @@ def run(cfg: Config, meta: dict[str, Any], dry_run: bool = False) -> Result:
     if _rebasing(worktree):
         raise AwError("rebase in progress: resolve the conflicts, `git rebase --continue`, then `aw restack` again")
     branch, pending = meta["branch"], meta.get("restack_onto", "")
-    if not _contains(worktree, fork_point):
+    recovered = bool(pending) and _contains(worktree, pending)
+    if not recovered and not _contains(worktree, fork_point):
         raise AwError(
             f"fork point {fork_point[:12]} is not in {branch}; set fork_point in the session to the "
             "base commit the branch builds on"
@@ -115,32 +116,36 @@ def run(cfg: Config, meta: dict[str, Any], dry_run: bool = False) -> Result:
     log = result.log
     if merged:
         log.append(f"base {base} merged into {main}")
-    if pending and _contains(worktree, pending):  # a conflicted restack, resolved by hand
-        onto = pending
+    if recovered and pending == onto:
         result.commits = int(git("rev-list", "--count", f"{onto}..HEAD", cwd=worktree))
-    elif onto == fork_point and not merged:
+        if dry_run:
+            log.insert(0, f"DRY RUN: finish restack onto {upstream} ({plural(result.commits, 'commit')})")
+            return result
+    elif onto == fork_point and not merged and not recovered:
         result.state = "up_to_date"
         return result
     else:
+        if recovered:
+            fork_point = pending
         result.commits = int(git("rev-list", "--count", f"{fork_point}..HEAD", cwd=worktree))
         if dry_run:
             log.insert(
                 0, f"DRY RUN: git rebase --onto {upstream} {fork_point[:12]} ({plural(result.commits, 'commit')})"
             )
             return result
+        session.update(worktree, fork_point=fork_point, restack_onto=onto)
         if conflicts := _rebase(worktree, onto, fork_point):
-            session.update(worktree, restack_onto=onto)
             result.state, result.conflicts = "conflict", conflicts
             log.append(f"rebase onto {upstream} stopped; left in progress")
             return result
         log.append(f"rebased {plural(result.commits, 'commit')} onto {upstream} ({onto[:12]})")
     git("push", "--quiet", "--force-with-lease", "origin", branch, cwd=worktree)
     log.append(f"pushed {branch} (--force-with-lease)")
+    if merged and (number := _retarget(kind, branch, main, worktree)):
+        result.retargeted = f"{PREFIX[kind]}{number}"
+        log.append(f"retargeted {result.retargeted} to {main}")
     session.update(worktree, fork_point=onto, restack_onto="", **({"base": ""} if merged else {}))
     result.fork_point = onto
     if merged:
-        if number := _retarget(kind, branch, main, worktree):
-            result.retargeted = f"{PREFIX[kind]}{number}"
-            log.append(f"retargeted {result.retargeted} to {main}")
         log.append(f"session base cleared; it now targets {main}")
     return result

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.16 — 2026-10-23 (#17)
+
+### Fixed
+
+- `aw restack` recovers a completed rebase onto its recorded target even when the old fork point is no longer
+  in the branch history. A merged base's worktree and local or remote branches may already be deleted. The
+  rebase target is saved before rebasing and retained through failed pushes or retargets. Retries preserve the
+  session's commit boundary, including when the base merges during conflict resolution; recovery dry runs
+  never push, retarget or change session metadata.
+
 ## 0.1.15 — 2026-10-22 (#16)
 
 ### Added

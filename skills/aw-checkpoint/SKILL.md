@@ -21,7 +21,7 @@ One merge in the middle of a session. The worktree, the branch and the issue sta
 
 Not in a session worktree, or `forge = none` without a manual merge in mind → say so and stop.
 
-Stacked session (`aw session` shows a non-empty `base`) → a part cannot merge before the base: `aw merge` refuses. Say so and stop; once the base merged, `~/.agents/bin/aw restack` brings the session onto `main_branch`.
+Stacked session (`aw session` shows a non-empty `base`) → a part cannot merge before the base: `aw merge` refuses. Say so and stop; once the base merged, `~/.agents/bin/aw restack` brings the session onto `main_branch`, even after the base's worktree and branches are deleted. A rebase still active → resolve it and `git rebase --continue` before rerunning restack. A completed rebase with a recorded target, or a failed push or retarget → rerun restack to finish; do not edit the session's fork point by hand.
 
 Resume from what the forge and git say, not from memory of an earlier turn:
 
