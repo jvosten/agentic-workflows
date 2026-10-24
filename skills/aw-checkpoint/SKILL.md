@@ -1,7 +1,7 @@
 ---
 name: aw-checkpoint
 description: Merge one part of a session and keep going - verify, open a part merge request, pass CI and the merge gate, merge with aw merge, check the change live, then continue the session. Use at a plan's "Checkpoint:" step, when a change has to be live before the next one can be built or checked (GitOps reconcile, a migration, a deploy), or when the user says "checkpoint", "merge this part", "ship this step".
-allowed-tools: Bash(~/.agents/bin/aw config) Bash(~/.agents/bin/aw session) Bash(~/.agents/bin/aw verify) Bash(~/.agents/bin/aw issue ref:*) Bash(~/.agents/bin/aw template mr) Bash(~/.agents/bin/aw mr create:*) Bash(~/.agents/bin/aw mr update:*) Bash(~/.agents/bin/aw mr view:*) Bash(~/.agents/bin/aw mr checks:*) Bash(~/.agents/bin/aw mr comments:*) Bash(~/.agents/bin/aw merge:*) Bash(~/.agents/bin/aw restack:*)
+allowed-tools: Bash(~/.agents/bin/aw config) Bash(~/.agents/bin/aw session) Bash(~/.agents/bin/aw verify) Bash(~/.agents/bin/aw issue ref:*) Bash(~/.agents/bin/aw template mr) Bash(~/.agents/bin/aw mr create:*) Bash(~/.agents/bin/aw mr update:*) Bash(~/.agents/bin/aw mr view:*) Bash(~/.agents/bin/aw mr checks:*) Bash(~/.agents/bin/aw mr comments:*) Bash(~/.agents/bin/aw restack:*)
 metadata:
   package: agentic-workflows
 ---

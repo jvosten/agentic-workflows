@@ -134,6 +134,23 @@ def test_every_bundled_skill_has_valid_frontmatter():
     assert [r for skill in install.source_skills() for r in doctor.check_skill(skill) if r[0] != "ok"] == []
 
 
+GATED = ("aw merge", "aw finish", "aw abandon", "aw issue rollup", "aw issue set-status")
+READ_ONLY = "/aw issue rollup --json:*"
+
+
+def test_no_skill_pre_approves_a_command_that_merges_or_closes():
+    """allowed-tools skip the permission prompt; a merge or a close must keep it, whatever the model was told."""
+    pre_approved = [
+        f"{skill.name}: {tool}"
+        for skill in install.source_skills()
+        for line in (skill / "SKILL.md").read_text().splitlines()
+        if line.startswith("allowed-tools:")
+        for tool in line.removeprefix("allowed-tools:").split(") ")
+        if any(f"/{command}" in tool for command in GATED) and not tool.rstrip(")").endswith(READ_ONLY)
+    ]
+    assert pre_approved == []
+
+
 def test_menu_lists_skills_before_commands(capsys):
     from aw import cli
 
