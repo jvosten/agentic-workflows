@@ -8,8 +8,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from aw import install, memory, plan, templates, trackers, ui
-from aw.config import PROJECT_FILE, AwError, Config, load, load_schema, repo_root
+from aw import install, memory, plan, templates, trackers, ui, update
+from aw.config import PROJECT_FILE, AwError, Config, git, load, load_schema, repo_root
 from aw.trackers.github import GitHub
 from aw.trackers.jira import CREDENTIALS, Jira
 
@@ -83,7 +83,32 @@ def check_cli() -> list[Result]:
     ]
     if not shutil.which("aw"):
         results.append(("warn", "`aw` is not on your PATH; skills still work. For your shell: `uv tool update-shell`"))
-    return results
+    return results + check_source(update.source_clone())
+
+
+def check_source(clone: Path | None) -> list[Result]:
+    """An editable install runs whatever its clone has checked out, as aw in every project and as every agent's
+    skills: a pull request checked out there to review it would run with the user's credentials."""
+    if clone is None:
+        return []
+    branch, current = update.default_branch(clone), git("branch", "--show-current", cwd=clone)
+    results: list[Result] = []
+    if current != branch:
+        results.append(
+            (
+                "warn",
+                f"editable install: {clone} has {current or 'a detached HEAD'} checked out, not {branch}; aw and its "
+                "skills run that code in every project. Check out other branches in a worktree",
+            )
+        )
+    if git("status", "--porcelain", "--", "src", "skills", cwd=clone):
+        results.append(
+            (
+                "warn",
+                f"editable install: {clone} has uncommitted changes in src/ or skills/; aw runs them in every project",
+            )
+        )
+    return results or [("ok", f"editable install: {clone} on {branch}")]
 
 
 def check_skills() -> list[Result]:

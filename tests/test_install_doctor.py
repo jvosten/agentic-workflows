@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from aw import doctor, init, install
+from aw import doctor, init, install, update
 from aw.config import AwError, git
 
 
@@ -167,6 +167,7 @@ def test_doctor_summary_lists_problems_and_verbose_lists_everything(env, repo, t
     install.run(["claude"], fake_exe(tmp_path))
     init.run(True, [])
     monkeypatch.setenv("PATH", f"{env}/.agents/bin:/usr/bin:/bin")
+    monkeypatch.setattr(update, "source_clone", lambda: None)  # not whatever the checkout running the tests has out
     assert any("not committed: session worktrees start from main" in m for _, m in doctor.check_project())
     git("add", ".agents", cwd=repo)
     git("commit", "-qm", "aw config", cwd=repo)
@@ -237,3 +238,21 @@ def test_doctor_fails_a_path_key_that_links_out_of_the_repo(env, repo, tmp_path)
     assert results[f"instructions_file: {repo}/AGENTS.md resolves outside the repo; aw follows no link out of it"] == (
         "fail"
     )
+
+
+def test_doctor_warns_when_the_editable_install_runs_other_code_than_its_default_branch(repo):
+    """The installed aw and every agent's skills run from the clone: a pull request checked out there runs as aw in
+    every project."""
+    (repo / "skills").mkdir()
+    assert doctor.check_source(repo) == [("ok", f"editable install: {repo} on main")]
+    git("switch", "-q", "-c", "someones-pr", cwd=repo)
+    (repo / "skills/x.md").write_text("new\n")
+    assert doctor.check_source(repo) == [
+        (
+            "warn",
+            f"editable install: {repo} has someones-pr checked out, not main; aw and its skills run that code in "
+            "every project. Check out other branches in a worktree",
+        ),
+        ("warn", f"editable install: {repo} has uncommitted changes in src/ or skills/; aw runs them in every project"),
+    ]
+    assert doctor.check_source(None) == []  # packaged: the code comes from the package
