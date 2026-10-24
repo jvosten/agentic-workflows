@@ -68,20 +68,21 @@ def _merge_request(cfg: Config, kind: str, branch: str, pr: str | None, worktree
             raise AwError(f"{branch} has no open merge request; open one with `aw mr create`, or pass --pr")
         pr = request.number
     merged = forge.is_merged(kind, pr, root)
-    _require_head(kind, pr, branch, merged, worktree)
+    head = _require_head(kind, pr, branch, merged, worktree)
     if not merged:
-        forge.merge(kind, pr, cfg.get("merge_method"), root)
+        forge.merge(kind, pr, cfg.get("merge_method"), head, root)
         log.append(f"merged {PREFIX[kind]}{pr}")
     if not forge.is_merged(kind, pr, root):
         raise AwError(f"{PREFIX[kind]}{pr} is not merged (pending checks or auto-merge?); rerun when it is")
     return pr
 
 
-def _require_head(kind: str, pr: str, branch: str, merged: bool, worktree: Path) -> None:
-    """Refuse a request that is not at the branch's head: it is another branch's, or commits came after it."""
+def _require_head(kind: str, pr: str, branch: str, merged: bool, worktree: Path) -> str:
+    """The branch's head, when the request is at it; refused otherwise: it is another branch's, or commits came
+    after it. The merge is pinned to the returned commit, so a push after this check cannot slip in."""
     at = forge.head(kind, pr, worktree)
     if at == git("rev-parse", "HEAD", cwd=worktree):
-        return
+        return at
     ref = f"{PREFIX[kind]}{pr}"
     if not merged:
         raise AwError(

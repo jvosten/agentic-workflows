@@ -503,6 +503,62 @@ def test_gitlab_jobs_and_discussions_are_read_from_every_page(repo, monkeypatch)
     assert fake.calls[-1][:3] == ["glab", "api", "--paginate"]
 
 
+# --- requests from forks ----------------------------------------------------------------
+
+
+def own_and_fork(kind, state):
+    """Two requests from branches named feat/x: this repository's (#5) and a fork's (#6)."""
+    if kind == "github":
+        rows = [
+            {"number": n, "url": f"https://x/pull/{n}", "title": t, "headRefOid": "abc", "mergedAt": f"2026-10-0{n}"}
+            | {"isCrossRepository": fork}
+            for n, t, fork in ((6, "fork", True), (5, "own", False))
+        ]
+        return FakeProcess({("gh", "pr", "list"): (0, json.dumps(rows), "")})
+    rows = [
+        {"iid": n, "web_url": f"https://x/-/merge_requests/{n}", "title": t, "sha": "abc", "merged_at": f"2026-10-0{n}"}
+        | {"source_project_id": source, "target_project_id": 1, "state": state}
+        for n, t, source in ((6, "fork", 2), (5, "own", 1))
+    ]
+    return FakeProcess({("glab", "mr", "list"): (0, json.dumps(rows), "")})
+
+
+@pytest.mark.parametrize("kind", ["github", "gitlab"])
+def test_a_request_from_a_fork_is_never_this_branchs(repo, monkeypatch, kind):
+    """`gh pr list --head` matches the branch name only: a fork's request from a same-named branch is not ours."""
+    monkeypatch.setattr(forge.subprocess, "run", own_and_fork(kind, "opened"))
+    found = forge.find_open(kind, "feat/x", repo)
+    assert found is not None and found.number == "5"
+    monkeypatch.setattr(forge.subprocess, "run", own_and_fork(kind, "merged"))
+    assert [m.number for m in forge.merged(kind, "feat/x", repo)] == ["5"]
+
+
+def test_only_a_fork_request_open_means_none_open(repo, monkeypatch):
+    rows = [{"number": 6, "url": "https://x/pull/6", "title": "fork", "isCrossRepository": True}]
+    fake = FakeProcess({("gh", "pr", "list"): (0, json.dumps(rows), "")})
+    monkeypatch.setattr(forge.subprocess, "run", fake)
+    assert forge.find_open("github", "feat/x", repo) is None
+    assert "isCrossRepository" in fake.calls[0][fake.calls[0].index("--json") + 1]
+
+
+@pytest.mark.parametrize(
+    ("kind", "merge"),
+    [
+        ("github", ["gh", "pr", "merge", "7", "--squash", "--match-head-commit", "abc123"]),
+        (
+            "gitlab",
+            ["glab", "mr", "merge", "7", "--yes", "--remove-source-branch=false", "--squash", "--sha", "abc123"],
+        ),
+    ],
+)
+def test_the_merge_is_pinned_to_the_commit_that_was_checked(repo, monkeypatch, kind, merge):
+    """A push between the head check and the merge makes the forge refuse instead of merging unchecked commits."""
+    fake = FakeProcess({tuple(merge[:3]): (0, "", "")})
+    monkeypatch.setattr(forge.subprocess, "run", fake)
+    forge.merge(kind, "7", "squash", "abc123", repo)
+    assert fake.calls == [merge]
+
+
 # --- what a request closes -------------------------------------------------------------
 
 

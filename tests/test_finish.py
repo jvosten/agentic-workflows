@@ -52,9 +52,10 @@ def test_finish_with_forge_merges_first(started, repo, monkeypatch):
     monkeypatch.chdir(started["worktree"])
     monkeypatch.setenv("AW_FORGE", "github")
     merged = {"state": False}
+    head = git("rev-parse", "HEAD", cwd=started["worktree"])
 
-    def fake_merge(kind, pr, method, cwd):
-        assert (kind, pr, method) == ("github", "7", "merge")
+    def fake_merge(kind, pr, method, at, cwd):
+        assert (kind, pr, method, at) == ("github", "7", "merge", head)  # the merge is pinned to the checked commit
         merge_by_hand(repo, started["branch"])
         merged["state"] = True
 
@@ -63,7 +64,6 @@ def test_finish_with_forge_merges_first(started, repo, monkeypatch):
     open_request = {"found": None}
     monkeypatch.setattr(forge, "find_open", lambda kind, branch, cwd: open_request["found"])
     monkeypatch.setattr(forge, "merged", lambda kind, branch, cwd: [])
-    head = git("rev-parse", "HEAD", cwd=started["worktree"])
     monkeypatch.setattr(forge, "head", lambda kind, pr, cwd: head)  # the open request is at the branch's head
     cfg, meta = load(), session.read()
     with pytest.raises(AwError, match="no open merge request; open one with `aw mr create`, or pass --pr"):
@@ -150,7 +150,8 @@ def test_merge_after_a_squash_moves_the_branch_to_main_and_deletes_the_remote(st
     monkeypatch.setenv("AW_MERGE_METHOD", "squash")
     head = git("rev-parse", "HEAD", cwd=wt)
 
-    def squash(kind, pr, method, cwd):
+    def squash(kind, pr, method, at, cwd):
+        assert at == head
         git("merge", "-q", "--squash", branch, cwd=repo)
         git("commit", "-qm", "feat: thing (#7)", cwd=repo)
         git("push", "-q", "origin", "main", cwd=repo)

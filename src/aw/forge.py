@@ -38,13 +38,15 @@ def is_merged(forge: str, pr: str, cwd: Path) -> bool:
     raise AwError(f"forge {forge!r} has no pull requests")
 
 
-def merge(forge: str, pr: str, method: str, cwd: Path) -> None:
-    """Merge without deleting the head branch; the worktree still has it checked out."""
+def merge(forge: str, pr: str, method: str, head: str, cwd: Path) -> None:
+    """Merge at head, the commit the caller checked, without deleting the head branch (the worktree still has it
+    checked out). A request that moved since is refused by the forge instead of merged with commits nobody checked."""
     flag = MERGE_FLAGS[forge][method]
+    flags = [flag] if flag else []
     if forge == "github":
-        _run(["gh", "pr", "merge", pr, *([flag] if flag else [])], cwd)
+        _run(["gh", "pr", "merge", pr, *flags, "--match-head-commit", head], cwd)
     elif forge == "gitlab":
-        _run(["glab", "mr", "merge", pr, "--yes", "--remove-source-branch=false", *([flag] if flag else [])], cwd)
+        _run(["glab", "mr", "merge", pr, "--yes", "--remove-source-branch=false", *flags, "--sha", head], cwd)
     else:
         raise AwError(f"forge {forge!r} has no pull requests")
 
@@ -135,40 +137,52 @@ def next_number(kind: str, cwd: Path) -> str:
     return str(max(numbers, default=0) + 1)
 
 
-def find_open(kind: str, branch: str, cwd: Path) -> MergeRequest | None:
-    """The open merge request whose source is branch, if there is one."""
+def _own(kind: str, rows: list[dict] | None) -> list[dict]:
+    """Requests from this repository's branch. The source branch filter matches the name only, so a fork's request
+    from a branch with the same name comes back too, and anyone can open one on a public repository."""
     if kind == "github":
-        rows = _json(["gh", "pr", "list", "--head", branch, "--state", "open", "--json", "number,url,title"], cwd)
+        return [r for r in rows or [] if r.get("isCrossRepository") is False]
+    return [r for r in rows or [] if r.get("source_project_id") == r.get("target_project_id")]
+
+
+def find_open(kind: str, branch: str, cwd: Path) -> MergeRequest | None:
+    """The open merge request whose source is branch in this repository, if there is one."""
+    if kind == "github":
+        fields = "number,url,title,isCrossRepository"
+        rows = _own(kind, _json(["gh", "pr", "list", "--head", branch, "--state", "open", "--json", fields], cwd))
         return MergeRequest(str(rows[0]["number"]), rows[0]["url"], rows[0]["title"], "open") if rows else None
     if kind == "gitlab":
-        rows = _json(["glab", "mr", "list", "--source-branch", branch, "--output", "json"], cwd)
+        rows = _own(kind, _json(["glab", "mr", "list", "--source-branch", branch, "--output", "json"], cwd))
         return MergeRequest(str(rows[0]["iid"]), rows[0]["web_url"], rows[0]["title"], "open") if rows else None
     raise _unsupported(kind)
 
 
 def merged(kind: str, branch: str, cwd: Path) -> list[MergeRequest]:
-    """Merged requests from branch, oldest first: the parts a multi-merge session has shipped."""
+    """Merged requests from branch in this repository, oldest first: the parts a multi-merge session has shipped."""
     if kind == "github":
-        rows = _json(
-            [
-                "gh",
-                "pr",
-                "list",
-                "--head",
-                branch,
-                "--state",
-                "merged",
-                "--limit",
-                "100",
-                "--json",
-                "number,url,title,headRefOid,mergedAt",
-            ],
-            cwd,
+        rows = _own(
+            kind,
+            _json(
+                [
+                    "gh",
+                    "pr",
+                    "list",
+                    "--head",
+                    branch,
+                    "--state",
+                    "merged",
+                    "--limit",
+                    "100",
+                    "--json",
+                    "number,url,title,headRefOid,mergedAt,isCrossRepository",
+                ],
+                cwd,
+            ),
         )
         rows = sorted(rows, key=lambda r: r["mergedAt"])
         return [MergeRequest(str(r["number"]), r["url"], r["title"], "merged", r["headRefOid"]) for r in rows]
     if kind == "gitlab":
-        rows = _json(["glab", "mr", "list", "--source-branch", branch, "--merged", "--output", "json"], cwd) or []
+        rows = _own(kind, _json(["glab", "mr", "list", "--source-branch", branch, "--merged", "--output", "json"], cwd))
         rows = sorted(rows, key=lambda r: r.get("merged_at") or "")
         return [MergeRequest(str(r["iid"]), r["web_url"], r["title"], "merged", r.get("sha", "")) for r in rows]
     raise _unsupported(kind)
