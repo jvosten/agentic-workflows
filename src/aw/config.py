@@ -7,9 +7,10 @@ Resolution order, later wins:
   <primary>/.agents/aw.local.toml machine, gitignored (primary checkout only)
   AW_<KEY> environment variables
 
-A trusted key (schema: trusted = true) decides what runs or merges on the host. Its project value comes from the
-primary checkout's .agents/aw.toml, never from a session worktree's: the branch being merged does not choose its own
-merge gate or hooks. An env-only key (env_only = true) describes where aw runs, not the project: only AW_<KEY> sets it.
+A trusted key (schema: trusted = true) decides what runs or merges on the host, or where credentials go. Its project
+value comes from the primary checkout's .agents/aw.toml, never from a session worktree's: the branch being merged
+does not choose its own merge gate, hooks or credential host. An env-only key (env_only = true) describes where aw
+runs, not the project: only AW_<KEY> sets it.
 """
 
 from __future__ import annotations

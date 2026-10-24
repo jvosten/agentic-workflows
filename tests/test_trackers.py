@@ -1401,3 +1401,16 @@ def test_github_graphql_without_data_or_issue_is_an_aw_error(repo, monkeypatch):
     monkeypatch.setattr(GitHub, "gh", lambda self, *a, stdin=None: missing)
     with pytest.raises(AwError, match="#3 not found"):
         trackers.get(load()).parent("3")
+
+
+@pytest.mark.parametrize("source", ["config", "env"])
+def test_jira_sends_credentials_over_https_only(repo, monkeypatch, source):
+    jira_cfg(repo)
+    if source == "config":
+        monkeypatch.setenv("AW_JIRA_BASE_URL", "http://example.atlassian.net")
+    else:
+        monkeypatch.setenv("AW_JIRA_BASE_URL", "")
+        monkeypatch.setenv("JIRA_BASE_URL", "http://example.atlassian.net")
+    cfg = load()
+    with pytest.raises(AwError, match=r"jira_base_url must start with https://, got 'http://example\.atlassian\.net'"):
+        Jira(cfg).site_url()

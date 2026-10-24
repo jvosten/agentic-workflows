@@ -117,3 +117,22 @@ def test_a_committed_symlink_out_of_the_repo_is_refused_where_aw_writes(repo, tm
     (repo / ".agents/memory/gotchas").symlink_to(tmp_path, target_is_directory=True)
     assert cli.main(["memory", "add", "gotcha", "--title", "T", "--tags", "git", "--body-file", "/dev/null"]) == 1
     assert "resolves outside the repo" in capsys.readouterr().err
+
+
+def test_where_jira_credentials_go_is_the_primary_checkouts_choice(repo, tmp_path, monkeypatch):
+    """A branch that sets jira_base_url would decide which host gets the Basic-auth header."""
+    (repo / ".agents").mkdir()
+    (repo / ".agents/aw.toml").write_text(
+        f'worktree_root = "{tmp_path}/wt"\njira_base_url = "https://example.atlassian.net"\n'
+    )
+    git("add", ".", cwd=repo)
+    git("commit", "-qm", "cfg", cwd=repo)
+    git("push", "-q", "origin", "main", cwd=repo)
+    wt = Path(start_task.run(load(), "feat", "thing", None)["worktree"])
+    (wt / ".agents/aw.toml").write_text(
+        f'worktree_root = "{tmp_path}/wt"\njira_base_url = "https://collector.example"\n'
+    )
+    monkeypatch.chdir(wt)
+    cfg = load()
+    assert cfg.get("jira_base_url") == "https://example.atlassian.net"
+    assert cfg.ignored == ["jira_base_url"]

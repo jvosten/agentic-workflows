@@ -5,8 +5,8 @@
 # when:    ask only if these keys already have these values
 # detect:  name of a detector in init.py that proposes the default
 # default: fallback when nothing else sets the key
-# trusted: decides what runs or merges on the host; in a session worktree the project value comes from the primary
-#          checkout's .agents/aw.toml, never from the branch's
+# trusted: decides what runs or merges on the host, or where credentials go; in a session worktree the project value
+#          comes from the primary checkout's .agents/aw.toml, never from the branch's
 # env_only: describes where aw runs, not the project; only AW_<KEY> sets it
 # path:    a file or directory relative to the repo root (a table: each value). A committed value must stay inside
 #          the repo, and aw follows no link out of it; a path outside belongs in the user or local layer
@@ -56,6 +56,7 @@ help = "Issue tracker"
 
 [keys.jira_base_url]
 type = "str"
+trusted = true
 ask = true
 when = { tracker = "jira" }
 default = ""

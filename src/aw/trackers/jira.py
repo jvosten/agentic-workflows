@@ -59,6 +59,8 @@ class Jira(Tracker):
         url = self.cfg.get("jira_base_url") or os.environ.get("JIRA_BASE_URL", "")
         if not url:
             raise AwError("jira_base_url is not set (aw init, or JIRA_BASE_URL)")
+        if not url.startswith("https://"):  # every request carries the Basic-auth credentials
+            raise AwError(f"jira_base_url must start with https://, got {url!r}")
         return url.rstrip("/")
 
     def api_base(self) -> str:
