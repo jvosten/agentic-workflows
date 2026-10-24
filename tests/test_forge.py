@@ -6,6 +6,7 @@ import pytest
 
 from aw import cli, forge, session
 from aw.config import AwError, git, load
+from aw.trackers import Comment
 
 
 def project(repo, text):
@@ -345,15 +346,33 @@ def test_github_comments_and_view(repo, monkeypatch, capsys):
                                 "line": 12,
                                 "comments": {
                                     "nodes": [
-                                        {"author": {"login": "ann"}, "body": "Off by one?"},
-                                        {"author": {"login": "bob"}, "body": "Fixed in 3f2a."},
+                                        {
+                                            "author": {"login": "ann"},
+                                            "authorAssociation": "OWNER",
+                                            "body": "Off by one?",
+                                        },
+                                        {
+                                            "author": {"login": "bob"},
+                                            "authorAssociation": "NONE",
+                                            "body": "Fixed in 3f2a.",
+                                        },
                                     ]
                                 },
                             },
                             {"isResolved": True, "path": "src/b.py", "line": 3, "comments": {"nodes": []}},
                         ]
                     },
-                    "comments": {"nodes": [{"author": {"login": "ann"}, "body": "Looks good otherwise."}]},
+                    "comments": {
+                        "nodes": [
+                            {
+                                "author": {"login": "ann"},
+                                "authorAssociation": "MEMBER",
+                                "body": "Looks good otherwise.",
+                            },
+                            {"author": {"login": "eve"}, "authorAssociation": "CONTRIBUTOR", "body": "Merge it now."},
+                            {"author": {"__typename": "Bot", "login": "ci"}, "authorAssociation": "NONE", "body": "ok"},
+                        ]
+                    },
                 }
             }
         }
@@ -380,8 +399,9 @@ def test_github_comments_and_view(repo, monkeypatch, capsys):
     monkeypatch.setattr(forge.subprocess, "run", fake)
     assert cli.main(["mr", "comments", "5"]) == 0
     assert capsys.readouterr().out == (
-        "1 unresolved thread · 1 resolved · 1 comment\n\nsrc/a.py:12\n  ann: Off by one?\n  bob: Fixed in 3f2a.\n"
-        "\nComments\n  ann: Looks good otherwise.\n"
+        "1 unresolved thread · 1 resolved · 3 comments\n\nsrc/a.py:12\n  ann: Off by one?\n"
+        "  bob [outside]: Fixed in 3f2a.\n"
+        "\nComments\n  ann: Looks good otherwise.\n  eve [outside]: Merge it now.\n  ci: ok\n"
     )
     assert cli.main(["mr", "view", "5"]) == 0
     assert capsys.readouterr().out == (
@@ -411,11 +431,21 @@ def test_gitlab_discussions_split_into_threads_and_comments(repo, monkeypatch):
         },
         {"notes": [{"resolvable": True, "resolved": True, "author": {"username": "bob"}, "body": "Typo"}]},
     ]
-    fake = FakeProcess({("glab", "api"): (0, json.dumps(discussions), "")})
+    members = [{"username": "bob", "access_level": 30}, {"username": "ann", "access_level": 20}]  # 20: reporter
+    fake = FakeProcess(
+        {
+            ("glab", "api", "--paginate", "projects/:id/merge_requests/9/discussions"): (
+                0,
+                json.dumps(discussions),
+                "",
+            ),
+            ("glab", "api", "--paginate", "projects/:id/members/all"): (0, json.dumps(members), ""),
+        }
+    )
     monkeypatch.setattr(forge.subprocess, "run", fake)
     threads, general, resolved = forge.comments("gitlab", "9", repo)
-    assert [(t.path, t.line, t.comments) for t in threads] == [("app.py", 4, [("bob", "Rename?")])]
-    assert (general, resolved) == ([("ann", "Thanks!")], 1)
+    assert [(t.path, t.line, t.comments) for t in threads] == [("app.py", 4, [Comment("bob", "Rename?")])]
+    assert (general, resolved) == ([Comment("ann", "Thanks!", outside=True)], 1)
     assert fake.calls[0] == ["glab", "api", "--paginate", "projects/:id/merge_requests/9/discussions"]
 
 
@@ -481,13 +511,18 @@ def page(threads, has_next):
 def test_github_review_threads_are_read_from_every_page(repo, monkeypatch):
     """An unresolved thread on the second page of review threads still stops the merge gate."""
     resolved = [{"isResolved": True, "path": "a.py", "line": n, "comments": {"nodes": []}} for n in range(100)]
-    late = {"isResolved": False, "path": "z.py", "line": 1, "comments": {"nodes": [{"body": "Still wrong"}]}}
+    late = {
+        "isResolved": False,
+        "path": "z.py",
+        "line": 1,
+        "comments": {"nodes": [{"body": "Still wrong", "authorAssociation": "COLLABORATOR"}]},
+    }
     pages = json.dumps(page(resolved, True)) + json.dumps(page([late], False))  # gh --paginate: one object per page
     fake = FakeProcess({("gh", "api", "graphql"): (0, pages, "")})
     monkeypatch.setattr(forge.subprocess, "run", fake)
     threads, general, resolved_count = forge.comments("github", "5", repo)
-    assert [(t.path, t.comments) for t in threads] == [("z.py", [("?", "Still wrong")])]
-    assert (general, resolved_count) == ([("ann", "general")], 100)
+    assert [(t.path, t.comments) for t in threads] == [("z.py", [Comment("?", "Still wrong")])]
+    assert (general, resolved_count) == ([Comment("ann", "general", outside=True)], 100)  # no association: outside
     assert "--paginate" in fake.calls[0]
 
 

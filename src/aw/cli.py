@@ -348,12 +348,12 @@ def _mr(args: argparse.Namespace) -> int:
         )
         for t in threads:
             print(f"\n{t.path}:{t.line}" if t.line else f"\n{t.path or '(general)'}")
-            for author, text in t.comments:
-                print(f"  {author}: {text.strip()}")
+            for c in t.comments:
+                print(f"  {c.by}: {c.body.strip()}")
         if general:
             print("\nComments")
-            for author, text in general:
-                print(f"  {author}: {text.strip()}")
+            for c in general:
+                print(f"  {c.by}: {c.body.strip()}")
     elif args.op == "view":
         s = forge.summary(kind, ref, cwd)
         print(f"{mark}{s.request.number} {s.request.title}")

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from aw.config import AwError, json_pages
+from aw.trackers import Comment, github_comment
 from aw.trackers import run as _run  # one runner: a missing gh or glab is an AwError, not a traceback
 
 MERGE_FLAGS = {
@@ -74,7 +75,7 @@ class Check:
 class Thread:
     path: str
     line: int | None
-    comments: list[tuple[str, str]]  # (author, body)
+    comments: list[Comment]
 
 
 @dataclass
@@ -95,7 +96,8 @@ class Summary:
 THREADS = """query($owner:String!,$repo:String!,$number:Int!,$endCursor:String){repository(owner:$owner,name:$repo){
   pullRequest(number:$number){reviewThreads(first:100,after:$endCursor){pageInfo{hasNextPage endCursor}
   nodes{isResolved path line
-  comments(first:20){nodes{author{login} body}}}} comments(last:30){nodes{author{login} body}}}}}"""
+  comments(first:20){nodes{author{__typename login} authorAssociation body}}}}
+  comments(last:30){nodes{author{__typename login} authorAssociation body}}}}}"""
 GITHUB_BUCKETS = {"pass": "pass", "fail": "fail", "cancel": "fail", "pending": "pending", "skipping": "skip"}
 GITLAB_PIPELINE = {"success": "pass", "failed": "fail", "canceled": "fail", "skipped": "skip", "manual": "skip"}
 CHECKS_APPEAR = 8  # polls, 15 s apart: how long configured CI may take to report the first check of a new request
@@ -343,8 +345,15 @@ def _checks(kind: str, ref: str, cwd: Path, watch: bool) -> list[Check]:
     raise _unsupported(kind)
 
 
-def comments(kind: str, ref: str, cwd: Path) -> tuple[list[Thread], list[tuple[str, str]], int]:
-    """Unresolved review threads, general comments, and how many threads are resolved."""
+def _gitlab_writers(cwd: Path) -> set[str]:
+    """Usernames with at least Developer access (30): the ones who can push to the project."""
+    members = _pages(["glab", "api", "--paginate", "projects/:id/members/all"], cwd)
+    return {m["username"] for m in members if (m.get("access_level") or 0) >= 30}
+
+
+def comments(kind: str, ref: str, cwd: Path) -> tuple[list[Thread], list[Comment], int]:
+    """Unresolved review threads, general comments, and how many threads are resolved. A comment whose author has
+    no write access is marked outside."""
     if kind == "github":
         number = ref if ref.isdigit() else str(_json(["gh", "pr", "view", ref, "--json", "number"], cwd)["number"])
         pages = json_pages(
@@ -372,23 +381,32 @@ def comments(kind: str, ref: str, cwd: Path) -> tuple[list[Thread], list[tuple[s
             Thread(
                 t["path"],
                 t.get("line"),
-                [((c.get("author") or {}).get("login", "?"), c["body"]) for c in t["comments"]["nodes"]],
+                [github_comment(c) for c in t["comments"]["nodes"]],
             )
             for t in threads
             if not t["isResolved"]
         ]
-        general = [((c.get("author") or {}).get("login", "?"), c["body"]) for c in data["comments"]["nodes"]]
+        general = [github_comment(c) for c in data["comments"]["nodes"]]
         return open_threads, general, len(threads) - len(open_threads)
     if kind == "gitlab":
         iid = ref if ref.isdigit() else str(_json(["glab", "mr", "view", ref, "--output", "json"], cwd)["iid"])
         discussions = _pages(["glab", "api", "--paginate", f"projects/:id/merge_requests/{iid}/discussions"], cwd)
+        writers: set[str] | None = None  # looked up once, and only when there is a note to mark
+
+        def note(n: dict) -> Comment:
+            nonlocal writers
+            if writers is None:
+                writers = _gitlab_writers(cwd)
+            author = (n.get("author") or {}).get("username", "?")
+            return Comment(author, n["body"], outside=author not in writers)
+
         open_threads, general, resolved = [], [], 0
         for d in discussions:
             notes = [n for n in d.get("notes", []) if not n.get("system")]
             if not notes:
                 continue
             if not notes[0].get("resolvable"):
-                general += [((n.get("author") or {}).get("username", "?"), n["body"]) for n in notes]
+                general += [note(n) for n in notes]
             elif all(n.get("resolved") for n in notes if n.get("resolvable")):
                 resolved += 1
             else:
@@ -397,7 +415,7 @@ def comments(kind: str, ref: str, cwd: Path) -> tuple[list[Thread], list[tuple[s
                     Thread(
                         position.get("new_path", ""),
                         position.get("new_line"),
-                        [((n.get("author") or {}).get("username", "?"), n["body"]) for n in notes],
+                        [note(n) for n in notes],
                     )
                 )
         return open_threads, general, resolved

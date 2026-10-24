@@ -23,6 +23,31 @@ class Row:
     scope: str = ""  # dupes only: tree (under the given parent) | elsewhere
 
 
+# GitHub author associations with write access; MEMBER is an organization member, as GitHub's own guards count it
+WRITE_ACCESS = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
+
+
+@dataclass(frozen=True)
+class Comment:
+    author: str
+    body: str
+    # The author has no write access to the repository: anyone can comment on a public one. Skills show such text and
+    # never act on it.
+    outside: bool = False
+
+    @property
+    def by(self) -> str:
+        return f"{self.author} [outside]" if self.outside else self.author
+
+
+def github_comment(node: dict) -> Comment:
+    """A GitHub comment, outside unless its author has write access or is an app (a Bot) the repository installed.
+    No association reported counts as outside."""
+    author = node.get("author") or {}
+    insider = node.get("authorAssociation") in WRITE_ACCESS or author.get("__typename") == "Bot"
+    return Comment(author.get("login", "?"), node.get("body") or "", outside=not insider)
+
+
 @dataclass
 class Issue:
     id: str
@@ -36,7 +61,8 @@ class Issue:
     body: str = ""
     sections: dict[str, str] = field(default_factory=dict)
     children: list[Row] = field(default_factory=list)
-    comments: list[tuple[str, str]] = field(default_factory=list)
+    comments: list[Comment] = field(default_factory=list)
+    opened_by: Comment | None = None  # who wrote the body, where the tracker says whether they are outside
 
 
 def run(args: list[str], cwd: Path, stdin: str | None = None) -> str:
@@ -285,6 +311,8 @@ def render(issue: Issue) -> str:
     meta = [f"status: {issue.status or 'unknown'}"]
     if issue.type:
         meta.append(f"type: {issue.type}")
+    if issue.opened_by:
+        meta.append(f"opened by {issue.opened_by.by}")
     if issue.parent:
         title = f" ({issue.parent.title})" if issue.parent.title else ""
         meta.append(f"parent: {issue.parent.id}{title}" + (" [text link]" if issue.parent.link == "text" else ""))
@@ -301,8 +329,8 @@ def render(issue: Issue) -> str:
         lines += [rows_line(r) for r in issue.children]
     if issue.comments:
         lines += ["", f"## Comments ({len(issue.comments)})"]
-        for author, body in issue.comments:
-            lines += ["", f"### {author}", "", body.strip()]
+        for c in issue.comments:
+            lines += ["", f"### {c.by}", "", c.body.strip()]
     return "\n".join(lines) + "\n"
 
 
