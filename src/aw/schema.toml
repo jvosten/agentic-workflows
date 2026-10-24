@@ -8,6 +8,7 @@
 # trusted: decides what runs or merges on the host, or where credentials go; in a session worktree the project value
 #          comes from the primary checkout's .agents/aw.toml, never from the branch's
 # env_only: describes where aw runs, not the project; only AW_<KEY> sets it
+# local_only: set in the user or local layer or the environment; the committed file refuses it (it would publish it)
 # path:    a file or directory relative to the repo root (a table: each value). A committed value must stay inside
 #          the repo, and aw follows no link out of it; a path outside belongs in the user or local layer
 #
@@ -289,6 +290,12 @@ type = "bool"
 env_only = true
 default = false
 help = "Set by a sandbox runner (AW_SANDBOXED=1): aw finish, aw merge and aw issue rollup --close refuse, the host runs them"
+
+[keys.private_terms]
+type = "list"
+local_only = true
+default = []
+help = "Words that never leave this machine (a private project, host or person): aw issue create, update and comment, aw mr create and update, aw backlog add and aw memory add refuse a text naming one, case-insensitively. Set it in ~/.agents/aw/config.toml or .agents/aw.local.toml, never in the committed file"
 
 [keys.pr_close_keyword]
 type = "str"

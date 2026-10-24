@@ -193,6 +193,15 @@ class Config:
         if self.values["sandboxed"]:
             raise AwError(f"sandboxed: {command} runs on the host; push the branch and run it there")
 
+    def public(self, *texts: str | None) -> None:
+        """Refuse a text that names a private term: what aw publishes reaches the tracker, the forge or the repo."""
+        for term in self.values["private_terms"]:
+            if any(text and term.casefold() in text.casefold() for text in texts):
+                raise AwError(
+                    f"the text names the private term {term!r} ({self.sources['private_terms']}); reword it, "
+                    "nothing was written or sent"
+                )
+
     def inside(self, key: str, path: Path) -> Path:
         """path, built from a path key, unless it resolves out of the repo: a committed symlink must not take aw's
         reads and writes elsewhere. Values from the user and local layers or the environment may point anywhere."""
@@ -271,6 +280,11 @@ def load(cwd: Path | str | None = None) -> Config:
             if schema[key].get("env_only"):
                 cfg.misplaced.append((layer, key))
                 continue
+            if schema[key].get("local_only") and layer == "project":
+                raise AwError(
+                    f"{key} in {PROJECT_FILE}: a committed value is published; set it in ~/.agents/aw/config.toml or "
+                    f"{LOCAL_FILE}"
+                )
             cfg.values[key] = coerce(key, schema[key], value)
             cfg.sources[key] = "primary" if layer == "project" and key in from_primary else layer
             if layer == "project" and schema[key].get("path"):

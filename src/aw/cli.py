@@ -87,6 +87,7 @@ def _issue(args: argparse.Namespace) -> None:
         return
     if op == "create":
         body = _body(args.body_file)
+        cfg.public(args.title, body)
         if args.field and not tracker.has_fields():
             raise AwError(f"--field: tracker {tracker.name!r} has no board fields (GitHub with github_project has)")
         fields = trackers.board_fields(cfg, args.label, args.field, from_labels=tracker.has_fields())
@@ -143,12 +144,15 @@ def _issue(args: argparse.Namespace) -> None:
         if not tracker.scoped():
             print(f"note: {tracker.name} has no parent links; searched the whole project", file=sys.stderr)
     elif op == "comment":
-        tracker.comment(issue, _body(args.body_file))
+        body = _body(args.body_file)
+        cfg.public(body)
+        tracker.comment(issue, body)
         print(f"commented on {tracker.ref(issue)}")
     elif op == "update":
         body = _body(args.body_file) if args.body_file else None
         if args.title is None and body is None:
             raise AwError("issue update: pass --title, --body-file, or both")
+        cfg.public(args.title, body)
         if args.dry_run:
             print(f"DRY RUN ({tracker.name}): update {tracker.ref(issue)} title={args.title!r}")
             print(body if body is not None else "body: unchanged", end="" if body else "\n")
@@ -265,6 +269,7 @@ def _mr(args: argparse.Namespace) -> int:
         if branch == cfg.get("main_branch"):
             raise AwError(f"on {branch}: create the merge request from the session branch")
         body = _body(args.body_file)
+        cfg.public(args.title, body)
         expect = args.expect.removeprefix(mark) if args.expect else None
         if expect is not None and not expect.isdigit():
             raise AwError(f"--expect takes a request number, got {args.expect!r}")
@@ -313,6 +318,7 @@ def _mr(args: argparse.Namespace) -> int:
         body = _body(args.body_file) if args.body_file else None
         if args.title is None and body is None:
             raise AwError("mr update: pass --title, --body-file, or both")
+        cfg.public(args.title, body)
         part = None
         if body is not None and (issue := _session_issue(cfg)):
             # keep what create appended: the part reference of a part request, else the closing line
@@ -404,7 +410,9 @@ def _backlog(args: argparse.Namespace) -> None:
         path = backlog.pop(cfg, args.title)
         print(f"removed from {path}" + ("; no items left, file deleted" if not path.exists() else ""))
         return
-    print(f"added to {backlog.add(cfg, args.title, _body(args.body_file))}")
+    body = _body(args.body_file)
+    cfg.public(args.title, body)
+    print(f"added to {backlog.add(cfg, args.title, body)}")
 
 
 def _ids(text: str) -> list[str]:
@@ -416,6 +424,7 @@ def _memory(args: argparse.Namespace) -> None:
     op = args.op
     if op == "add":
         text = _body(args.body_file)
+        cfg.public(args.title, text)
         path = memory.add(cfg, args.kind, args.title, text, _ids(args.tags or ""), args.ref, args.intent)
         print(f"wrote {path.relative_to(cfg.checkout)}")
     elif op == "find":

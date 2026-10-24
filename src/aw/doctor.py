@@ -224,6 +224,17 @@ def check_config(cfg: Config) -> list[Result]:
                 cfg.inside(key, cfg.checkout / name)
             except AwError as e:
                 results.append(("fail", str(e)))
+    if terms := cfg.get("private_terms"):
+        named = subprocess.run(
+            ["git", "grep", "-I", "-l", "-i", "-F", *(arg for term in terms for arg in ("-e", term))],
+            cwd=cfg.checkout,
+            capture_output=True,
+            text=True,
+            check=False,
+        ).stdout.splitlines()
+        results += [("warn", f"{name} names a private term (private_terms)") for name in named]
+        if not named:
+            results.append(("ok", "no tracked file names a private term"))
     results.append(
         ("ok", f"instructions_file {cfg.get('instructions_file')}")
         if (cfg.checkout / cfg.get("instructions_file")).is_file()

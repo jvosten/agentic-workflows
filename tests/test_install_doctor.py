@@ -256,3 +256,13 @@ def test_doctor_warns_when_the_editable_install_runs_other_code_than_its_default
         ("warn", f"editable install: {repo} has uncommitted changes in src/ or skills/; aw runs them in every project"),
     ]
     assert doctor.check_source(None) == []  # packaged: the code comes from the package
+
+
+def test_doctor_lists_tracked_files_that_name_a_private_term(env, repo):
+    (repo / ".agents").mkdir()
+    (repo / ".agents/aw.toml").write_text("aw_version = 1\n")
+    (repo / ".agents/aw.local.toml").write_text('private_terms = ["acme"]\n')
+    (repo / "notes.md").write_text("Tested on ACME's board.\n")
+    git("add", "notes.md", ".agents/aw.toml", cwd=repo)
+    results = {msg: level for level, msg in doctor.run()}
+    assert results["notes.md names a private term (private_terms)"] == "warn"

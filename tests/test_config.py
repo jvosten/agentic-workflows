@@ -1,3 +1,4 @@
+import io
 import tomllib
 from pathlib import Path
 
@@ -136,3 +137,41 @@ def test_where_jira_credentials_go_is_the_primary_checkouts_choice(repo, tmp_pat
     cfg = load()
     assert cfg.get("jira_base_url") == "https://example.atlassian.net"
     assert cfg.ignored == ["jira_base_url"]
+
+
+# --- private terms -----------------------------------------------------------------------------
+
+
+def test_private_terms_are_refused_in_the_committed_file(repo):
+    (repo / ".agents").mkdir()
+    (repo / ".agents/aw.toml").write_text('private_terms = ["acme"]\n')
+    with pytest.raises(AwError, match=r"private_terms in \.agents/aw\.toml: a committed value is published"):
+        load()
+    (repo / ".agents/aw.toml").write_text("aw_version = 1\n")
+    (repo / ".agents/aw.local.toml").write_text('private_terms = ["acme"]\n')
+    assert load().get("private_terms") == ["acme"]
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["issue", "create", "--title", "Fix it", "--body-file", "-"],
+        ["issue", "comment", "7", "--body-file", "-"],
+        ["issue", "update", "7", "--title", "Talks to ACME", "--body-file", "-"],
+        ["mr", "create", "--title", "feat: x", "--body-file", "-"],
+        ["mr", "update", "--body-file", "-"],
+        ["backlog", "add", "--title", "Item", "--body-file", "-"],
+        ["memory", "add", "gotcha", "--title", "T", "--tags", "git", "--body-file", "-"],
+    ],
+    ids=lambda argv: " ".join(argv[:2]),
+)
+def test_text_that_names_a_private_term_is_never_published(repo, monkeypatch, capsys, argv):
+    from aw import cli
+
+    (repo / ".agents").mkdir()
+    (repo / ".agents/aw.local.toml").write_text('private_terms = ["acme"]\ntracker = "github"\nforge = "github"\n')
+    git("switch", "-q", "-c", "feat/x", cwd=repo)
+    monkeypatch.setattr("sys.stdin", io.StringIO("Seen on the Acme cluster.\n"))
+    assert cli.main(argv) == 1
+    assert "names the private term 'acme' (local); reword it, nothing was written or sent" in capsys.readouterr().err
+    assert not (repo / "BACKLOG.md").exists()

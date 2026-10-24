@@ -189,6 +189,12 @@ def test_an_env_only_key_cannot_be_set_in_the_project_file(repo):
         init.run(True, ["sandboxed=true"])
 
 
+def test_a_local_only_key_cannot_be_set_in_the_project_file(repo):
+    with pytest.raises(AwError, match=r"private_terms: a committed value is published; set it in .*aw\.local\.toml"):
+        init.run(True, ["private_terms=acme"])
+    assert not (repo / ".agents/aw.toml").exists()
+
+
 def test_init_check_reports_what_init_would_change_and_writes_nothing(repo, capsys):
     from aw import cli
 
