@@ -22,7 +22,7 @@ def directory(cfg: Config) -> Path:
     """
     plan_dir = cfg.get("plan_dir") or cfg.schema["plan_dir"]["default"]
     base = cfg.root if cfg.get("plan_scope") == "local" else cfg.checkout
-    return base / plan_dir
+    return cfg.inside("plan_dir", base / plan_dir)
 
 
 def ignored(cfg: Config) -> bool:

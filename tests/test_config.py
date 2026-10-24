@@ -66,3 +66,54 @@ def test_keys_that_run_on_the_host_come_from_the_primary_checkout_not_the_sessio
     assert (cfg.sources["merge_gate"], cfg.sources["verify_cmd"]) == ("primary", "project")
     monkeypatch.chdir(repo)
     assert load().ignored == []
+
+
+# --- paths a committed config may name -----------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        'backlog_file = "~/.zshrc"',
+        'backlog_file = "../../.zshrc"',
+        'memory_dir = "/etc"',
+        'plan_dir = "{repo_parent}/plans"',
+        'instructions_file = "~/notes.md"',
+        'templates = { mr = "~/private.txt" }',
+    ],
+)
+def test_a_committed_path_outside_the_repo_is_refused(repo, line):
+    """A branch's .agents/aw.toml must not point aw at a file outside the repo: reproduced 2026-10-24, aw template mr
+    printed ~/private.txt and aw backlog add, then pop, wrote into and deleted ~/.zshrc."""
+    (repo / ".agents").mkdir()
+    (repo / ".agents/aw.toml").write_text(line + "\n")
+    key = line.split(" ")[0]
+    with pytest.raises(AwError, match=rf"{key}.* in project points outside the repo; .* user or local config"):
+        load()
+
+
+def test_a_path_outside_the_repo_is_fine_from_the_user_or_local_layer(repo, env, tmp_path):
+    (repo / ".agents").mkdir()
+    (repo / ".agents/aw.local.toml").write_text(f'templates = {{ mr = "{tmp_path}/shared/mr.md" }}\n')
+    (env / ".agents/aw").mkdir(parents=True)
+    (env / ".agents/aw/config.toml").write_text('plan_dir = "~/plans"\n')
+    cfg = load()
+    assert cfg.get("plan_dir") == f"{env}/plans"
+    assert cfg.get("templates") == {"mr": f"{tmp_path}/shared/mr.md"}
+
+
+def test_a_committed_symlink_out_of_the_repo_is_refused_where_aw_writes(repo, tmp_path, capsys):
+    """The value stays in the repo, the file it names does not: aw follows no link out of the repo."""
+    from aw import backlog, cli
+
+    outside = tmp_path / "rc"
+    outside.write_text("export PATH=x\n")
+    (repo / "BACKLOG.md").symlink_to(outside)
+    with pytest.raises(AwError, match=r"BACKLOG\.md resolves outside the repo"):
+        backlog.add(load(), "x", "body\n")
+    assert outside.read_text() == "export PATH=x\n"
+    (repo / ".agents/memory").mkdir(parents=True)
+    (repo / ".agents/memory/tags.toml").write_text('git = "git"\n')
+    (repo / ".agents/memory/gotchas").symlink_to(tmp_path, target_is_directory=True)
+    assert cli.main(["memory", "add", "gotcha", "--title", "T", "--tags", "git", "--body-file", "/dev/null"]) == 1
+    assert "resolves outside the repo" in capsys.readouterr().err

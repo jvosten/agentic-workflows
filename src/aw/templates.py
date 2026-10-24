@@ -59,7 +59,7 @@ def source(cfg: Config, name: str) -> Path | None:
         raise AwError(f"unknown template: {name} (known: {', '.join(NAMES)})")
     override = cfg.get("templates").get(name)
     if override:
-        path = cfg.checkout / cfg.expand(override)
+        path = cfg.inside("templates", cfg.checkout / cfg.expand(override))
         if not path.is_file():
             raise AwError(f"templates.{name}: {path} not found")
         return path

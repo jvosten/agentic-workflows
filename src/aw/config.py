@@ -192,6 +192,16 @@ class Config:
         if self.values["sandboxed"]:
             raise AwError(f"sandboxed: {command} runs on the host; push the branch and run it there")
 
+    def inside(self, key: str, path: Path) -> Path:
+        """path, built from a path key, unless it resolves out of the repo: a committed symlink must not take aw's
+        reads and writes elsewhere. Values from the user and local layers or the environment may point anywhere."""
+        if self.sources[key] not in ("default", "project"):
+            return path
+        resolved = path.resolve()
+        if not any(resolved.is_relative_to(base.resolve()) for base in (self.checkout, self.root)):
+            raise AwError(f"{key}: {path} resolves outside the repo; aw follows no link out of it")
+        return path
+
 
 def read_toml(path: Path) -> dict[str, Any]:
     try:
@@ -262,6 +272,8 @@ def load(cwd: Path | str | None = None) -> Config:
                 continue
             cfg.values[key] = coerce(key, schema[key], value)
             cfg.sources[key] = "primary" if layer == "project" and key in from_primary else layer
+            if layer == "project" and schema[key].get("path"):
+                _refuse_outside(cfg, key, value)
 
     for key, spec in schema.items():
         env = os.environ.get("AW_" + key.upper())
@@ -269,6 +281,19 @@ def load(cwd: Path | str | None = None) -> Config:
             cfg.values[key] = parse_text(key, spec, env)
             cfg.sources[key] = "env"
     return cfg
+
+
+def _refuse_outside(cfg: Config, key: str, value: str | dict[str, str]) -> None:
+    """A committed path stays in the repo: a branch can change it, and aw reads, writes and deletes there."""
+    named = value.items() if isinstance(value, dict) else [("", value)]
+    for name, text in named:
+        path = cfg.expand(text)
+        if path.startswith("~") or Path(path).is_absolute() or Path(os.path.normpath(path)).parts[:1] == ("..",):
+            shown = f"{key}.{name}" if name else key
+            raise AwError(
+                f"{shown} = {text!r} in project points outside the repo; name a path outside it in the user or "
+                f"local config (~/.agents/aw/config.toml, {LOCAL_FILE})"
+            )
 
 
 def _read_layer(path: Path, migrations: list[dict[str, Any]]) -> tuple[dict[str, Any], list[str]]:

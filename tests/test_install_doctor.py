@@ -185,7 +185,8 @@ def test_doctor_names_a_template_outside_the_checkout(env, repo, tmp_path):
     shared.parent.mkdir()
     shared.write_text("## Summary\n")
     (repo / ".agents").mkdir()
-    (repo / ".agents/aw.toml").write_text(f'forge = "github"\ntemplates = {{ mr = "{shared}" }}\n')
+    (repo / ".agents/aw.toml").write_text('forge = "github"\n')
+    (repo / ".agents/aw.local.toml").write_text(f'templates = {{ mr = "{shared}" }}\n')  # outside: never committed
     results = {msg: level for level, msg in doctor.run()}
     assert results[f"merge request template: {shared}"] == "ok"
 
@@ -205,3 +206,17 @@ def test_doctor_in_a_worktree_names_the_keys_it_ignores_from_the_branch(repo, tm
     monkeypatch.chdir(wt)
     infos = [msg for level, msg in doctor.check_project() if level == "info"]
     assert any(msg.startswith("ignored from the branch: merge_method;") for msg in infos)
+
+
+def test_doctor_fails_a_path_key_that_links_out_of_the_repo(env, repo, tmp_path):
+    """Skills read instructions_file and contributing_file themselves; a committed link out of the repo would hand
+    them any file."""
+    (tmp_path / "secret.md").write_text("x\n")
+    (repo / "AGENTS.md").unlink()
+    (repo / "AGENTS.md").symlink_to(tmp_path / "secret.md")
+    (repo / ".agents").mkdir()
+    (repo / ".agents/aw.toml").write_text("aw_version = 1\n")
+    results = {msg: level for level, msg in doctor.run()}
+    assert results[f"instructions_file: {repo}/AGENTS.md resolves outside the repo; aw follows no link out of it"] == (
+        "fail"
+    )

@@ -192,6 +192,13 @@ def check_config(cfg: Config) -> list[Result]:
                 )
             )
 
+    for key, spec in cfg.schema.items():  # skills read some of these files themselves, past any check in aw
+        names = cfg.get(key).values() if spec["type"] == "table" else [cfg.get(key)]
+        for name in (n for n in names if n) if spec.get("path") else ():
+            try:
+                cfg.inside(key, cfg.checkout / name)
+            except AwError as e:
+                results.append(("fail", str(e)))
     results.append(
         ("ok", f"instructions_file {cfg.get('instructions_file')}")
         if (cfg.checkout / cfg.get("instructions_file")).is_file()
