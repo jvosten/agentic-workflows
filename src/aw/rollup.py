@@ -7,7 +7,7 @@ carries no status of its own and closes by decision, so the rollup never touches
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import assert_never
+from typing import Literal, assert_never
 
 from aw import plan
 from aw.config import AwError, Config
@@ -23,10 +23,14 @@ class NoStory:
 
 @dataclass(frozen=True)
 class Unknown:
-    """The story's children, or which plan is its own, could not be read completely; nothing may close on this."""
+    """Something the decision needs could not be read completely, so nothing may close on it: the story itself
+    (parent None), its children, or which plan is its own (the children were read: children and open are set)."""
 
-    parent: Row
+    parent: Row | None
+    what: Literal["story", "children", "plan"]
     reason: str
+    children: tuple[Row, ...] | None = None
+    open: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -35,9 +39,8 @@ class Blocked:
 
     parent: Row
     children: tuple[Row, ...]
-    left: tuple[str, ...]  # what keeps it open, as report prints it
-    open: tuple[str, ...] = ()  # ids of the other children still open
-    unsplit: tuple[str, ...] = ()  # plan sections without a subtask
+    open: tuple[str, ...]  # ids of the other children still open
+    unsplit: tuple[str, ...]  # plan sections without a subtask
 
 
 @dataclass(frozen=True)
@@ -52,7 +55,7 @@ Decision = NoStory | Unknown | Blocked | CanClose
 
 
 def story(tracker: Tracker, issue: str) -> tuple[Row | None, str]:
-    """The parent a rollup acts on, or None and the reason: no native parent, or an epic."""
+    """The parent a rollup acts on, or None and the reason: no native parent, one in another repository, an epic."""
     if not tracker.scoped():
         return None, f"{tracker.name} has no parent links"
     parent = tracker.parent(issue)
@@ -63,6 +66,8 @@ def story(tracker: Tracker, issue: str) -> tuple[Row | None, str]:
             f"{tracker.ref(parent.id)} is a parent by text only; "
             f"`aw issue set-parent {issue} {parent.id}` links it natively"
         )
+    if not tracker.id_pattern.match(parent.id):
+        return None, f"{parent.id} is in another repository; the rollup acts on this repository's stories only"
     if tracker.is_epic(parent):
         return None, f"{tracker.ref(parent.id)} is an epic; epics close by decision, not by rollup"
     return parent, ""
@@ -79,52 +84,67 @@ def start(tracker: Tracker, issue: str) -> list[str]:
 def check(cfg: Config, tracker: Tracker, issue: str) -> Decision:
     """Whether issue's story can close once issue is done: no other open child, no plan section left unsplit.
 
-    A failed listing of the children is Unknown, never an empty list.
+    Every lookup that fails is Unknown, naming what failed; a failed or partial listing is never an empty one.
     """
-    parent, reason = story(tracker, issue)
+    try:
+        parent, reason = story(tracker, issue)
+    except AwError as e:
+        return Unknown(None, "story", str(e))
     if parent is None:
         return NoStory(reason)
     try:
         children = tuple(tracker.children(parent.id))
+        if issue not in {
+            row.id for row in children
+        }:  # the issue's parent is the story: a listing without it is partial
+            missing = f"{tracker.ref(issue)} is not among the children listed for {tracker.ref(parent.id)}"
+            return Unknown(parent, "children", f"{missing}; the listing may be incomplete")
+        still_open = tuple(row.id for row in children if row.id != issue and not tracker.closed(row))
     except AwError as e:
-        return Unknown(parent, str(e))
-    still_open = [row.id for row in children if row.id != issue and not tracker.closed(row)]
+        return Unknown(parent, "children", str(e))
     try:
         path = plan.find(cfg, parent.id)
+        sections = tuple(plan.unsplit(path)) if path else ()
     except AwError as e:
-        return Unknown(parent, str(e))
-    sections = plan.unsplit(path) if path else []
-    left = [f"{tracker.ref(i)} open" for i in still_open] + [f"plan section {s} has no subtask" for s in sections]
-    if not left:
-        return CanClose(parent, children)
-    return Blocked(parent, children, tuple(left), tuple(still_open), tuple(sections))
+        return Unknown(parent, "plan", str(e), children, still_open)
+    if still_open or sections:
+        return Blocked(parent, children, still_open, sections)
+    return CanClose(parent, children)
 
 
 def report(tracker: Tracker, issue: str, result: Decision) -> str:
     match result:
         case NoStory(reason):
             return reason
-        case Unknown(parent, reason):
-            return f"{tracker.ref(parent.id)}: children unknown ({reason})"
-        case Blocked(parent, _, left):
+        case Unknown(parent, what, reason):
+            if parent is None:
+                return f"{tracker.ref(issue)}: parent story unknown ({reason})"
+            return f"{tracker.ref(parent.id)}: {what} unknown ({reason})"
+        case Blocked(parent, _, still_open, sections):
+            left = [f"{tracker.ref(i)} open" for i in still_open]
+            left += [f"plan section {s} has no subtask" for s in sections]
             return f"{tracker.ref(parent.id)} stays open: {'; '.join(left)}"
         case CanClose(parent, children):
             names = ", ".join(tracker.ref(row.id) for row in children)
             return f"{tracker.ref(parent.id)} can close: no child open besides {tracker.ref(issue)} (children: {names})"
+        case _:
+            assert_never(result)
 
 
 def data(tracker: Tracker, issue: str, result: Decision) -> dict[str, object]:
     """The decision for skills to branch on (`aw issue rollup --json`); `line` is report's text, to show as it is.
 
-    children, open and unsplit are null unless the children were read: a failed listing is never an empty one.
+    children, open and unsplit are null when they were not read completely: a failed listing is never an empty one.
     """
     out: dict[str, object] = {"story": None, "children": None, "open": None, "unsplit": None, "reason": None}
     match result:
         case NoStory(reason):
             out |= {"decision": "no_story", "reason": reason}
-        case Unknown(parent, reason):
-            out |= {"decision": "unknown", "story": parent.id, "reason": reason}
-        case Blocked(parent, children, _, still_open, sections):
+        case Unknown(parent, _, reason, children, still_open):
+            out |= {"decision": "unknown", "story": parent.id if parent else None, "reason": reason}
+            if children is not None:
+                out |= {"children": [row.id for row in children], "open": list(still_open or ())}
+        case Blocked(parent, children, still_open, sections):
             ids = [row.id for row in children]
             out |= {"decision": "stays_open", "story": parent.id, "children": ids}
             out |= {"open": list(still_open), "unsplit": list(sections)}
@@ -134,17 +154,6 @@ def data(tracker: Tracker, issue: str, result: Decision) -> dict[str, object]:
         case _:
             assert_never(result)
     return {"decision": out.pop("decision"), **out, "line": report(tracker, issue, result)}
-
-
-def decide(cfg: Config, tracker: Tracker, issue: str) -> dict[str, object]:
-    """data() for the issue; a lookup that fails before check() can decide is an unknown story, not an error."""
-    try:
-        result = check(cfg, tracker, issue)
-    except AwError as e:
-        keys = ("story", "children", "open", "unsplit")
-        line = f"{tracker.ref(issue)}: parent story unknown ({e})"
-        return {"decision": "unknown", **dict.fromkeys(keys), "reason": str(e), "line": line}
-    return data(tracker, issue, result)
 
 
 def close(cfg: Config, tracker: Tracker, issue: str) -> list[str]:

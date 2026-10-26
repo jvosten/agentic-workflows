@@ -165,7 +165,9 @@ def _issue(args: argparse.Namespace) -> None:
         if args.close:
             print("\n".join(rollup.close(cfg, tracker, issue)))
         elif args.json:
-            print(json.dumps(rollup.decide(cfg, tracker, issue), indent=2, ensure_ascii=False))
+            print(
+                json.dumps(rollup.data(tracker, issue, rollup.check(cfg, tracker, issue)), indent=2, ensure_ascii=False)
+            )
         else:
             print(rollup.report(tracker, issue, rollup.check(cfg, tracker, issue)))
     elif op == "ref":

@@ -1341,7 +1341,7 @@ def test_jira_rollup_reads_every_page_of_children(repo, monkeypatch):
         return {"key": key, "fields": {"status": {"name": category, "statusCategory": {"key": category}}}}
 
     first = {"issues": [child(f"PROJ-{n}", "done") for n in range(100, 200)], "nextPageToken": "t2", "isLast": False}
-    second = {"issues": [child("PROJ-300", "indeterminate")], "isLast": True}
+    second = {"issues": [child("PROJ-300", "indeterminate"), child("PROJ-12", "indeterminate")], "isLast": True}
 
     def request(method, path, params=None, body=None):
         if path == "/rest/api/3/issue/PROJ-12":
