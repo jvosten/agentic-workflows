@@ -264,7 +264,11 @@ def _mr(args: argparse.Namespace) -> int:
         raise AwError(f"forge = {kind}: no merge requests (set forge in aw init)")
     cwd, mark = cfg.checkout, MR_PREFIX[kind]
     branch = git("branch", "--show-current", cwd=cwd)
-    ref = getattr(args, "ref", None) or branch
+    ref: str = getattr(args, "ref", None) or ""
+    if not ref and args.op not in ("create", "next"):  # the branch's own request: by name, glab finds forks' too
+        if (own := forge.find_open(kind, branch, cwd)) is None:
+            raise AwError(f"{branch} has no open merge request; pass its number")
+        ref = own.number
     if args.op == "create":
         if branch == cfg.get("main_branch"):
             raise AwError(f"on {branch}: create the merge request from the session branch")

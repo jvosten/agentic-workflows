@@ -622,6 +622,7 @@ def test_the_closing_line_needs_a_closing_phrase_for_exactly_this_issue(branch, 
 
 def test_update_keeps_the_closing_line_or_the_part_reference(branch, tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(session, "read", lambda: {"issue": "12"})
+    monkeypatch.setattr(forge, "find_open", lambda kind, b, cwd: forge.MergeRequest("5", "u"))
     sent = []
     monkeypatch.setattr(forge, "update", lambda kind, ref, title, text, cwd: sent.append(text))
     monkeypatch.setattr(forge, "closes", lambda kind, ref, cwd: ["12"])
@@ -778,3 +779,38 @@ def test_counting_threads_for_the_gate_looks_nobody_up(repo, monkeypatch):
     monkeypatch.setattr(forge.subprocess, "run", fake)
     forge.comments("github", "5", repo, None)
     assert [call[:3] for call in fake.calls] == [["gh", "api", "graphql"]]
+
+
+@pytest.mark.parametrize("kind", ["github", "gitlab"])
+def test_a_full_page_of_requests_is_a_partial_listing_and_refused(repo, monkeypatch, kind):
+    """Forks can flood a branch name: aw never decides "none open" from a listing that may hold more."""
+    if kind == "github":
+        rows = [{"number": n, "url": "u", "title": "f", "isCrossRepository": True} for n in range(forge.LISTED)]
+        fake = FakeProcess({("gh", "pr", "list"): (0, json.dumps(rows), "")})
+    else:
+        fork = {"web_url": "u", "title": "f", "source_project_id": 2, "target_project_id": 1}
+        rows = [fork | {"iid": n} for n in range(forge.LISTED)]
+        fake = FakeProcess({("glab", "mr", "list"): (0, json.dumps(rows), "")})
+    monkeypatch.setattr(forge.subprocess, "run", fake)
+    with pytest.raises(AwError, match=rf"{forge.LISTED} or more requests from feat/x; the listing may be partial"):
+        forge.find_open(kind, "feat/x", repo)
+    with pytest.raises(AwError, match="the listing may be partial"):
+        forge.merged(kind, "feat/x", repo)
+
+
+def test_a_gitlab_request_without_project_ids_is_not_counted_as_this_projects(repo, monkeypatch):
+    rows = [{"iid": 6, "web_url": "u", "title": "?"}]  # no source_project_id / target_project_id: cannot tell
+    monkeypatch.setattr(forge.subprocess, "run", FakeProcess({("glab", "mr", "list"): (0, json.dumps(rows), "")}))
+    assert forge.find_open("gitlab", "feat/x", repo) is None
+
+
+def test_without_a_number_mr_commands_take_the_branchs_own_request(branch, monkeypatch, capsys):
+    """glab resolves a branch name to any request from it, a fork's included: aw resolves it first."""
+    monkeypatch.setattr(forge, "find_open", lambda kind, b, cwd: forge.MergeRequest("5", "u"))
+    seen = []
+    monkeypatch.setattr(forge, "checks", lambda kind, ref, cwd, watch=False: seen.append(ref) or [])
+    cli.main(["mr", "checks"])
+    assert seen == ["5"]
+    monkeypatch.setattr(forge, "find_open", lambda kind, b, cwd: None)
+    assert cli.main(["mr", "checks"]) == 1
+    assert "has no open merge request" in capsys.readouterr().err

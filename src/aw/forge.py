@@ -139,22 +139,35 @@ def next_number(kind: str, cwd: Path) -> str:
     return str(max(numbers, default=0) + 1)
 
 
-def _own(kind: str, rows: list[dict] | None) -> list[dict]:
+LISTED = 100  # requests listed per branch; a full page may hold more, and forks can fill one
+
+
+def _own(kind: str, branch: str, rows: list[dict] | None) -> list[dict]:
     """Requests from this repository's branch. The source branch filter matches the name only, so a fork's request
-    from a branch with the same name comes back too, and anyone can open one on a public repository."""
+    from a branch with the same name comes back too, and anyone can open one on a public repository. A request aw
+    cannot place (no project ids) is not this repository's; a full page is refused, never read as complete."""
+    rows = rows or []
+    if len(rows) >= LISTED:
+        raise AwError(f"{LISTED} or more requests from {branch}; the listing may be partial, pass the number")
     if kind == "github":
-        return [r for r in rows or [] if r.get("isCrossRepository") is False]
-    return [r for r in rows or [] if r.get("source_project_id") == r.get("target_project_id")]
+        return [r for r in rows if r.get("isCrossRepository") is False]
+    return [
+        r
+        for r in rows
+        if r.get("source_project_id") is not None and r["source_project_id"] == r.get("target_project_id")
+    ]
 
 
 def find_open(kind: str, branch: str, cwd: Path) -> MergeRequest | None:
     """The open merge request whose source is branch in this repository, if there is one."""
     if kind == "github":
         fields = "number,url,title,isCrossRepository"
-        rows = _own(kind, _json(["gh", "pr", "list", "--head", branch, "--state", "open", "--json", fields], cwd))
+        args = ["gh", "pr", "list", "--head", branch, "--state", "open", "--limit", str(LISTED), "--json", fields]
+        rows = _own(kind, branch, _json(args, cwd))
         return MergeRequest(str(rows[0]["number"]), rows[0]["url"], rows[0]["title"], "open") if rows else None
     if kind == "gitlab":
-        rows = _own(kind, _json(["glab", "mr", "list", "--source-branch", branch, "--output", "json"], cwd))
+        args = ["glab", "mr", "list", "--source-branch", branch, "--per-page", str(LISTED), "--output", "json"]
+        rows = _own(kind, branch, _json(args, cwd))
         return MergeRequest(str(rows[0]["iid"]), rows[0]["web_url"], rows[0]["title"], "open") if rows else None
     raise _unsupported(kind)
 
@@ -164,6 +177,7 @@ def merged(kind: str, branch: str, cwd: Path) -> list[MergeRequest]:
     if kind == "github":
         rows = _own(
             kind,
+            branch,
             _json(
                 [
                     "gh",
@@ -174,7 +188,7 @@ def merged(kind: str, branch: str, cwd: Path) -> list[MergeRequest]:
                     "--state",
                     "merged",
                     "--limit",
-                    "100",
+                    str(LISTED),
                     "--json",
                     "number,url,title,headRefOid,mergedAt,isCrossRepository",
                 ],
@@ -184,7 +198,19 @@ def merged(kind: str, branch: str, cwd: Path) -> list[MergeRequest]:
         rows = sorted(rows, key=lambda r: r["mergedAt"])
         return [MergeRequest(str(r["number"]), r["url"], r["title"], "merged", r["headRefOid"]) for r in rows]
     if kind == "gitlab":
-        rows = _own(kind, _json(["glab", "mr", "list", "--source-branch", branch, "--merged", "--output", "json"], cwd))
+        args = [
+            "glab",
+            "mr",
+            "list",
+            "--source-branch",
+            branch,
+            "--merged",
+            "--per-page",
+            str(LISTED),
+            "--output",
+            "json",
+        ]
+        rows = _own(kind, branch, _json(args, cwd))
         rows = sorted(rows, key=lambda r: r.get("merged_at") or "")
         return [MergeRequest(str(r["iid"]), r["web_url"], r["title"], "merged", r.get("sha", "")) for r in rows]
     raise _unsupported(kind)

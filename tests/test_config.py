@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from aw import start_task
+from aw import forge, start_task
 from aw.config import AwError, dump_toml, git, load
 
 
@@ -172,6 +172,7 @@ def test_text_that_names_a_private_term_is_never_published(repo, monkeypatch, ca
     (repo / ".agents/aw.local.toml").write_text('private_terms = ["acme"]\ntracker = "github"\nforge = "github"\n')
     git("switch", "-q", "-c", "feat/x", cwd=repo)
     monkeypatch.setattr("sys.stdin", io.StringIO("Seen on the Acme cluster.\n"))
+    monkeypatch.setattr("aw.forge.find_open", lambda kind, branch, cwd: forge.MergeRequest("5", "u"))
     assert cli.main(argv) == 1
     assert "names the private term 'acme' (local); reword it, nothing was written or sent" in capsys.readouterr().err
     assert not (repo / "BACKLOG.md").exists()
