@@ -291,6 +291,12 @@ env_only = true
 default = false
 help = "Set by a sandbox runner (AW_SANDBOXED=1): aw finish, aw merge and aw issue rollup --close refuse, the host runs them"
 
+[keys.trusted_bots]
+type = "list"
+trusted = true
+default = []
+help = "Logins of apps whose comments skills may act on, as aw mr comments prints them (e.g. a review bot). Everyone else needs write access to the repository; a bot never has it, so without this its comments are marked [outside]"
+
 [keys.private_terms]
 type = "list"
 local_only = true

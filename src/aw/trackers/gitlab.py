@@ -7,7 +7,7 @@ import re
 from typing import Any
 
 from aw.config import AwError
-from aw.trackers import STATUSES, Issue, Row, Tracker, run
+from aw.trackers import STATUSES, Issue, Row, Tracker, gitlab_access, run
 
 
 class GitLab(Tracker):
@@ -40,6 +40,9 @@ class GitLab(Tracker):
             url=d.get("web_url", ""),
             labels=d.get("labels", []),
             body=d.get("description") or "",
+            opened_by=gitlab_access(self.cfg.get("trusted_bots"), self.glab).comment(
+                (d.get("author") or {}).get("username", ""), ""
+            ),
         )
 
     def list_open(self, limit: int) -> list[Row]:

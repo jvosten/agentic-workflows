@@ -347,7 +347,7 @@ def _mr(args: argparse.Namespace) -> int:
         buckets = {c.bucket for c in results}
         return 1 if "fail" in buckets else 2 if "pending" in buckets or expected else 0
     elif args.op == "comments":
-        threads, general, resolved = forge.comments(kind, ref, cwd)
+        threads, general, resolved = forge.comments(kind, ref, cwd, cfg.get("trusted_bots"))
         print(
             f"{ui.plural(len(threads), 'unresolved thread')} · {resolved} resolved · "
             f"{ui.plural(len(general), 'comment')}"
@@ -355,11 +355,11 @@ def _mr(args: argparse.Namespace) -> int:
         for t in threads:
             print(f"\n{t.path}:{t.line}" if t.line else f"\n{t.path or '(general)'}")
             for c in t.comments:
-                print(f"  {c.by}: {c.body.strip()}")
+                print("\n".join([f"  {c.by}:", *(f"    {line}" for line in trackers.quoted(c.body))]))
         if general:
             print("\nComments")
             for c in general:
-                print(f"  {c.by}: {c.body.strip()}")
+                print("\n".join([f"  {c.by}:", *(f"    {line}" for line in trackers.quoted(c.body))]))
     elif args.op == "view":
         s = forge.summary(kind, ref, cwd)
         print(f"{mark}{s.request.number} {s.request.title}")

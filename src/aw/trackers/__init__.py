@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import re
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from aw.config import STDERR_FD, AwError, Config
+from aw.config import STDERR_FD, AwError, Config, json_pages
 
 STATUSES = ("backlog", "ready", "in_progress", "in_review", "done")
 
@@ -23,8 +24,8 @@ class Row:
     scope: str = ""  # dupes only: tree (under the given parent) | elsewhere
 
 
-# GitHub author associations with write access; MEMBER is an organization member, as GitHub's own guards count it
-WRITE_ACCESS = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
+WRITE = frozenset({"admin", "maintain", "write"})  # repository permissions that can push
+GHOST = "ghost"  # GitHub's stand-in for a deleted account
 
 
 @dataclass(frozen=True)
@@ -40,12 +41,58 @@ class Comment:
         return f"{self.author} [outside]" if self.outside else self.author
 
 
-def github_comment(node: dict) -> Comment:
-    """A GitHub comment, outside unless its author has write access or is an app (a Bot) the repository installed.
-    No association reported counts as outside."""
-    author = node.get("author") or {}
-    insider = node.get("authorAssociation") in WRITE_ACCESS or author.get("__typename") == "Bot"
-    return Comment(author.get("login", "?"), node.get("body") or "", outside=not insider)
+class Access:
+    """Who may steer the agent: an author with write access to the repository (admin, maintain or write), asked
+    once per author, or a login in trusted_bots. Whatever aw cannot tell (a failed lookup, a deleted account, an app
+    nobody listed) is outside: the mark fails closed."""
+
+    def __init__(self, trusted: list[str], permission: Callable[[str], str]) -> None:
+        self.trusted, self.permission, self.known = set(trusted), permission, {}
+
+    def outside(self, login: str) -> bool:
+        if login in self.trusted:
+            return False
+        if not login or login == GHOST:
+            return True
+        if login not in self.known:
+            try:
+                self.known[login] = self.permission(login) in WRITE
+            except AwError:
+                self.known[login] = False
+        return not self.known[login]
+
+    def comment(self, author: str, body: str) -> Comment:
+        return Comment(author or GHOST, body, outside=self.outside(author or GHOST))
+
+
+def github_access(trusted: list[str], gh: Callable[..., str]) -> Access:
+    """Write access from the collaborator permission API; bots are no collaborators, so they need trusted_bots."""
+    endpoint = "repos/{owner}/{repo}/collaborators/{login}/permission"
+    return Access(trusted, lambda login: gh("api", "--jq", ".permission", endpoint.replace("{login}", login)))
+
+
+def gitlab_access(trusted: list[str], glab: Callable[..., str]) -> Access:
+    """Write access on GitLab: a project member with at least Developer access (30), read once from the member list."""
+    writers: set[str] | None = None
+
+    def permission(login: str) -> str:
+        nonlocal writers
+        if writers is None:
+            members = [m for page in json_pages(glab("api", "--paginate", "projects/:id/members/all")) for m in page]
+            writers = {m["username"] for m in members if (m.get("access_level") or 0) >= 30}
+        return "write" if login in writers else "none"
+
+    return Access(trusted, permission)
+
+
+def github_comment(node: dict, access: Access) -> Comment:
+    """A GitHub comment, marked outside unless its author has write access (Access)."""
+    return access.comment((node.get("author") or {}).get("login") or GHOST, node.get("body") or "")
+
+
+def quoted(text: str) -> list[str]:
+    """Text as quoted lines: nothing in a body can pass for a heading or an author line of its own."""
+    return [f"> {line}".rstrip() for line in text.strip().splitlines()] or [">"]
 
 
 @dataclass
@@ -321,7 +368,9 @@ def render(issue: Issue) -> str:
     lines = [f"# {issue.ref}: {issue.title}", "", " · ".join(meta)]
     if issue.url:
         lines.append(issue.url)
-    lines += ["", "## Description", "", issue.body.strip() or "_none_"]
+    outside = issue.opened_by is not None and issue.opened_by.outside
+    body = quoted(issue.body) if outside and issue.body.strip() else [issue.body.strip() or "_none_"]
+    lines += ["", "## Description", "", *body]
     for name, text in issue.sections.items():
         lines += ["", f"## {name.replace('_', ' ').capitalize()}", "", text.strip() or "_none_"]
     if issue.children:
@@ -330,7 +379,7 @@ def render(issue: Issue) -> str:
     if issue.comments:
         lines += ["", f"## Comments ({len(issue.comments)})"]
         for c in issue.comments:
-            lines += ["", f"### {c.by}", "", c.body.strip()]
+            lines += ["", f"### {c.by}", "", *quoted(c.body)]
     return "\n".join(lines) + "\n"
 
 

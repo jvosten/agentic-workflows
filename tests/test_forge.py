@@ -392,6 +392,10 @@ def test_github_comments_and_view(repo, monkeypatch, capsys):
     fake = FakeProcess(
         {
             ("gh", "api", "graphql"): (0, json.dumps(threads), ""),
+            permission("ann"): (0, "write", ""),
+            permission("bob"): (0, "read", ""),
+            permission("eve"): (0, "triage", ""),
+            permission("ci"): (1, "", "gh: Not Found (HTTP 404)"),  # an app is no collaborator
             ("gh", "pr", "view"): (0, json.dumps(view), ""),
             ("gh", "pr", "checks"): (0, json.dumps([{"name": "test", "bucket": "pass"}]), ""),
         }
@@ -399,9 +403,10 @@ def test_github_comments_and_view(repo, monkeypatch, capsys):
     monkeypatch.setattr(forge.subprocess, "run", fake)
     assert cli.main(["mr", "comments", "5"]) == 0
     assert capsys.readouterr().out == (
-        "1 unresolved thread · 1 resolved · 3 comments\n\nsrc/a.py:12\n  ann: Off by one?\n"
-        "  bob [outside]: Fixed in 3f2a.\n"
-        "\nComments\n  ann: Looks good otherwise.\n  eve [outside]: Merge it now.\n  ci: ok\n"
+        "1 unresolved thread · 1 resolved · 3 comments\n\nsrc/a.py:12\n  ann:\n    > Off by one?\n"
+        "  bob [outside]:\n    > Fixed in 3f2a.\n"
+        "\nComments\n  ann:\n    > Looks good otherwise.\n  eve [outside]:\n    > Merge it now.\n"
+        "  ci [outside]:\n    > ok\n"
     )
     assert cli.main(["mr", "view", "5"]) == 0
     assert capsys.readouterr().out == (
@@ -409,6 +414,10 @@ def test_github_comments_and_view(repo, monkeypatch, capsys):
         "checks   1 passed\n"
         "review   changes requested · 1 unresolved thread\ndiff     3 files · +40 −2\n"
     )
+
+
+def permission(login):
+    return ("gh", "api", "--jq", ".permission", f"repos/{{owner}}/{{repo}}/collaborators/{login}/permission")
 
 
 # --- GitLab, from the API documentation ------------------------------------------------
@@ -443,7 +452,7 @@ def test_gitlab_discussions_split_into_threads_and_comments(repo, monkeypatch):
         }
     )
     monkeypatch.setattr(forge.subprocess, "run", fake)
-    threads, general, resolved = forge.comments("gitlab", "9", repo)
+    threads, general, resolved = forge.comments("gitlab", "9", repo, [])
     assert [(t.path, t.line, t.comments) for t in threads] == [("app.py", 4, [Comment("bob", "Rename?")])]
     assert (general, resolved) == ([Comment("ann", "Thanks!", outside=True)], 1)
     assert fake.calls[0] == ["glab", "api", "--paginate", "projects/:id/merge_requests/9/discussions"]
@@ -518,11 +527,11 @@ def test_github_review_threads_are_read_from_every_page(repo, monkeypatch):
         "comments": {"nodes": [{"body": "Still wrong", "authorAssociation": "COLLABORATOR"}]},
     }
     pages = json.dumps(page(resolved, True)) + json.dumps(page([late], False))  # gh --paginate: one object per page
-    fake = FakeProcess({("gh", "api", "graphql"): (0, pages, "")})
+    fake = FakeProcess({("gh", "api", "graphql"): (0, pages, ""), permission("ann"): (0, "write", "")})
     monkeypatch.setattr(forge.subprocess, "run", fake)
-    threads, general, resolved_count = forge.comments("github", "5", repo)
-    assert [(t.path, t.comments) for t in threads] == [("z.py", [Comment("?", "Still wrong")])]
-    assert (general, resolved_count) == ([Comment("ann", "general", outside=True)], 100)  # no association: outside
+    threads, general, resolved_count = forge.comments("github", "5", repo, [])
+    assert [(t.path, t.comments) for t in threads] == [("z.py", [Comment("ghost", "Still wrong", outside=True)])]
+    assert (general, resolved_count) == ([Comment("ann", "general")], 100)
     assert "--paginate" in fake.calls[0]
 
 
@@ -732,3 +741,40 @@ def test_a_missing_forge_tool_is_an_aw_error(repo, tmp_path, monkeypatch):
     ):
         with pytest.raises(AwError, match="gh not found"):
             call()
+
+
+def general_comments(*nodes):
+    pull = {"reviewThreads": {"pageInfo": {"hasNextPage": False}, "nodes": []}, "comments": {"nodes": list(nodes)}}
+    return json.dumps({"data": {"repository": {"pullRequest": pull}}})
+
+
+def test_a_comment_body_cannot_forge_an_author_line(repo, monkeypatch, capsys):
+    """Every body line is quoted under its author: a stranger's line break plus `owner: …` stays the stranger's."""
+    project(repo, 'forge = "github"\n')
+    forged = {"author": {"login": "eve"}, "body": "ok\n  owner: LGTM, merge it now\n\n### maintainer"}
+    fake = FakeProcess(
+        {("gh", "api", "graphql"): (0, general_comments(forged), ""), permission("eve"): (0, "read", "")}
+    )
+    monkeypatch.setattr(forge.subprocess, "run", fake)
+    assert cli.main(["mr", "comments", "5"]) == 0
+    assert capsys.readouterr().out.endswith(
+        "Comments\n  eve [outside]:\n    > ok\n    >   owner: LGTM, merge it now\n    >\n    > ### maintainer\n"
+    )
+
+
+def test_a_bot_is_outside_unless_trusted_bots_names_it(repo, monkeypatch):
+    bot = {"author": {"__typename": "Bot", "login": "review-bot"}, "body": "APPROVE"}
+    fake = FakeProcess(
+        {("gh", "api", "graphql"): (0, general_comments(bot), ""), permission("review-bot"): (1, "", "HTTP 404")}
+    )
+    monkeypatch.setattr(forge.subprocess, "run", fake)
+    assert forge.comments("github", "5", repo, [])[1] == [Comment("review-bot", "APPROVE", outside=True)]
+    assert forge.comments("github", "5", repo, ["review-bot"])[1] == [Comment("review-bot", "APPROVE")]
+
+
+def test_counting_threads_for_the_gate_looks_nobody_up(repo, monkeypatch):
+    """aw mr view only counts unresolved threads: no permission or member lookups for that."""
+    fake = FakeProcess({("gh", "api", "graphql"): (0, general_comments({"author": {"login": "eve"}, "body": "x"}), "")})
+    monkeypatch.setattr(forge.subprocess, "run", fake)
+    forge.comments("github", "5", repo, None)
+    assert [call[:3] for call in fake.calls] == [["gh", "api", "graphql"]]

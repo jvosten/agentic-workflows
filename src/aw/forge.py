@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from aw.config import AwError, json_pages
-from aw.trackers import Comment, github_comment
+from aw.trackers import Comment, github_access, github_comment, gitlab_access
 from aw.trackers import run as _run  # one runner: a missing gh or glab is an AwError, not a traceback
 
 MERGE_FLAGS = {
@@ -345,16 +345,16 @@ def _checks(kind: str, ref: str, cwd: Path, watch: bool) -> list[Check]:
     raise _unsupported(kind)
 
 
-def _gitlab_writers(cwd: Path) -> set[str]:
-    """Usernames with at least Developer access (30): the ones who can push to the project."""
-    members = _pages(["glab", "api", "--paginate", "projects/:id/members/all"], cwd)
-    return {m["username"] for m in members if (m.get("access_level") or 0) >= 30}
-
-
-def comments(kind: str, ref: str, cwd: Path) -> tuple[list[Thread], list[Comment], int]:
+def comments(kind: str, ref: str, cwd: Path, trusted: list[str] | None) -> tuple[list[Thread], list[Comment], int]:
     """Unresolved review threads, general comments, and how many threads are resolved. A comment whose author has
-    no write access is marked outside."""
+    no write access is marked outside (trusted: trusted_bots). trusted None: only counted, never shown, so nobody's
+    access is looked up and nothing is marked."""
     if kind == "github":
+        access = github_access(trusted or [], lambda *args: _run(["gh", *args], cwd)) if trusted is not None else None
+
+        def node(c: dict) -> Comment:
+            return github_comment(c, access) if access else Comment((c.get("author") or {}).get("login", ""), "")
+
         number = ref if ref.isdigit() else str(_json(["gh", "pr", "view", ref, "--json", "number"], cwd)["number"])
         pages = json_pages(
             _run(
@@ -381,24 +381,21 @@ def comments(kind: str, ref: str, cwd: Path) -> tuple[list[Thread], list[Comment
             Thread(
                 t["path"],
                 t.get("line"),
-                [github_comment(c) for c in t["comments"]["nodes"]],
+                [node(c) for c in t["comments"]["nodes"]],
             )
             for t in threads
             if not t["isResolved"]
         ]
-        general = [github_comment(c) for c in data["comments"]["nodes"]]
+        general = [node(c) for c in data["comments"]["nodes"]]
         return open_threads, general, len(threads) - len(open_threads)
     if kind == "gitlab":
         iid = ref if ref.isdigit() else str(_json(["glab", "mr", "view", ref, "--output", "json"], cwd)["iid"])
         discussions = _pages(["glab", "api", "--paginate", f"projects/:id/merge_requests/{iid}/discussions"], cwd)
-        writers: set[str] | None = None  # looked up once, and only when there is a note to mark
+        marks = gitlab_access(trusted or [], lambda *args: _run(["glab", *args], cwd)) if trusted is not None else None
 
         def note(n: dict) -> Comment:
-            nonlocal writers
-            if writers is None:
-                writers = _gitlab_writers(cwd)
-            author = (n.get("author") or {}).get("username", "?")
-            return Comment(author, n["body"], outside=author not in writers)
+            author = (n.get("author") or {}).get("username", "")
+            return marks.comment(author, n["body"]) if marks else Comment(author, "")
 
         open_threads, general, resolved = [], [], 0
         for d in discussions:
@@ -442,7 +439,7 @@ def summary(kind: str, ref: str, cwd: Path) -> Summary:
             "CHANGES_REQUESTED": "changes requested",
             "REVIEW_REQUIRED": "review required",
         }.get(d.get("reviewDecision") or "", "none")
-        threads, _, _ = comments(kind, str(d["number"]), cwd)
+        threads, _, _ = comments(kind, str(d["number"]), cwd, None)
         return Summary(
             MergeRequest(str(d["number"]), d["url"], d["title"], d["state"].lower()),
             d["isDraft"],
@@ -458,7 +455,7 @@ def summary(kind: str, ref: str, cwd: Path) -> Summary:
     if kind == "gitlab":
         d = _json(["glab", "mr", "view", ref, "--output", "json"], cwd)
         iid = str(d["iid"])
-        threads, _, _ = comments(kind, iid, cwd)
+        threads, _, _ = comments(kind, iid, cwd, None)
         status = d.get("detailed_merge_status") or ""
         review = "review required" if status == "not_approved" else "none"
         files = int(str(d.get("changes_count") or "0").rstrip("+") or 0)
