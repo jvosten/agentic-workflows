@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import subprocess
 from datetime import date
 from pathlib import Path
 
@@ -21,8 +22,13 @@ def directory(cfg: Config) -> Path:
     so every worktree reads and writes them in one place.
     """
     plan_dir = cfg.get("plan_dir") or cfg.schema["plan_dir"]["default"]
-    base = cfg.root if cfg.get("plan_scope") == "local" else cfg.checkout
-    return cfg.inside("plan_dir", base / plan_dir)
+    if cfg.get("plan_scope") != "local":
+        return cfg.inside("plan_dir", cfg.checkout / plan_dir)
+    path = cfg.root / plan_dir
+    tracked = not subprocess.run(
+        ["git", "ls-files", "--error-unmatch", str(path)], cwd=cfg.root, capture_output=True, check=False
+    ).returncode
+    return cfg.inside("plan_dir", path, cfg.root) if tracked else path  # untracked: the user's own, wherever it points
 
 
 def ignored(cfg: Config) -> bool:
@@ -116,4 +122,5 @@ def compose(cfg: Config, issue: str, slug: str, parent: Row | None = None) -> Pa
         area=area,
     )
     parts = [part for part in name.split("/") if part.strip("-_ ")]
-    return directory(cfg).joinpath(*parts)
+    plans = directory(cfg)
+    return cfg.inside("plan_file", plans.joinpath(*parts), plans)

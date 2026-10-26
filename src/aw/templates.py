@@ -28,6 +28,12 @@ def _find(directory: Path, name: str) -> Path | None:
 
 
 def forge_template(cfg: Config) -> Path | None:
+    """The forge's own merge request template, checked like every path aw reads from the repo."""
+    found = _forge_template(cfg)
+    return cfg.inside("mr_template", found) if found else None
+
+
+def _forge_template(cfg: Config) -> Path | None:
     """The forge's own merge request template: the one mr_template names, else the forge's default file.
 
     A named template that does not exist is an error, not a silent fallback.

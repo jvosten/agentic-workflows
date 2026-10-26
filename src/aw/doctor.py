@@ -219,11 +219,16 @@ def check_config(cfg: Config) -> list[Result]:
 
     for key, spec in cfg.schema.items():  # skills read some of these files themselves, past any check in aw
         names = cfg.get(key).values() if spec["type"] == "table" else [cfg.get(key)]
-        for name in (n for n in names if n) if spec.get("path") else ():
+        for name in (n for n in names if n) if spec.get("path") and key not in ("plan_dir", "plan_file") else ():
             try:
                 cfg.inside(key, cfg.checkout / name)
             except AwError as e:
                 results.append(("fail", str(e)))
+    try:  # plan_dir has its own rule: an untracked local plan directory is the user's, wherever it points
+        plans = plan.directory(cfg)
+    except AwError as e:
+        results.append(("fail", str(e)))
+        plans = None
     if terms := cfg.get("private_terms"):
         named = subprocess.run(
             ["git", "grep", "-I", "-l", "-i", "-F", *(arg for term in terms for arg in ("-e", term))],
@@ -254,8 +259,8 @@ def check_config(cfg: Config) -> list[Result]:
             results.append(("ok", f"merge request template: {shown or 'bundled'}"))
         except AwError as e:
             results.append(("fail", str(e)))
-    if cfg.get("plan_scope") == "local" and not plan.ignored(cfg):
-        results.append(("warn", f"plan_scope = local but {plan.directory(cfg)} is not gitignored"))
+    if plans and cfg.get("plan_scope") == "local" and not plan.ignored(cfg):
+        results.append(("warn", f"plan_scope = local but {plans} is not gitignored"))
     results += check_memory(cfg)
     return results
 

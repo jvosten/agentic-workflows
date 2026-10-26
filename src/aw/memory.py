@@ -149,7 +149,7 @@ def entries(cfg: Config, kind: str | None = None) -> list[Entry]:
     found = []
     for name in [kind] if kind else KINDS:
         root = directory(cfg, name)
-        found += [parse(p, name) for p in sorted(root.glob("*.md"))] if root.is_dir() else []
+        found += [parse(cfg.inside("memory_dir", p), name) for p in sorted(root.glob("*.md"))] if root.is_dir() else []
     return found
 
 

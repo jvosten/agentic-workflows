@@ -22,6 +22,7 @@ import shlex
 import subprocess
 import tomllib
 from dataclasses import dataclass, field
+from functools import cached_property
 from importlib import resources
 from pathlib import Path
 from typing import Any
@@ -202,15 +203,26 @@ class Config:
                     "nothing was written or sent"
                 )
 
-    def inside(self, key: str, path: Path) -> Path:
-        """path, built from a path key, unless it resolves out of the repo: a committed symlink must not take aw's
-        reads and writes elsewhere. Values from the user and local layers or the environment may point anywhere."""
-        if self.sources[key] not in ("default", "project"):
+    def inside(self, key: str, path: Path, base: Path | None = None) -> Path:
+        """path, built from a path key, if it stays under base (the checkout by default), out of the git dir, and
+        through no link out: a committed symlink must not take aw's reads and writes elsewhere. Only an absolute or
+        ~ value from the user or local layer or the environment may point anywhere: the user wrote it, no branch.
+        (Stopgap: the refactor plan's S4a puts every project file behind one component.)"""
+        base = base or self.checkout
+        if self.sources.get(key) not in (None, "default", "project") and not path.is_relative_to(base):
             return path
         resolved = path.resolve()
-        if not any(resolved.is_relative_to(base.resolve()) for base in (self.checkout, self.root)):
+        if not resolved.is_relative_to(base.resolve()):
             raise AwError(f"{key}: {path} resolves outside the repo; aw follows no link out of it")
+        if any(resolved.is_relative_to(git_dir) for git_dir in self.git_dirs):
+            raise AwError(f"{key}: {path} resolves into the git dir; aw never reads or writes there")
         return path
+
+    @cached_property
+    def git_dirs(self) -> tuple[Path, ...]:
+        """The checkout's git dir and the repository's common one (they differ in a linked worktree)."""
+        dirs = ("--absolute-git-dir", "--git-common-dir")
+        return tuple(Path(git("rev-parse", "--path-format=absolute", d, cwd=self.checkout)).resolve() for d in dirs)
 
 
 def read_toml(path: Path) -> dict[str, Any]:

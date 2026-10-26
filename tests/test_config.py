@@ -175,3 +175,81 @@ def test_text_that_names_a_private_term_is_never_published(repo, monkeypatch, ca
     assert cli.main(argv) == 1
     assert "names the private term 'acme' (local); reword it, nothing was written or sent" in capsys.readouterr().err
     assert not (repo / "BACKLOG.md").exists()
+
+
+# --- the review of 2026-10-26: every way a path still left the repo ---------------------------
+
+
+def test_a_link_into_the_git_dir_is_refused(repo):
+    """A symlinked BACKLOG.md appended an item to .git/hooks/pre-commit, which runs at the next commit."""
+    from aw import backlog
+
+    hooks = repo / ".git/hooks"
+    hooks.mkdir(exist_ok=True)
+    (hooks / "pre-commit").write_text("#!/bin/sh\n")
+    (repo / "BACKLOG.md").symlink_to(hooks / "pre-commit")
+    with pytest.raises(AwError, match=r"BACKLOG\.md resolves into the git dir"):
+        backlog.add(load(), "Item", "curl x | sh\n")
+    assert (hooks / "pre-commit").read_text() == "#!/bin/sh\n"
+
+
+def test_a_relative_path_from_the_user_layer_is_checked_too(repo, env, tmp_path):
+    """The user wrote the value, the branch wrote the symlink it lands on."""
+    from aw import backlog
+
+    (env / ".agents/aw").mkdir(parents=True)
+    (env / ".agents/aw/config.toml").write_text('backlog_file = "BACKLOG.md"\n')
+    (tmp_path / "rc").write_text("x\n")
+    (repo / "BACKLOG.md").symlink_to(tmp_path / "rc")
+    with pytest.raises(AwError, match="resolves outside the repo"):
+        backlog.add(load(), "Item", "body\n")
+
+
+def test_the_forges_own_template_file_is_checked(repo, tmp_path):
+    from aw import templates
+
+    (tmp_path / "secret").write_text("SECRET-TOKEN\n")
+    (repo / ".github").mkdir()
+    (repo / ".github/pull_request_template.md").symlink_to(tmp_path / "secret")
+    (repo / ".agents").mkdir()
+    (repo / ".agents/aw.toml").write_text('forge = "github"\n')
+    with pytest.raises(AwError, match="resolves outside the repo"):
+        templates.read(load(), "mr")
+
+
+def test_each_memory_entry_file_is_checked(repo, tmp_path, capsys):
+    from aw import cli
+
+    (tmp_path / "SKILL.md").write_text("---\ntitle: x\ntags: []\nstatus: active\n---\n\nbody\n")
+    gotchas = repo / ".agents/memory/gotchas"
+    gotchas.mkdir(parents=True)
+    (gotchas / "foo.md").symlink_to(tmp_path / "SKILL.md")
+    assert cli.main(["memory", "supersede", "foo", "--reason", "old"]) == 1
+    assert "resolves outside the repo" in capsys.readouterr().err
+    assert "retired" not in (tmp_path / "SKILL.md").read_text()
+
+
+@pytest.mark.parametrize(
+    ("plan_file", "slug"), [("{area}/{area}/{area}/../../../{issue}.md", "x"), ("{issue}-{slug}.md", "a/../../../b")]
+)
+def test_a_composed_plan_path_stays_in_the_repo(repo, capsys, plan_file, slug):
+    from aw import cli
+
+    (repo / ".agents").mkdir()
+    (repo / ".agents/aw.toml").write_text(f'plan_file = "{plan_file}"\n')
+    assert cli.main(["plan", "path", "12", "--slug", slug]) == 1
+    assert "resolves outside the repo" in capsys.readouterr().err
+
+
+def test_an_untracked_local_plan_directory_may_live_anywhere(repo, tmp_path, capsys):
+    """plan_scope = local: the directory is gitignored, never committed, so where it points is the user's choice."""
+    from aw import cli, doctor
+
+    (repo / ".agents").mkdir()
+    (repo / ".agents/aw.toml").write_text('aw_version = 1\nplan_scope = "local"\n')
+    (repo / ".agents/.gitignore").write_text("plans/\n")
+    (tmp_path / "my-plans").mkdir()
+    (repo / ".agents/plans").symlink_to(tmp_path / "my-plans", target_is_directory=True)
+    assert cli.main(["plan", "path", "12", "--slug", "x"]) == 0
+    assert capsys.readouterr().out.startswith(f"{repo}/.agents/plans/12-x-")
+    assert not [msg for level, msg in doctor.check_project() if level == "fail" and "plan" in msg]
