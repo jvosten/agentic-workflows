@@ -87,7 +87,7 @@ def _issue(args: argparse.Namespace) -> None:
         return
     if op == "create":
         body = _body(args.body_file)
-        cfg.public(args.title, body)
+        cfg.public(args.title, body, *args.label, *args.field)
         if args.field and not tracker.has_fields():
             raise AwError(f"--field: tracker {tracker.name!r} has no board fields (GitHub with github_project has)")
         fields = trackers.board_fields(cfg, args.label, args.field, from_labels=tracker.has_fields())
@@ -164,6 +164,7 @@ def _issue(args: argparse.Namespace) -> None:
         if message := trackers.status_hook(cfg, issue, args.status):
             print(message)
     elif op == "set-field":
+        cfg.public(*args.pairs)
         print(tracker.set_fields(issue, trackers.board_fields(cfg, [], args.pairs)))
     elif op == "rollup":
         if args.close:
@@ -282,6 +283,7 @@ def _mr(args: argparse.Namespace) -> int:
         part = len(done) + 1 if args.part else None
         if lines := _issue_lines(cfg, body, part, done):
             body = body.rstrip() + "\n\n" + "\n".join(lines) + "\n"
+            cfg.public(body)  # the appended lines name the issue: a tracker key can be a private term
         if args.dry_run:
             print(
                 f"DRY RUN ({kind}): {branch} → {target} title={args.title!r} draft={args.draft}"
@@ -333,6 +335,7 @@ def _mr(args: argparse.Namespace) -> int:
             done = [] if part else [f"{mark}{r.number}" for r in forge.merged(kind, branch, cwd)]
             if lines := _issue_lines(cfg, body, part, done):
                 body = body.rstrip() + "\n\n" + "\n".join(lines) + "\n"
+                cfg.public(body)
         if args.dry_run:
             print(f"DRY RUN ({kind}): update {ref} title={args.title!r}")
             print(body if body is not None else "body: unchanged", end="" if body else "\n")
@@ -451,13 +454,16 @@ def _memory(args: argparse.Namespace) -> None:
         else:
             print(" · ".join(f"{t} {n}" for t, n, _ in rows))
     elif op == "supersede":
+        cfg.public(args.reason)
         path = memory.supersede(cfg, args.id, args.reason, args.by)
         print(f"retired {path.relative_to(cfg.checkout)}")
     elif op == "implemented":
+        cfg.public(args.ref)
         path = memory.implemented(cfg, args.id, args.ref)
         print(f"implemented {path.relative_to(cfg.checkout)}")
     elif op == "import":
         lines = (sys.stdin.read() if args.json == "-" else Path(args.json).read_text()).splitlines()
+        cfg.public(*lines)
         written = memory.import_json(cfg, lines)
         kinds = {k: sum(p.parent.name == d for p in written) for k, d in memory.KINDS.items()}
         print(f"imported {', '.join(ui.plural(n, k) for k, n in kinds.items() if n) or 'nothing'}")

@@ -82,6 +82,7 @@ def run(cfg: Config, kind: str, slug: str, issue: str | None, base: str | None =
 
     ph = {"type": kind, "slug": slug, "date": date.today().strftime("%Y%m%d"), "issue": issue}
     branch = _fill(cfg, "branch_name", ph)
+    cfg.public(branch)  # the session pushes it
     worktree = Path(cfg.get("worktree_root", **ph)) / _fill(cfg, "worktree_name", ph)
 
     if (

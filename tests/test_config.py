@@ -254,3 +254,44 @@ def test_an_untracked_local_plan_directory_may_live_anywhere(repo, tmp_path, cap
     assert cli.main(["plan", "path", "12", "--slug", "x"]) == 0
     assert capsys.readouterr().out.startswith(f"{repo}/.agents/plans/12-x-")
     assert not [msg for level, msg in doctor.check_project() if level == "fail" and "plan" in msg]
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["memory", "supersede", "some-entry", "--reason", "broke on the Acme cluster"],
+        ["memory", "implemented", "some-entry", "--ref", "ACME-12"],
+        ["memory", "import", "--json", "-"],
+        ["issue", "create", "--title", "T", "--body-file", "/dev/null", "--label", "area/acme"],
+        ["issue", "create", "--title", "T", "--body-file", "/dev/null", "--field", "Area=Acme"],
+        ["issue", "set-field", "7", "Area=Acme"],
+        ["start-task", "feat", "acme-migration"],
+    ],
+    ids=lambda argv: " ".join(argv[:2]),
+)
+def test_every_other_text_aw_publishes_is_checked_for_private_terms(repo, monkeypatch, capsys, argv):
+    """Committed memory, labels, board fields and the branch name a session pushes are published too."""
+    from aw import cli
+
+    (repo / ".agents").mkdir()
+    (repo / ".agents/aw.local.toml").write_text('private_terms = ["acme"]\ntracker = "github"\n')
+    monkeypatch.setattr("sys.stdin", io.StringIO('{"kind": "gotcha", "title": "Acme lies", "tags": []}\n'))
+    assert cli.main(argv) == 1
+    assert "names the private term 'acme'" in capsys.readouterr().err
+    assert not git("branch", "--list", "feat/acme-*", cwd=repo)
+
+
+def test_the_lines_aw_mr_create_appends_are_checked_too(repo, monkeypatch, capsys):
+    """A Jira key can be the private term: the closing line names it after the body passed the check."""
+    from aw import cli, session
+
+    (repo / ".agents").mkdir()
+    (repo / ".agents/aw.local.toml").write_text(
+        'private_terms = ["acme"]\nforge = "github"\ntracker = "jira"\njira_base_url = "https://x.atlassian.net"\n'
+    )
+    git("switch", "-q", "-c", "feat/x", cwd=repo)
+    monkeypatch.setattr(session, "read", lambda: {"issue": "ACME-12"})
+    monkeypatch.setattr(forge, "merged", lambda kind, b, cwd: [])
+    monkeypatch.setattr("sys.stdin", io.StringIO("Retries.\n"))
+    assert cli.main(["mr", "create", "--title", "feat: x", "--body-file", "-", "--dry-run"]) == 1
+    assert "names the private term 'acme'" in capsys.readouterr().err
