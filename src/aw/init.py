@@ -14,6 +14,7 @@ from aw.config import (
     LOCAL_FILE,
     PROJECT_FILE,
     AwError,
+    Config,
     checkout_root,
     dump_toml,
     git,
@@ -21,6 +22,7 @@ from aw.config import (
     migrate,
     parse_text,
     read_toml,
+    refuse_outside,
     repo_root,
     toml_value,
 )
@@ -185,6 +187,10 @@ def run(assume_yes: bool, sets: list[str], check: bool = False) -> Report:
     if interactive:
         print()
 
+    committed = Config(root=root, checkout=root, schema=schema)  # for placeholders: the file's paths stay in the repo
+    for key, value in values.items():
+        if key in schema and schema[key].get("path"):
+            refuse_outside(committed, key, value)
     if not check:
         path.parent.mkdir(exist_ok=True)
         path.write_text(dump_toml(values))

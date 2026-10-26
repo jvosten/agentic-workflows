@@ -300,7 +300,7 @@ def load(cwd: Path | str | None = None) -> Config:
             cfg.values[key] = coerce(key, schema[key], value)
             cfg.sources[key] = "primary" if layer == "project" and key in from_primary else layer
             if layer == "project" and schema[key].get("path"):
-                _refuse_outside(cfg, key, value)
+                refuse_outside(cfg, key, value)
 
     for key, spec in schema.items():
         env = os.environ.get("AW_" + key.upper())
@@ -310,7 +310,7 @@ def load(cwd: Path | str | None = None) -> Config:
     return cfg
 
 
-def _refuse_outside(cfg: Config, key: str, value: str | dict[str, str]) -> None:
+def refuse_outside(cfg: Config, key: str, value: str | dict[str, str]) -> None:
     """A committed path stays in the repo: a branch can change it, and aw reads, writes and deletes there."""
     named = value.items() if isinstance(value, dict) else [("", value)]
     for name, text in named:

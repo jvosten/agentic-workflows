@@ -9,6 +9,12 @@ from aw import doctor, init, install, update
 from aw.config import AwError, git
 
 
+@pytest.fixture(autouse=True)
+def no_source_clone(monkeypatch):
+    """doctor checks the clone an editable install runs from: here that would be whatever runs the tests."""
+    monkeypatch.setattr(update, "source_clone", lambda: None)
+
+
 def fake_exe(tmp_path):
     exe = tmp_path / "venv/bin/aw"
     exe.parent.mkdir(parents=True)
@@ -167,7 +173,6 @@ def test_doctor_summary_lists_problems_and_verbose_lists_everything(env, repo, t
     install.run(["claude"], fake_exe(tmp_path))
     init.run(True, [])
     monkeypatch.setenv("PATH", f"{env}/.agents/bin:/usr/bin:/bin")
-    monkeypatch.setattr(update, "source_clone", lambda: None)  # not whatever the checkout running the tests has out
     assert any("not committed: session worktrees start from main" in m for _, m in doctor.check_project())
     git("add", ".agents", cwd=repo)
     git("commit", "-qm", "aw config", cwd=repo)
@@ -266,3 +271,24 @@ def test_doctor_lists_tracked_files_that_name_a_private_term(env, repo):
     git("add", "notes.md", ".agents/aw.toml", cwd=repo)
     results = {msg: level for level, msg in doctor.run()}
     assert results["notes.md names a private term (private_terms)"] == "warn"
+
+
+def test_doctor_reports_git_trouble_in_the_clone_instead_of_stopping(tmp_path):
+    """A clone git refuses to read (dubious ownership in a container, a primary checkout not mounted)."""
+    (tmp_path / "not-a-repo").mkdir()
+    results = doctor.check_source(tmp_path / "not-a-repo")
+    assert len(results) == 1 and results[0][0] == "warn"
+    assert results[0][1].startswith(f"editable install: cannot read {tmp_path}/not-a-repo:")
+
+
+def test_a_failing_private_terms_scan_is_not_reported_clean(env, repo, monkeypatch):
+    (repo / ".agents").mkdir()
+    (repo / ".agents/aw.toml").write_text("aw_version = 1\n")
+    (repo / ".agents/aw.local.toml").write_text('private_terms = ["acme"]\n')
+    from aw.config import load
+
+    cfg = load(repo)
+    monkeypatch.setenv("GIT_DIR", str(repo / "missing.git"))  # from here on, every git call fails
+    results = doctor.check_config(cfg)
+    assert ("ok", "no tracked file names a private term") not in results
+    assert any(level == "fail" and msg.startswith("private_terms: scan failed") for level, msg in results)

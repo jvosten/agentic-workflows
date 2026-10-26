@@ -220,3 +220,10 @@ def test_init_check_reports_what_init_would_change_and_writes_nothing(repo, caps
     assert out[3].split() == ["on_start", "[", "-n", "{issue}", "]", "&&", "make", "setup", "(new)"]
     assert "migrated on_issue_start → on_start, run only with an issue as before" in captured.out + captured.err
     assert path.read_text() == before
+
+
+def test_init_refuses_a_path_the_committed_file_may_not_hold(repo):
+    """Written, it would make every later aw command fail on load."""
+    with pytest.raises(AwError, match=r"templates\.story = '\.\./shared/story\.md' in project points outside the repo"):
+        init.run(True, ["templates=story=../shared/story.md"])
+    assert not (repo / ".agents/aw.toml").exists()

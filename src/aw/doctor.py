@@ -91,7 +91,11 @@ def check_source(clone: Path | None) -> list[Result]:
     skills: a pull request checked out there to review it would run with the user's credentials."""
     if clone is None:
         return []
-    branch, current = update.default_branch(clone), git("branch", "--show-current", cwd=clone)
+    try:
+        branch, current = update.default_branch(clone), git("branch", "--show-current", cwd=clone)
+        dirty = git("status", "--porcelain", "--", "src", "skills", cwd=clone)
+    except AwError as e:
+        return [("warn", f"editable install: cannot read {clone}: {e}")]
     results: list[Result] = []
     if current != branch:
         results.append(
@@ -101,7 +105,7 @@ def check_source(clone: Path | None) -> list[Result]:
                 "skills run that code in every project. Check out other branches in a worktree",
             )
         )
-    if git("status", "--porcelain", "--", "src", "skills", cwd=clone):
+    if dirty:
         results.append(
             (
                 "warn",
@@ -230,15 +234,18 @@ def check_config(cfg: Config) -> list[Result]:
         results.append(("fail", str(e)))
         plans = None
     if terms := cfg.get("private_terms"):
-        named = subprocess.run(
+        scan = subprocess.run(
             ["git", "grep", "-I", "-l", "-i", "-F", *(arg for term in terms for arg in ("-e", term))],
             cwd=cfg.checkout,
             capture_output=True,
             text=True,
             check=False,
-        ).stdout.splitlines()
-        results += [("warn", f"{name} names a private term (private_terms)") for name in named]
-        if not named:
+        )
+        if scan.returncode not in (0, 1):  # 1: no match; anything else, the scan itself failed
+            results.append(("fail", f"private_terms: scan failed: {scan.stderr.strip()}"))
+        elif named := scan.stdout.splitlines():
+            results += [("warn", f"{name} names a private term (private_terms)") for name in named]
+        else:
             results.append(("ok", "no tracked file names a private term"))
     results.append(
         ("ok", f"instructions_file {cfg.get('instructions_file')}")
