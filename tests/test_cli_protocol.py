@@ -4,6 +4,7 @@ Skills parse `key=value` lines, branch on fixed phrases and read rows by their m
 contract). A change here is a change to every skill that reads it: update the skills in the same change.
 """
 
+import ast
 import json
 from datetime import date
 from pathlib import Path
@@ -11,9 +12,23 @@ from pathlib import Path
 import pytest
 from test_rollup import Board, story
 
-from aw import cli, memory, trackers
+from aw import cli, memory, plan, start_task, trackers
 from aw.config import AwError, git, load
 from aw.trackers import Row
+
+
+class Day(date):
+    """A fixed today: a run that crosses midnight must not change what a test expects."""
+
+    @classmethod
+    def today(cls):
+        return cls(2026, 10, 24)
+
+
+@pytest.fixture(autouse=True)
+def fixed_day(monkeypatch):
+    for module in (start_task, plan):
+        monkeypatch.setattr(module, "date", Day)
 
 
 @pytest.fixture
@@ -36,7 +51,7 @@ def out(capsys, *argv: str) -> str:
 
 
 def test_start_task_prints_branch_worktree_and_issue(project, tmp_path, capsys):
-    stamp = date.today().strftime("%Y%m%d")
+    stamp = Day.today().strftime("%Y%m%d")
     assert out(capsys, "start-task", "feat", "thing") == (
         f"branch=feat/thing-{stamp}\nworktree={tmp_path}/wt/thing\nissue=\n"
     )
@@ -47,7 +62,7 @@ def test_start_task_prints_branch_worktree_and_issue(project, tmp_path, capsys):
 
 def test_session_prints_its_metadata_as_key_value_lines(project, tmp_path, monkeypatch, capsys):
     out(capsys, "start-task", "feat", "thing", "--issue", "7")
-    today = date.today()
+    today = Day.today()
     monkeypatch.chdir(tmp_path / "wt/7-thing")
     assert out(capsys, "session") == (
         f"issue=7\ntype=feat\nslug=thing\nstarted={today.isoformat()}\n"
@@ -59,7 +74,7 @@ def test_session_prints_its_metadata_as_key_value_lines(project, tmp_path, monke
 
 
 def test_plan_path_prints_one_path_and_plan_state_key_value_lines(project, capsys):
-    stamp = date.today().isoformat()
+    stamp = Day.today().isoformat()
     assert out(capsys, "plan", "path", "12", "--slug", "thing") == f"{project}/.agents/plans/12-thing-{stamp}.md\n"
     assert out(capsys, "plan", "state", "12") == "issue=12\nplan=none\nsubtasks=\n"
     found = project / f".agents/plans/12-thing-{stamp}.md"
@@ -202,6 +217,24 @@ def test_rollup_json_names_unsplit_plan_sections_and_keeps_text_unescaped(projec
     assert "1: children unknown (sub-issues — page 2 failed)" in text  # not escaped as \\u2014
 
 
+def test_rollup_json_keeps_the_children_it_read_when_the_plan_is_unknown(project, monkeypatch, capsys):
+    board = Board(load(), story("In Progress", **{"2": "Done", "3": "In Progress"}))
+    monkeypatch.setattr(trackers, "get", lambda cfg: board)
+    plans = project / ".agents/plans"
+    plans.mkdir(parents=True)
+    (plans / "1-a-2026-10-06.md").write_text("# plan\n")
+    (plans / "1-b-2026-10-07.md").write_text("# plan\n")
+    result = json.loads(out(capsys, "issue", "rollup", "3", "--json"))
+    assert {k: result[k] for k in ("decision", "story", "children", "open", "unsplit")} == {
+        "decision": "unknown",
+        "story": "1",
+        "children": ["2", "3"],
+        "open": [],
+        "unsplit": None,
+    }
+    assert result["line"].startswith("1: plan unknown (several plans for 1")
+
+
 # backlog list and memory find --compact: read by aw-finalize, aw-backlog-item and aw-remember
 
 
@@ -242,11 +275,28 @@ PHRASES = {
 }
 
 
+def printed(path: Path) -> list[str]:
+    """The string literals of a module, f-string parts included, without docstrings and comments."""
+    tree = ast.parse(path.read_text())
+    docs = {
+        id(node.body[0].value)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef)
+        and node.body
+        and isinstance(node.body[0], ast.Expr)
+    }
+    return [
+        n.value
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Constant) and isinstance(n.value, str) and id(n) not in docs
+    ]
+
+
 @pytest.mark.parametrize("phrase", PHRASES)
 def test_a_phrase_skills_branch_on_is_still_printed_and_still_read(phrase):
     root = Path(__file__).parents[1]
     source, readers = PHRASES[phrase]
-    assert phrase in (root / source).read_text(), f"{source} no longer prints {phrase!r}"
+    assert any(phrase in text for text in printed(root / source)), f"{source} no longer prints {phrase!r}"
     for skill in readers:
         text = (root / "skills" / skill / "SKILL.md").read_text()
         assert phrase.strip() in text, f"{skill} no longer reads {phrase!r}"
