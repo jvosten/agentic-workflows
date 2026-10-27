@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from aw import backlog, forge, rollup, session, trackers
-from aw.config import STDERR_FD, AwError, Config, fast_forward, git
+from aw.config import STDERR_FD, AwError, Config, fast_forward, git, worktrees
 from aw.trackers import canonical
 
 PREFIX = {"github": "#", "gitlab": "!"}
@@ -122,11 +122,15 @@ def _refuse_stacked(meta: dict[str, Any]) -> None:
 
 def _warn_stacked(root: Path, branch: str, log: list[str]) -> None:
     """Sessions in other worktrees stacked on branch have to restack."""
-    for line in git("worktree", "list", "--porcelain", cwd=root).splitlines():
-        if not line.startswith("worktree "):
+    for entry in worktrees(root):
+        if not Path(entry["worktree"]).is_dir():
+            log.append(
+                f"warning: {entry['worktree']} is listed as a worktree but its directory is gone; "
+                "`git worktree prune` drops it"
+            )
             continue
         try:
-            other = session.read(line.removeprefix("worktree "))
+            other = session.read(entry["worktree"])
         except session.NoSession:
             continue
         except AwError as e:
@@ -244,6 +248,20 @@ def run(cfg: Config, meta: dict[str, Any], pr: str | None, close_parent: bool = 
     else:
         pr = _merge_request(cfg, kind, branch, pr, worktree, log)
 
+    done = len(log)
+    try:
+        _clean_up(cfg, meta, pr, nothing_left, close_parent, log)
+    except AwError as e:  # the merge stands: say what ran, the user finishes the rest by hand
+        ran = "\n".join(f"  {line}" for line in log[done:]) or "  none"
+        raise AwError(f"{e}\nthe merge is done; these steps ran before aw finish stopped:\n{ran}") from None
+    return log
+
+
+def _clean_up(
+    cfg: Config, meta: dict[str, Any], pr: str | None, nothing_left: bool, close_parent: bool, log: list[str]
+) -> None:
+    """After the merge: issue and story, worktree, main, on_merge, branch."""
+    root, main, branch, worktree = cfg.root, cfg.get("main_branch"), meta["branch"], Path(meta["worktree"])
     issue = meta.get("issue")
     tracker = trackers.get(cfg)
     if issue and cfg.get("sync_issue_status"):
@@ -282,7 +300,6 @@ def run(cfg: Config, meta: dict[str, Any], pr: str | None, close_parent: bool = 
         log.append(f"deleted origin/{branch}")
     git("remote", "prune", "origin", cwd=root)
     _warn_stacked(root, branch, log)
-    return log
 
 
 def abandon(cfg: Config, meta: dict[str, Any], discard: bool = False, status: str = "backlog") -> list[str]:

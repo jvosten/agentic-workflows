@@ -47,6 +47,8 @@ def user_file() -> Path:
 
 
 def git(*args: str, cwd: Path | str | None = None) -> str:
+    if cwd is not None and not Path(cwd).is_dir():  # subprocess would raise FileNotFoundError, past every handler
+        raise AwError(f"git {' '.join(args)}: no such directory: {cwd}")
     r = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=False)
     if r.returncode:
         raise AwError(f"git {' '.join(args)}: {r.stderr.strip()}")
@@ -62,6 +64,21 @@ def json_pages(text: str) -> list[Any]:
     return pages
 
 
+def worktrees(root: Path) -> list[dict[str, str]]:
+    """`git worktree list --porcelain`, one entry per worktree: worktree (its path), HEAD, branch (a ref).
+
+    A worktree whose directory was deleted without `git worktree remove` stays listed until `git worktree prune`.
+    """
+    entries = []
+    for block in git("worktree", "list", "--porcelain", cwd=root).split("\n\n"):
+        entry = {}
+        for line in block.splitlines():
+            key, _, value = line.partition(" ")
+            entry[key] = value
+        entries.append(entry)
+    return entries
+
+
 def fast_forward(root: Path, branch: str) -> str:
     """Bring the local branch up to origin's, whatever the primary checkout has checked out.
 
@@ -72,10 +89,9 @@ def fast_forward(root: Path, branch: str) -> str:
     git("fetch", "--quiet", "origin", branch, cwd=root)
     ref, upstream = f"refs/heads/{branch}", f"refs/remotes/origin/{branch}"
     where = None
-    for block in git("worktree", "list", "--porcelain", cwd=root).split("\n\n"):
-        lines = block.splitlines()
-        if f"branch {ref}" in lines:
-            where = lines[0].removeprefix("worktree ")
+    for entry in worktrees(root):
+        if entry.get("branch") == ref and Path(entry["worktree"]).is_dir():
+            where = entry["worktree"]
     if where:
         try:
             git("merge", "--ff-only", "--quiet", upstream, cwd=where)

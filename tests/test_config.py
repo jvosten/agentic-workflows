@@ -295,3 +295,8 @@ def test_the_lines_aw_mr_create_appends_are_checked_too(repo, monkeypatch, capsy
     monkeypatch.setattr("sys.stdin", io.StringIO("Retries.\n"))
     assert cli.main(["mr", "create", "--title", "feat: x", "--body-file", "-", "--dry-run"]) == 1
     assert "names the private term 'acme'" in capsys.readouterr().err
+
+
+def test_git_in_a_directory_that_is_gone_is_an_aw_error(tmp_path):
+    with pytest.raises(AwError, match=r"git status: no such directory: .*/gone"):
+        git("status", cwd=tmp_path / "gone")

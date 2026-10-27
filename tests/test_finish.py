@@ -1,3 +1,4 @@
+import shutil
 from pathlib import Path
 
 import pytest
@@ -217,6 +218,32 @@ def test_finish_updates_main_while_the_primary_checkout_is_on_another_branch(sta
     assert "updated main" in log
     assert git("rev-parse", "main", cwd=repo) == git("rev-parse", "origin/main", cwd=repo)
     assert git("branch", "--show-current", cwd=repo) == "look-around"
+
+
+def test_finish_passes_over_a_worktree_whose_directory_was_deleted(started, repo, tmp_path, monkeypatch):
+    """git still lists a worktree removed with rm, not `git worktree remove`; finish warns and carries on."""
+    gone = tmp_path / "gone"
+    git("worktree", "add", "-q", "-b", "old-session", str(gone), cwd=repo)
+    shutil.rmtree(gone)
+    monkeypatch.chdir(started["worktree"])
+    merge_by_hand(repo, started["branch"])
+    log = finish.run(load(), session.read(), None)
+    assert f"deleted origin/{started['branch']}" in log
+    assert f"warning: {gone} is listed as a worktree but its directory is gone; `git worktree prune` drops it" in log
+
+
+def test_a_failure_after_the_merge_reports_the_steps_that_ran(started, repo, monkeypatch):
+    def broken(root, main, log):
+        raise AwError("disk full")
+
+    monkeypatch.setattr(finish, "_update_main", broken)
+    monkeypatch.chdir(started["worktree"])
+    merge_by_hand(repo, started["branch"])
+    with pytest.raises(AwError) as stopped:
+        finish.run(load(), session.read(), None)
+    assert str(stopped.value) == (
+        f"disk full\nthe merge is done; these steps ran before aw finish stopped:\n  removed {started['worktree']}"
+    )
 
 
 def stack_on(started, monkeypatch):
