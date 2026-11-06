@@ -405,6 +405,29 @@ This repo's own hardening plan hit the second set right after it was written (20
 
 **Effort:** small: a regex over the body plus one lookup per referenced number.
 
+---
+
+### [LOW] Claude Code worktrees go through aw start-task, with .worktreeinclude
+
+**Context:** a review of worktree tools (2026-10-17) found two Claude Code features that touch what `aw start-task` does. Claude Code creates worktrees of its own (`claude --worktree`, subagents with worktree isolation, the desktop app), and its `WorktreeCreate` / `WorktreeRemove` hooks can replace that creation and removal. `.worktreeinclude` lists local files to copy into a new worktree; Claude Code documents it as "`.gitignore` syntax. Only files that match a pattern and are also gitignored are copied", and not applied when a `WorktreeCreate` hook replaces creation. Codex documents the same file for its managed desktop worktrees, and ccmanager implements it.
+
+**Problem:** a worktree Claude Code creates bypasses `aw`: no session metadata, no branch naming, no `on_start`, and `aw finish` / `aw abandon` do not know it. A session worktree from `aw start-task` in turn lacks gitignored local files (`.env`, local config) unless `on_start` copies them by hand. And what `.worktreeinclude` usually lists is what a sandboxed worker must not receive.
+
+**Scope:**
+- A `WorktreeCreate` hook that calls `aw start-task`, so Claude Code's worktrees are sessions. Check the hook's input and output contract at the time; decide how the hook's worktree name maps to the session's slug and type.
+- `WorktreeRemove`: decide whether it maps to `aw abandon`, or only reports. It must never delete work that is unpushed or not merged.
+- `aw start-task` copies the files that match `.worktreeinclude` and are gitignored, from the primary checkout into the new worktree. Because Claude Code skips the file when the hook replaces creation, `aw` doing the copy keeps it meaningful.
+- No copy when the session is sandboxed or the primary checkout is not reachable; `start-task` says so.
+- README: the hook configuration and `.worktreeinclude`.
+
+**Acceptance criteria:**
+- With the hook configured, a worktree created by Claude Code is a session that `aw finish` and `aw abandon` recognise.
+- Only files that match `.worktreeinclude` and are gitignored are copied; tracked files never are; no `.worktreeinclude` copies nothing.
+- In a sandboxed session, or with no reachable primary checkout, nothing is copied and the output says why.
+- The remove hook refuses on unpushed or unmerged work.
+
+**Effort:** medium — the hook contract, the copy rules and the sandbox guard, tested with faked hook input.
+
 ## Considered and not planned
 
 - **Personas and multi-agent roles** (BMAD), **spec-driven phases** (spec-kit), **label-based handoff queues** (zaks-io): full methods of their own; out of scope for a session-workflow standard.
