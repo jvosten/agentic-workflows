@@ -218,7 +218,8 @@ def _issue_lines(cfg: Config, body: str, part: int | None, earlier: list[str]) -
             lines.append(tracker.pr_text(issue))
     if earlier and not part:
         lines.append(f"Earlier parts: {', '.join(earlier)}")
-    return [line for line in lines if line not in body]
+    present = {line.strip() for line in body.splitlines()}
+    return [line for line in lines if line not in present]
 
 
 def _check_closes(cfg: Config, kind: str, shown: str, number: str, part: int | None) -> None:

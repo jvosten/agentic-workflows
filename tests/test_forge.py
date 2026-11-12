@@ -609,6 +609,7 @@ def test_the_merge_is_pinned_to_the_commit_that_was_checked(repo, monkeypatch, k
     fake = FakeProcess({tuple(merge[:3]): (0, "", "")})
     monkeypatch.setattr(forge.subprocess, "run", fake)
     forge.merge(kind, "7", "squash", "abc123", repo)
+        ("Fixes #123 as well.\n", True),
     assert fake.calls == [merge]
 
 
