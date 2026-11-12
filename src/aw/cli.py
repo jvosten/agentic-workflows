@@ -266,6 +266,8 @@ def _mr(args: argparse.Namespace) -> int:
     cwd, mark = cfg.checkout, MR_PREFIX[kind]
     branch = git("branch", "--show-current", cwd=cwd)
     ref: str = getattr(args, "ref", None) or ""
+    if not branch and args.op != "next":
+        raise AwError("detached HEAD: aw mr needs the branch (a rebase in progress? finish it first)")
     if not ref and args.op not in ("create", "next"):  # the branch's own request: by name, glab finds forks' too
         if (own := forge.find_open(kind, branch, cwd)) is None:
             raise AwError(f"{branch} has no open merge request; pass its number")

@@ -595,6 +595,15 @@ def test_only_a_fork_request_open_means_none_open(repo, monkeypatch):
         ),
     ],
 )
+def test_mr_refuses_a_detached_head(branch, capsys):
+    """Without a branch, the forge would list every open request and aw would take the first."""
+    git("checkout", "-q", "--detach", cwd=branch)
+    create = ["mr", "create", "--title", "t", "--body-file", "-"]
+    for argv in (["mr", "view"], ["mr", "update", "--title", "t"], create):
+        assert cli.main(argv) == 1
+        assert "detached HEAD" in capsys.readouterr().err
+
+
 def test_the_merge_is_pinned_to_the_commit_that_was_checked(repo, monkeypatch, kind, merge):
     """A push between the head check and the merge makes the forge refuse instead of merging unchecked commits."""
     fake = FakeProcess({tuple(merge[:3]): (0, "", "")})
