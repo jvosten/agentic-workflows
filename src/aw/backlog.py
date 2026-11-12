@@ -78,6 +78,12 @@ def add(cfg: Config, title: str, text: str) -> Path:
     lines = path.read_text().splitlines(keepends=True)
     headings = _headings(lines)
     level = _item_level(headings)
+    for _, lvl, heading in _headings(text.splitlines(keepends=True)):
+        if lvl <= level:
+            raise AwError(
+                f"the body's heading {'#' * lvl + ' ' + heading!r} would be an item of its own; "
+                f"use {'#' * (level + 1)} or deeper"
+            )
     entry = f"{'#' * level} {title}\n\n{text.strip()}\n"
     if _splits_with_rules(lines, level):
         entry = f"{RULE}\n\n{entry}"

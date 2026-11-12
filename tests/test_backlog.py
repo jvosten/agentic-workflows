@@ -43,6 +43,19 @@ def test_backlog_add_places_the_item_with_the_others(repo, tmp_path):
     assert "Context: three." in text
 
 
+@pytest.mark.parametrize("heading", ["## Context", "### Context"])
+def test_backlog_add_refuses_a_body_heading_that_would_be_an_item(repo, tmp_path, capsys, heading):
+    (repo / "BACKLOG.md").write_text(ITEMS)
+    text = body(tmp_path, f"{heading}\n\nWhy.\n")
+    assert cli.main(["backlog", "add", "--title", "[LOW] Third item", "--body-file", text]) == 1
+    assert f"the body's heading {heading!r} would be an item of its own; use #### or deeper" in capsys.readouterr().err
+    assert (repo / "BACKLOG.md").read_text() == ITEMS
+    text = body(tmp_path, "#### Context\n\nWhy.\n")
+    assert cli.main(["backlog", "add", "--title", "[LOW] Third item", "--body-file", text]) == 0
+    assert cli.main(["backlog", "list"]) == 0
+    assert capsys.readouterr().out.splitlines()[-3:] == ["[HIGH] First item", "[LOW] Second item", "[LOW] Third item"]
+
+
 def test_backlog_pop_removes_one_item_only(repo):
     (repo / "BACKLOG.md").write_text(ITEMS)
     assert cli.main(["backlog", "pop", "--title", "[LOW] Second item"]) == 0
