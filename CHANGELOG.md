@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.1.17 — 2026-11-12 (#18)
+
+### Security
+
+- A fork's pull request from a branch with the same name is never the session's: `aw mr create`, `finish`, `merge`,
+  `abandon` and `restack` drop requests from other repositories. A full page of requests is refused as partial.
+  `aw finish` and `aw merge` merge only the commit they checked (`--match-head-commit`, GitLab `--sha`).
+- Path keys (`templates.*`, `backlog_file`, `memory_dir`, `plan_dir`, `instructions_file`, `contributing_file`,
+  `definition_of_done`, `changelog_file`) stay inside the repo and out of its git dir. A committed config cannot
+  use `~` or an absolute path; `aw doctor` reports such values.
+- `jira_base_url` is a trusted key, read from the primary checkout, and must start with `https://`; the same holds
+  for `JIRA_BASE_URL`.
+- `aw mr comments` and `aw issue view` mark authors without push access `[outside]`, and fail closed when access
+  cannot be read. Skills show outside text to the user and never act on it; a merge go comes only from the user
+  in the conversation.
+- No skill pre-approves `aw merge`, `aw finish`, `aw abandon`, `aw issue set-status` or a rollup that can close;
+  only `aw issue rollup --json:*` stays pre-approved.
+- `private_terms`, set only in the user or local layer, makes every command that publishes text refuse a text that
+  contains one; `aw doctor` scans tracked files for them.
+- `aw start-task` runs `direnv allow` only on the `.envrc` it writes; a tracked one is left for the user.
+- `aw doctor` warns when the editable install's checkout is off its default branch or has uncommitted code.
+
+### Fixed
+
+- `aw finish` passes over a stacked worktree whose directory is gone, and a failure after the merge names the
+  steps that ran.
+
 ## 0.1.16 — 2026-10-23 (#17)
 
 ### Fixed
