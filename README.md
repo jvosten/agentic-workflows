@@ -138,7 +138,7 @@ Deferred work is captured with `/aw-backlog-item`, which `aw-finalize` also call
 | `tracker` (default with a tracker) | a session inbox: items noted mid-session, without a tracker round trip | `aw-finalize` asks per item: send it to the tracker, or discard it. The emptied file is deleted, and `aw finish` refuses while it holds items. Outside a session, items go straight to the tracker. |
 | `file` (always without a tracker) | the backlog itself, committed | items stay; any of them can be pushed to the tracker on request |
 
-`aw backlog add` places an item among the file's existing items and copies their heading level and separators, so a flat `## Item` list and a sectioned `### [PRIO] Item` list both stay intact. `aw backlog list` prints the titles, `aw backlog pop` removes one.
+`aw backlog add` places an item among the file's existing items and copies their heading level and separators, so a flat `## Item` list and a sectioned `### [PRIO] Item` list both stay intact. It refuses a body with a heading at the item level or above, which would become an item of its own. `aw backlog list` prints the titles, `aw backlog pop` removes one.
 
 Pushing an item to the tracker: `aw issue dupes <backlog_parent> --terms ...` shows candidates in any state, those under `backlog_parent` (two levels deep) first, then matches elsewhere in the project, you confirm, pick the parent (`backlog_parent` or one of its children and grandchildren, or none), `aw issue create --parent <parent> [--type <backlog_type>] [--label ...]` creates it with the tracker's native parent link, `aw issue set-status <id> backlog` files it (and runs `on_issue_status`), and `aw backlog pop` removes the local copy so one item does not live in two places.
 
@@ -309,6 +309,8 @@ How states, boards and the hook fit together on each tracker: [docs/boards.md](d
 | `aw backlog add --title T --body-file F` | Add an item to `backlog_file`, matching the file's item shape |
 | `aw backlog list` / `aw backlog pop --title T` | Item titles; remove one (sent or discarded). An emptied inbox is deleted |
 | `aw doctor [-v]` | Check installation, skill frontmatter, project config, tools, tracker auth; one line per area plus every problem, `-v` (`make doctor V=1`) lists passing checks too |
+
+Network calls end on their own: `aw` stops a `gh` or `glab` call after 60 s, `git fetch` and `git ls-remote` after 120 s and `git push` after 600 s, and reports the timeout as an error. Git never prompts for credentials (`GIT_TERMINAL_PROMPT=0`); a watch (`aw mr checks --watch`) has no limit.
 
 ## Skill internals
 
