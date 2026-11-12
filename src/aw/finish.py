@@ -143,7 +143,7 @@ def _warn_stacked(root: Path, branch: str, log: list[str]) -> None:
 def _delete_remote(cfg: Config, branch: str, log: list[str], note: str = "") -> None:
     """Delete origin/branch once the requests into it target main; a push-delete would close them instead."""
     root, main, kind = cfg.root, cfg.get("main_branch"), cfg.get("forge")
-    if not git("ls-remote", "--heads", "origin", branch, cwd=root):
+    if not git("ls-remote", "origin", f"refs/heads/{branch}", cwd=root):
         return
     if kind != "none":
         try:
@@ -324,7 +324,7 @@ def abandon(cfg: Config, meta: dict[str, Any], discard: bool = False, status: st
     root, main, branch = cfg.root, cfg.get("main_branch"), meta["branch"]
     worktree, kind = Path(meta["worktree"]), cfg.get("forge")
     git("fetch", "--quiet", "origin", main, cwd=worktree)
-    remote = bool(git("ls-remote", "--heads", "origin", branch, cwd=root))
+    remote = bool(git("ls-remote", "origin", f"refs/heads/{branch}", cwd=root))
     if remote:
         git("fetch", "--quiet", "origin", branch, cwd=worktree)
     heads = ["HEAD", *([f"origin/{branch}"] if remote else [])]
@@ -337,6 +337,12 @@ def abandon(cfg: Config, meta: dict[str, Any], discard: bool = False, status: st
         raise AwError(f"{branch} has {what}; pass --discard to drop them, or keep the session")
     if kind != "none" and (request := forge.find_open(kind, branch, worktree)):
         raise AwError(f"{branch} has an open merge request {PREFIX[kind]}{request.number}; close it first")
+    if kind != "none" and remote and (stacked := forge.stacked_on(kind, branch, worktree)):
+        numbers = ", ".join(f"{PREFIX[kind]}{r.number}" for r in stacked)
+        raise AwError(
+            f"{numbers} targets {branch}; retarget or close it first: deleting {branch} would close it, "
+            "and its work belongs to another session"
+        )
 
     log: list[str] = []
     if kind != "none" and (parts := forge.merged(kind, branch, worktree)):
