@@ -140,6 +140,23 @@ def _warn_stacked(root: Path, branch: str, log: list[str]) -> None:
             log.append(f"warning: {other['branch']} is stacked on {branch}; run `aw restack` in {other['worktree']}")
 
 
+def _delete_remote(cfg: Config, branch: str, log: list[str], note: str = "") -> None:
+    """Delete origin/branch once the requests into it target main; a push-delete would close them instead."""
+    root, main, kind = cfg.root, cfg.get("main_branch"), cfg.get("forge")
+    if not git("ls-remote", "--heads", "origin", branch, cwd=root):
+        return
+    if kind != "none":
+        try:
+            for request in forge.stacked_on(kind, branch, root):
+                forge.retarget(kind, request.number, main, root)
+                log.append(f"retargeted {PREFIX[kind]}{request.number} to {main}")
+        except AwError as e:
+            log.append(f"warning: kept origin/{branch}: deleting it would close the requests stacked on it: {e}")
+            return
+    git("push", "--quiet", "origin", "--delete", branch, cwd=root)
+    log.append(f"deleted origin/{branch}{note}")
+
+
 def _update_main(root: Path, main: str, log: list[str]) -> None:
     try:
         log.append(fast_forward(root, main))
@@ -191,9 +208,7 @@ def merge(cfg: Config, meta: dict[str, Any], pr: str | None) -> list[str]:
         git("merge", "--ff-only", "--quiet", f"origin/{main}", cwd=worktree)
     else:  # squash or rebase: the branch's commits are in main under other ids, so it moves to main's tip
         git("reset", "--keep", "--quiet", f"origin/{main}", cwd=worktree)
-        if git("ls-remote", "--heads", "origin", branch, cwd=root):
-            git("push", "--quiet", "origin", "--delete", branch, cwd=root)
-            log.append(f"deleted origin/{branch}; the next `git push -u` recreates it")
+        _delete_remote(cfg, branch, log, "; the next `git push -u` recreates it")
     log.append(f"{branch} is at {main}'s tip; the session goes on")
     _warn_stacked(root, branch, log)
 
@@ -295,9 +310,7 @@ def _clean_up(
     # Squash and rebase merges leave the branch unmerged in git's view; the forge confirmed it.
     git("branch", "-D", branch, cwd=root)
     log.append(f"deleted branch {branch}")
-    if git("ls-remote", "--heads", "origin", branch, cwd=root):
-        git("push", "--quiet", "origin", "--delete", branch, cwd=root)
-        log.append(f"deleted origin/{branch}")
+    _delete_remote(cfg, branch, log)
     git("remote", "prune", "origin", cwd=root)
     _warn_stacked(root, branch, log)
 
