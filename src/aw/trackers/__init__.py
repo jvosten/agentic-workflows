@@ -43,14 +43,14 @@ class Comment:
 
 class Access:
     """Who may steer the agent: an author with write access to the repository (admin, maintain or write), asked
-    once per author, or a login in trusted_bots. Whatever aw cannot tell (a failed lookup, a deleted account, an app
-    nobody listed) is outside: the mark fails closed."""
+    once per author, or a bot whose login trusted_bots names. Whatever aw cannot tell (a failed lookup, a deleted
+    account, an app nobody listed, an author GitHub does not report as a Bot) is outside: the mark fails closed."""
 
     def __init__(self, trusted: list[str], permission: Callable[[str], str]) -> None:
         self.trusted, self.permission, self.known = set(trusted), permission, {}
 
-    def outside(self, login: str) -> bool:
-        if login in self.trusted:
+    def outside(self, login: str, bot: bool) -> bool:
+        if bot and login in self.trusted:
             return False
         if not login or login == GHOST:
             return True
@@ -61,8 +61,9 @@ class Access:
                 self.known[login] = False
         return not self.known[login]
 
-    def comment(self, author: str, body: str) -> Comment:
-        return Comment(author or GHOST, body, outside=self.outside(author or GHOST))
+    def comment(self, author: str, body: str, bot: bool) -> Comment:
+        """bot: the account may be one trusted_bots names (GitHub: its type is Bot; GitLab has one namespace)."""
+        return Comment(author or GHOST, body, outside=self.outside(author or GHOST, bot))
 
 
 def github_access(trusted: list[str], gh: Callable[..., str]) -> Access:
@@ -87,7 +88,8 @@ def gitlab_access(trusted: list[str], glab: Callable[..., str]) -> Access:
 
 def github_comment(node: dict, access: Access) -> Comment:
     """A GitHub comment, marked outside unless its author has write access (Access)."""
-    return access.comment((node.get("author") or {}).get("login") or GHOST, node.get("body") or "")
+    author = node.get("author") or {}
+    return access.comment(author.get("login") or GHOST, node.get("body") or "", author.get("__typename") == "Bot")
 
 
 def quoted(text: str) -> list[str]:

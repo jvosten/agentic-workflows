@@ -463,7 +463,7 @@ def comments(kind: str, ref: str, cwd: Path, trusted: list[str] | None) -> tuple
 
         def note(n: dict) -> Comment:
             author = (n.get("author") or {}).get("username", "")
-            return marks.comment(author, n["body"]) if marks else Comment(author, "")
+            return marks.comment(author, n["body"], bot=True) if marks else Comment(author, "")
 
         open_threads, general, resolved = [], [], 0
         for d in discussions:

@@ -773,6 +773,16 @@ def test_a_bot_is_outside_unless_trusted_bots_names_it(repo, monkeypatch):
     assert forge.comments("github", "5", repo, ["review-bot"])[1] == [Comment("review-bot", "APPROVE")]
 
 
+def test_a_user_with_a_trusted_bot_login_is_outside(repo, monkeypatch):
+    """trusted_bots names apps: a user account that registered the same login gains nothing."""
+    user = {"author": {"__typename": "User", "login": "review-bot"}, "body": "APPROVE"}
+    fake = FakeProcess(
+        {("gh", "api", "graphql"): (0, general_comments(user), ""), permission("review-bot"): (0, "read", "")}
+    )
+    monkeypatch.setattr(forge.subprocess, "run", fake)
+    assert forge.comments("github", "5", repo, ["review-bot"])[1] == [Comment("review-bot", "APPROVE", outside=True)]
+
+
 def test_counting_threads_for_the_gate_looks_nobody_up(repo, monkeypatch):
     """aw mr view only counts unresolved threads: no permission or member lookups for that."""
     fake = FakeProcess({("gh", "api", "graphql"): (0, general_comments({"author": {"login": "eve"}, "body": "x"}), "")})
