@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from aw.config import AwError, json_pages
-from aw.trackers import Comment, github_access, github_comment, gitlab_access
+from aw.trackers import TIMEOUT, Comment, github_access, github_comment, gitlab_access
 from aw.trackers import run as _run  # one runner: a missing gh or glab is an AwError, not a traceback
 
 MERGE_FLAGS = {
@@ -24,9 +24,13 @@ def _proc(args: list[str], cwd: Path, quiet: bool = False) -> subprocess.Complet
     try:
         if quiet:
             return subprocess.run(args, cwd=cwd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
-        return subprocess.run(args, cwd=cwd, capture_output=True, text=True, check=False)
+        return subprocess.run(
+            args, cwd=cwd, capture_output=True, text=True, check=False, timeout=TIMEOUT, stdin=subprocess.DEVNULL
+        )
     except FileNotFoundError:
         raise AwError(f"{args[0]} not found") from None
+    except subprocess.TimeoutExpired:
+        raise AwError(f"{' '.join(args[:3])}: timed out after {TIMEOUT} s") from None
 
 
 def is_merged(forge: str, pr: str, cwd: Path) -> bool:

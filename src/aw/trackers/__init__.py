@@ -25,6 +25,7 @@ class Row:
 
 
 WRITE = frozenset({"admin", "maintain", "write"})  # repository permissions that can push
+TIMEOUT = 60  # seconds for one gh or glab call
 GHOST = "ghost"  # GitHub's stand-in for a deleted account
 
 
@@ -115,10 +116,15 @@ class Issue:
 
 
 def run(args: list[str], cwd: Path, stdin: str | None = None) -> str:
+    closed = subprocess.DEVNULL if stdin is None else None
     try:
-        r = subprocess.run(args, cwd=cwd, input=stdin, capture_output=True, text=True, check=False)
+        r = subprocess.run(
+            args, cwd=cwd, input=stdin, stdin=closed, capture_output=True, text=True, check=False, timeout=TIMEOUT
+        )
     except FileNotFoundError:
         raise AwError(f"{args[0]} not found") from None
+    except subprocess.TimeoutExpired:
+        raise AwError(f"{' '.join(args[:3])}: timed out after {TIMEOUT} s") from None
     if r.returncode:
         raise AwError(f"{' '.join(args[:3])}: {(r.stderr or r.stdout).strip()}")
     return r.stdout.strip()

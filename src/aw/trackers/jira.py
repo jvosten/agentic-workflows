@@ -9,6 +9,7 @@ Credentials come from the environment and are never printed:
 from __future__ import annotations
 
 import base64
+import http.client
 import json
 import os
 import re
@@ -91,7 +92,12 @@ class Jira(Tracker):
             raise AwError(f"jira {method} {path}: HTTP {e.code}: {detail}") from None
         except urllib.error.URLError as e:
             raise AwError(f"jira {method} {path}: {e.reason}") from None
-        return json.loads(raw) if raw else None
+        except (OSError, http.client.HTTPException) as e:
+            raise AwError(f"jira {method} {path}: {e}") from None
+        try:
+            return json.loads(raw) if raw else None
+        except ValueError:
+            raise AwError(f"jira {method} {path}: not JSON: {raw.decode(errors='replace')[:300]}") from None
 
     # --- helpers ---
 

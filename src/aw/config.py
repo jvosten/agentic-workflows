@@ -46,10 +46,18 @@ def user_file() -> Path:
     return Path.home() / ".agents/aw/config.toml"
 
 
+NETWORK = {"fetch": 120, "ls-remote": 120, "push": 600}  # seconds; a push may run hooks
+
+
 def git(*args: str, cwd: Path | str | None = None) -> str:
     if cwd is not None and not Path(cwd).is_dir():  # subprocess would raise FileNotFoundError, past every handler
         raise AwError(f"git {' '.join(args)}: no such directory: {cwd}")
-    r = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=False)
+    limit = NETWORK.get(args[0]) if args else None
+    env = os.environ | {"GIT_TERMINAL_PROMPT": "0"}
+    try:
+        r = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=False, timeout=limit, env=env)
+    except subprocess.TimeoutExpired:
+        raise AwError(f"git {' '.join(args)}: timed out after {limit} s") from None
     if r.returncode:
         raise AwError(f"git {' '.join(args)}: {r.stderr.strip()}")
     return r.stdout.strip()

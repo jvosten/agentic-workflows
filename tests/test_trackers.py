@@ -1,5 +1,7 @@
+import http.client
 import io
 import json
+import subprocess
 import urllib.error
 import urllib.request
 from email.message import Message
@@ -370,6 +372,42 @@ def test_jira_request_auth_and_errors(repo, monkeypatch):
     with pytest.raises(AwError):
         tracker.request("GET", "/x")
     assert seen["url"] == "https://api.atlassian.com/ex/jira/abc/x"
+
+
+@pytest.mark.parametrize(
+    ("answer", "message"),
+    [
+        (TimeoutError("timed out"), "jira GET /x: timed out"),
+        (http.client.RemoteDisconnected("closed"), "jira GET /x: closed"),
+        (b"<html>Maintenance</html>", "jira GET /x: not JSON: <html>Maintenance</html>"),
+    ],
+    ids=["timeout", "disconnect", "html"],
+)
+def test_jira_failures_past_the_connection_are_aw_errors(repo, monkeypatch, answer, message):
+    monkeypatch.setenv("JIRA_USER_EMAIL", "me@example.invalid")
+    monkeypatch.setenv("JIRA_API_TOKEN", "sekrit-token")
+
+    def fake_urlopen(req, timeout):
+        if isinstance(answer, Exception):
+            raise answer
+        return io.BytesIO(answer)
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    with pytest.raises(AwError, match=message):
+        Jira(jira_cfg(repo)).request("GET", "/x")
+
+
+def test_provider_calls_end_after_a_timeout(repo, monkeypatch):
+    seen = {}
+
+    def stalled(args, **kwargs):
+        seen.update(kwargs)
+        raise subprocess.TimeoutExpired(args, kwargs["timeout"])
+
+    monkeypatch.setattr(trackers.subprocess, "run", stalled)
+    with pytest.raises(AwError, match="gh api user: timed out after 60 s"):
+        trackers.run(["gh", "api", "user"], repo)
+    assert seen["timeout"] == 60 and seen["stdin"] == subprocess.DEVNULL
 
 
 def test_jira_ids(repo):
