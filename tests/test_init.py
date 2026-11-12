@@ -45,6 +45,13 @@ def test_local_plans_are_gitignored(repo):
     assert (repo / ".agents/.gitignore").read_text() == "aw.local.toml\ngotchas-experiment.log\nplans/\n"
 
 
+def test_an_ignore_file_without_a_final_newline_keeps_its_last_entry(repo):
+    (repo / ".agents").mkdir()
+    (repo / ".agents/.gitignore").write_text("aw.local.toml")
+    init.run(True, [])
+    assert (repo / ".agents/.gitignore").read_text() == "aw.local.toml\ngotchas-experiment.log\n"
+
+
 def test_tracker_detection(repo):
     from aw.config import git
 
