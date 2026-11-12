@@ -112,7 +112,10 @@ def test_a_plan_section_without_a_subtask_keeps_the_story_open(cfg, repo):
     )
     result = rollup.check(cfg, board, "3")
     assert isinstance(result, rollup.Blocked)
-    assert result.left == ("plan section S3 has no subtask", "plan section S4 has no subtask")
+    assert (result.open, result.unsplit) == ((), ("S3", "S4"))
+    assert rollup.report(board, "3", result) == (
+        "1 stays open: plan section S3 has no subtask; plan section S4 has no subtask"
+    )
 
 
 def test_several_plans_for_the_story_make_the_rollup_unknown(cfg, repo):
@@ -123,7 +126,39 @@ def test_several_plans_for_the_story_make_the_rollup_unknown(cfg, repo):
     (plans / "1-story-again-2026-10-07.md").write_text("# plan\n")
     result = rollup.check(cfg, board, "3")
     assert isinstance(result, rollup.Unknown)
-    assert "several plans for 1" in result.reason
+    assert (result.what, result.children) == ("plan", tuple(board.children("1")))  # the children were read
+    assert rollup.report(board, "3", result).startswith("1: plan unknown (several plans for 1")
+
+
+def test_a_listing_without_the_subtask_itself_is_incomplete(cfg, monkeypatch):
+    """The subtask's parent is the story, so its children must include it: a listing that misses it (index lag, a
+    lost row) may miss open children too, and nothing closes on it."""
+    board = Board(cfg, story("In Progress", **{"2": "Done", "3": "In Progress"}))
+    monkeypatch.setattr(board, "children", lambda issue: [board._row("2")])
+    result = rollup.check(cfg, board, "3")
+    assert isinstance(result, rollup.Unknown)
+    assert rollup.report(board, "3", result) == (
+        "1: children unknown (3 is not among the children listed for 1; the listing may be incomplete)"
+    )
+    with pytest.raises(AwError, match="nothing closed"):
+        rollup.close(cfg, board, "3")
+
+
+def test_every_lookup_that_fails_is_unknown_and_names_what_failed(cfg, monkeypatch):
+    board = Board(cfg, story("In Progress", **{"2": "Done", "3": "In Progress"}))
+
+    def fails(what):
+        def raise_(*args):
+            raise AwError(f"{what} failed")
+
+        return raise_
+
+    monkeypatch.setattr(board, "closed", fails("status of 2"))  # read after the parent: the story is known
+    assert rollup.report(board, "3", rollup.check(cfg, board, "3")) == "1: children unknown (status of 2 failed)"
+    monkeypatch.setattr(board, "is_epic", fails("board card"))  # before the parent is settled: it is not
+    result = rollup.check(cfg, board, "3")
+    assert isinstance(result, rollup.Unknown) and result.parent is None
+    assert rollup.report(board, "3", result) == "3: parent story unknown (board card failed)"
 
 
 def test_close_closes_the_story_with_a_comment_and_runs_the_hook(repo, tmp_path):

@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.1.15 — 2026-10-22 (#16)
+
+### Added
+
+- `aw issue rollup <subtask> --json` gives the decision skills branch on: `decision` (`can_close`, `stays_open`,
+  `unknown`, `no_story`), `story`, `children`, `open` (children still open), `unsplit` (plan sections without a
+  subtask), `reason` and the printed `line`. `children`, `open` and `unsplit` are `null` when they were not read
+  completely. Any lookup that fails is `unknown`, and its line names what could not be read: `parent story`,
+  `children`, or `plan` (several plans). `--json` and `--close` exclude each other. `aw-finalize` reads
+  `aw issue rollup --json <issue>` at the merge gate instead of matching "can close", and pre-approves only that
+  form.
+- `tests/test_cli_protocol.py` pins, byte for byte, the output skills read: `start-task` and `session` lines,
+  `plan path` and `plan state`, issue rows with their `[text link]` and `[elsewhere: …]` markers, the four rollup
+  lines and the rollup JSON, `backlog list` and `memory find --compact`. It also fails when a phrase a skill
+  branches on disappears from the strings the code prints or from the skill.
+
+### Fixed
+
+- The parent rollup is `unknown`, so nothing closes, when the children listing misses the finishing subtask itself
+  (a lagging index or a lost row), and when a status or epic lookup fails after the story was found.
+- A GitHub parent or sub-issue in another repository is never taken for this repository's issue of the same
+  number: the rollup does not act on such a parent, and such a child counts as another open child.
+- A GitHub GraphQL answer without data, or about an issue that does not exist, is an `aw` error instead of a
+  traceback.
+
 ## 0.1.14 — 2026-10-18 (#15)
 
 ### Added

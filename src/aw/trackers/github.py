@@ -6,6 +6,7 @@ import json
 import re
 import shlex
 import sys
+from dataclasses import replace
 from functools import cached_property
 from typing import Any
 
@@ -16,7 +17,7 @@ PART_OF = re.compile(r"\bPart of #(\d+)", re.IGNORECASE)
 TASK_REF = re.compile(r"^\s*[-*] \[[ xX]\] .*?#(\d+)", re.MULTILINE)
 
 META = """query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){
-  issue(number:$number){body issueType{name} parent{number title state issueType{name}}}}}"""
+  issue(number:$number){body issueType{name} parent{number title state issueType{name} repository{nameWithOwner}}}}}"""
 SEARCH = """query($q:String!,$first:Int!){search(query:$q,type:ISSUE,first:$first){
   nodes{... on Issue{number title state parent{number}}}}}"""
 PART_OF_SEARCH = """query($q:String!){search(query:$q,type:ISSUE,first:100){
@@ -83,7 +84,21 @@ class GitHub(Tracker):
                 args += ["-F", f"{key}={str(value).lower() if isinstance(value, bool) else value}"]
         for key, value in (raw or {}).items():
             args += ["-f", f"{key}={value}"]
-        return (self.gh_json(*args, stdin=stdin) or {}).get("data") or {}
+        response = self.gh_json(*args, stdin=stdin) or {}
+        if response.get("data") is None:  # no answer is never an empty one
+            raise AwError(f"gh api graphql: {response.get('errors') or 'no data in the response'}")
+        return response["data"]
+
+    @cached_property
+    def repo_name(self) -> str:
+        """owner/name of this repository, for telling its issues from other repositories' sub-issues."""
+        return self.gh("repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner")
+
+    def _here(self, row: Row, repo: str) -> Row:
+        """row, with its id qualified as owner/name#N when repo is another repository: never this one's #N."""
+        if repo and repo.casefold() != self.repo_name.casefold():
+            return replace(row, id=f"{repo}#{row.id}")
+        return row
 
     @staticmethod
     def _row(d: dict, link: str = "") -> Row:
@@ -98,12 +113,15 @@ class GitHub(Tracker):
         )
 
     def _meta(self, issue: str) -> dict:
-        return self.graphql(META, number=int(issue))["repository"]["issue"]
+        meta = self.graphql(META, number=int(issue))["repository"]["issue"]
+        if meta is None:
+            raise AwError(f"#{issue} not found")
+        return meta
 
     def _parent(self, meta: dict) -> Row | None:
         """Native parent; a `Part of #N` line in the body only when there is none."""
-        if meta.get("parent"):
-            return self._row(meta["parent"], "native")
+        if parent := meta.get("parent"):
+            return self._here(self._row(parent, "native"), (parent.get("repository") or {}).get("nameWithOwner", ""))
         if m := PART_OF.search(meta.get("body") or ""):
             return Row(m.group(1), link="text")
         return None
@@ -143,7 +161,11 @@ class GitHub(Tracker):
             if "HTTP 404" in str(e):
                 return []
             raise
-        return [self._row(s, "native") for page in json_pages(text) for s in page or []]
+        return [
+            self._here(self._row(s, "native"), (s.get("repository_url") or "").partition("/repos/")[2])
+            for page in json_pages(text)
+            for s in page or []
+        ]
 
     def children(self, issue: str, body: str | None = None) -> list[Row]:
         rows = self.native_children(issue)
@@ -353,6 +375,8 @@ class GitHub(Tracker):
     def _card(self, issue: str) -> tuple[str, dict | None]:
         """Issue node id, and its item on the board if it is there."""
         node = self.graphql(CARD, number=int(issue), raw={"field": self.cfg.get("status_field")})["repository"]["issue"]
+        if node is None:
+            raise AwError(f"#{issue} not found")
         item = next((i for i in node["projectItems"]["nodes"] if i["project"]["id"] == self.board["id"]), None)
         return node["id"], item
 

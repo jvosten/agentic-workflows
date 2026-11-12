@@ -422,6 +422,8 @@ class FakeGh:
             return json.dumps(self.issues.get("list", []))
         if args[:2] == ("label", "list"):
             return json.dumps(self.issues.get("labels", []))
+        if args[:2] == ("repo", "view"):
+            return "me/proj"
         return ""
 
 
@@ -1341,7 +1343,7 @@ def test_jira_rollup_reads_every_page_of_children(repo, monkeypatch):
         return {"key": key, "fields": {"status": {"name": category, "statusCategory": {"key": category}}}}
 
     first = {"issues": [child(f"PROJ-{n}", "done") for n in range(100, 200)], "nextPageToken": "t2", "isLast": False}
-    second = {"issues": [child("PROJ-300", "indeterminate")], "isLast": True}
+    second = {"issues": [child("PROJ-300", "indeterminate"), child("PROJ-12", "indeterminate")], "isLast": True}
 
     def request(method, path, params=None, body=None):
         if path == "/rest/api/3/issue/PROJ-12":
@@ -1363,3 +1365,39 @@ def test_hook_placeholders_arrive_as_one_argument_each(repo, tmp_path):
     trackers.status_hook(load(), "12", "in_progress")
     assert (tmp_path / "args").read_text() == f"12|In Progress; touch {tmp_path}/injected|"
     assert not (tmp_path / "injected").exists()
+
+
+def test_github_parent_and_sub_issues_in_another_repository_are_never_this_ones(repo, monkeypatch):
+    """Sub-issues may live in another repository: other/repo#1 is not this repository's #1."""
+    from aw import rollup
+
+    github_cfg(repo)
+    parent = {"number": 1, "title": "Elsewhere", "state": "OPEN", "repository": {"nameWithOwner": "other/repo"}}
+    api = "https://api.github.com/repos"
+    subs = {
+        "1": [
+            {"number": 3, "title": "Mine", "state": "open", "repository_url": f"{api}/me/proj"},
+            {"number": 3, "title": "Theirs", "state": "open", "repository_url": f"{api}/other/repo"},
+        ]
+    }
+    monkeypatch.setattr(GitHub, "gh", FakeGh(graphql={"body issueType": gh_meta(parent)}, subs=subs))
+    tracker = trackers.get(load())
+    parent_row = tracker.parent("3")
+    assert parent_row is not None and parent_row.id == "other/repo#1"
+    assert rollup.story(tracker, "3") == (
+        None,
+        "other/repo#1 is in another repository; the rollup acts on this repository's stories only",
+    )
+    assert [row.id for row in tracker.native_children("1")] == ["3", "other/repo#3"]
+
+
+def test_github_graphql_without_data_or_issue_is_an_aw_error(repo, monkeypatch):
+    """Report paths turn an AwError into "unknown"; a KeyError would be a traceback instead."""
+    github_cfg(repo)
+    monkeypatch.setattr(GitHub, "gh", lambda self, *a, stdin=None: json.dumps({"errors": [{"message": "boom"}]}))
+    with pytest.raises(AwError, match="boom"):
+        trackers.get(load()).parent("3")
+    missing = json.dumps({"data": {"repository": {"issue": None}}})
+    monkeypatch.setattr(GitHub, "gh", lambda self, *a, stdin=None: missing)
+    with pytest.raises(AwError, match="#3 not found"):
+        trackers.get(load()).parent("3")
