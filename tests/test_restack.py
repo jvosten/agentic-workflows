@@ -32,6 +32,7 @@ def stacked(repo, tmp_path, monkeypatch):
     monkeypatch.chdir(wt)
     monkeypatch.setattr(forge, "merged", lambda kind, branch, cwd: [])
     monkeypatch.setattr(forge, "find_open", lambda kind, branch, cwd: None)
+    monkeypatch.setattr(forge, "closed", lambda kind, branch, cwd: [])
     return wt
 
 
@@ -590,3 +591,20 @@ def test_restack_refuses_a_fork_point_outside_the_branch(stacked: Path, repo: Pa
     with pytest.raises(AwError, match=r"fork point .* is not in"):
         restack.run(load(), session.read())
     assert session.read() == meta and git("rev-parse", "HEAD", cwd=stacked) == head
+
+
+def test_restack_refuses_to_push_over_a_request_closed_without_a_merge(stacked, repo, monkeypatch):
+    """A force-push makes a closed pull request impossible to reopen: restack stops before it."""
+    base_commit(repo, "more.txt")
+    merge_base_into_main(repo, "merge")
+    branch = session.read()["branch"]
+    before = git("rev-parse", f"origin/{branch}", cwd=stacked)
+    monkeypatch.setattr(forge, "merged", lambda kind, b, cwd: [forge.MergeRequest("4", "u")] if b == "feat/a" else [])
+    shut = [forge.MergeRequest("9", "u", head=before)]
+    monkeypatch.setattr(forge, "closed", lambda kind, b, cwd: shut if b == branch else [])
+    with pytest.raises(AwError, match=r"#9 from .* was closed without merging; reopen it, .* before `aw restack`"):
+        restack.run(load(), session.read())
+    assert git("rev-parse", f"origin/{branch}", cwd=stacked) == before
+    assert own_commits(stacked, "origin/feat/a") == ["own.txt"]
+    shut[0].head = "0" * 40  # pushed since the close: cannot reopen anyway
+    assert restack.run(load(), session.read()).state == "restacked"

@@ -91,6 +91,19 @@ def _retarget(kind: str, branch: str, main: str, cwd: Path) -> str:
     return request.number
 
 
+def _refuse_closed(kind: str, branch: str, worktree: Path) -> None:
+    """A request closed at the branch's remote head can still reopen; a force-push would end that."""
+    if forge.find_open(kind, branch, worktree):
+        return
+    remote = git("ls-remote", "--heads", "origin", branch, cwd=worktree).split()
+    for request in forge.closed(kind, branch, worktree):
+        if remote and request.head == remote[0]:
+            raise AwError(
+                f"{PREFIX[kind]}{request.number} from {branch} was closed without merging; reopen it, or push "
+                f"{branch} yourself to give it up, before `aw restack`: after a force-push it cannot reopen"
+            )
+
+
 def run(cfg: Config, meta: dict[str, Any], dry_run: bool = False) -> Result:
     """Restack the session; result.log holds one line per action taken."""
     base = meta.get("base")
@@ -108,6 +121,7 @@ def run(cfg: Config, meta: dict[str, Any], dry_run: bool = False) -> Result:
         )
     main, kind = cfg.get("main_branch"), cfg.get("forge")
     merged = _base_merged(kind, base, worktree)
+    _refuse_closed(kind, branch, worktree)
     target = main if merged else base
     git("fetch", "--quiet", "origin", target, cwd=worktree)
     upstream = f"origin/{target}"

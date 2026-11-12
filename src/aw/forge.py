@@ -216,6 +216,48 @@ def merged(kind: str, branch: str, cwd: Path) -> list[MergeRequest]:
     raise _unsupported(kind)
 
 
+def closed(kind: str, branch: str, cwd: Path) -> list[MergeRequest]:
+    """Requests from branch in this repository that were closed without a merge."""
+    if kind == "github":
+        fields = "number,url,title,state,headRefOid,isCrossRepository"
+        args = ["gh", "pr", "list", "--head", branch, "--state", "closed", "--limit", str(LISTED), "--json", fields]
+        rows = [r for r in _own(kind, branch, _json(args, cwd)) if r["state"] == "CLOSED"]  # closed lists merged too
+        return [MergeRequest(str(r["number"]), r["url"], r["title"], "closed", r["headRefOid"]) for r in rows]
+    if kind == "gitlab":
+        args = [
+            "glab",
+            "mr",
+            "list",
+            "--source-branch",
+            branch,
+            "--closed",
+            "--per-page",
+            str(LISTED),
+            "--output",
+            "json",
+        ]
+        rows = [r for r in _own(kind, branch, _json(args, cwd)) if r.get("state") == "closed"]
+        return [MergeRequest(str(r["iid"]), r["web_url"], r["title"], "closed", r.get("sha", "")) for r in rows]
+    raise _unsupported(kind)
+
+
+def stacked_on(kind: str, branch: str, cwd: Path) -> list[MergeRequest]:
+    """Open requests into branch, a fork's included: deleting the branch closes every one of them."""
+    if kind == "github":
+        args = ["gh", "pr", "list", "--base", branch, "--state", "open", "--limit", str(LISTED)]
+        rows = _json([*args, "--json", "number,url,title"], cwd) or []
+        found = [MergeRequest(str(r["number"]), r["url"], r["title"], "open") for r in rows]
+    elif kind == "gitlab":
+        args = ["glab", "mr", "list", "--target-branch", branch, "--per-page", str(LISTED), "--output", "json"]
+        rows = _json(args, cwd) or []
+        found = [MergeRequest(str(r["iid"]), r["web_url"], r["title"], "open") for r in rows]
+    else:
+        raise _unsupported(kind)
+    if len(found) >= LISTED:
+        raise AwError(f"{LISTED} or more requests into {branch}; the listing may be partial")
+    return found
+
+
 def head(kind: str, ref: str, cwd: Path) -> str:
     """The request's head commit (for a merged one, the commit it was merged at)."""
     if kind == "github":

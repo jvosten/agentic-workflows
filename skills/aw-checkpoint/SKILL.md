@@ -63,7 +63,7 @@ CI failure → fix, push, wait again. Exit 2 (pending, or `no checks yet` althou
 For a stacked session, inspect the base request with `~/.agents/bin/aw mr view <base>`:
 
 - Base still open, closed without merging, or state uncertain → stop before `aw merge`. Report the part-MR link, CI/review state and base dependency. This is a workflow wait, not an observed CLI refusal; do not call `aw merge` to probe it.
-- Base merged → run `~/.agents/bin/aw restack` to move onto `main_branch` and retarget the existing part request. Resolve any conflicts as instructed. Re-run `aw verify` and step 4 on the new HEAD, inspect the updated target and diff, then return to this gate. Do not reuse CI results or approval from before the restack. The base's worktree and branches may already be deleted. A rebase still active → resolve it and `git rebase --continue` before rerunning restack. A completed rebase with a recorded target, or a failed push or retarget → rerun restack to finish; do not edit the session's fork point by hand.
+- Base merged → run `~/.agents/bin/aw restack` to move onto `main_branch` and retarget the existing part request. Resolve any conflicts as instructed. Re-run `aw verify` and step 4 on the new HEAD, inspect the updated target and diff, then return to this gate. Do not reuse CI results or approval from before the restack. The base's worktree and branches may already be deleted. A rebase still active → resolve it and `git rebase --continue` before rerunning restack. A completed rebase with a recorded target, or a failed push or retarget → rerun restack to finish; do not edit the session's fork point by hand. Restack refuses because the part request was closed without merging → stop and show the message; the user reopens it or gives it up.
 
 The part request must no longer be draft before merging. If it is still draft, ask the user to mark the existing request ready in the forge, then re-read `aw mr view`.
 
@@ -75,7 +75,7 @@ Every merge here deploys, so the gate holds for every part. `merge_gate = approv
 ~/.agents/bin/aw merge      # forge = none: after merging by hand
 ```
 
-It merges the branch's open request, refuses commits the request does not contain, updates `main_branch`, moves the branch to `main`'s tip (after a squash or rebase merge it also deletes the merged remote branch; the next `git push -u` recreates it), comments on the issue, and runs `on_merge`. A session stacked on this branch gets a warning line: tell the user to run `aw restack` there.
+It merges the branch's open request, refuses commits the request does not contain, updates `main_branch`, moves the branch to `main`'s tip (after a squash or rebase merge it also deletes the merged remote branch; the next `git push -u` recreates it), comments on the issue, and runs `on_merge`. A session stacked on this branch gets a warning line: tell the user to run `aw restack` there. Open requests into this branch are retargeted to `main_branch` before the remote branch is deleted; a `kept origin/<branch>` warning means they could not be: show it to the user.
 
 `on_merge` warned (exited non-zero) → stop and report before the live check: checking a system that did not reconcile tells nothing.
 

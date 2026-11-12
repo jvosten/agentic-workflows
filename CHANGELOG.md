@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.18 — 2026-11-12 (#19)
+
+### Fixed
+
+- `aw finish`, and `aw merge` after a squash or rebase part, retarget every open request into the branch to
+  `main_branch` before they delete the remote branch. A push that deletes the branch closed those requests
+  instead, and a closed request cannot be retargeted. When the requests cannot be listed or moved, the remote
+  branch stays, with a `kept origin/<branch>` warning.
+- `aw restack` refuses, before it changes anything, when the branch has no open request and one closed without
+  merging at the branch's remote head: after the force-push it could not reopen. Reopen it, or push the branch
+  yourself to give it up.
+
 ## 0.1.17 — 2026-11-12 (#18)
 
 ### Security

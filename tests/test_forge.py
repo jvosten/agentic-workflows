@@ -814,3 +814,43 @@ def test_without_a_number_mr_commands_take_the_branchs_own_request(branch, monke
     monkeypatch.setattr(forge, "find_open", lambda kind, b, cwd: None)
     assert cli.main(["mr", "checks"]) == 1
     assert "has no open merge request" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("kind", ["github", "gitlab"])
+def test_requests_stacked_on_a_branch_are_found_by_their_target(repo, monkeypatch, kind):
+    """A fork's request into the branch counts too: deleting the branch would close it as well."""
+    if kind == "github":
+        rows = [{"number": n, "url": f"https://x/pull/{n}", "title": "t"} for n in (9, 10)]
+        fake, flag = FakeProcess({("gh", "pr", "list"): (0, json.dumps(rows), "")}), "--base"
+    else:
+        rows = [{"iid": n, "web_url": f"https://x/-/merge_requests/{n}", "title": "t"} for n in (9, 10)]
+        fake, flag = FakeProcess({("glab", "mr", "list"): (0, json.dumps(rows), "")}), "--target-branch"
+    monkeypatch.setattr(forge.subprocess, "run", fake)
+    assert [r.number for r in forge.stacked_on(kind, "feat/x", repo)] == ["9", "10"]
+    assert fake.calls[0][fake.calls[0].index(flag) + 1] == "feat/x"
+
+
+def test_a_full_page_of_stacked_requests_is_refused(repo, monkeypatch):
+    rows = [{"number": n, "url": "u", "title": "t"} for n in range(forge.LISTED)]
+    monkeypatch.setattr(forge.subprocess, "run", FakeProcess({("gh", "pr", "list"): (0, json.dumps(rows), "")}))
+    with pytest.raises(AwError, match="may be partial"):
+        forge.stacked_on("github", "feat/x", repo)
+
+
+@pytest.mark.parametrize("kind", ["github", "gitlab"])
+def test_closed_lists_only_this_branchs_requests_closed_without_a_merge(repo, monkeypatch, kind):
+    if kind == "github":
+        rows = [
+            {"number": n, "url": "u", "title": "t", "state": state, "isCrossRepository": fork, "headRefOid": "abc"}
+            for n, state, fork in ((4, "MERGED", False), (5, "CLOSED", False), (6, "CLOSED", True))
+        ]
+        fake = FakeProcess({("gh", "pr", "list"): (0, json.dumps(rows), "")})
+    else:
+        rows = [
+            {"iid": n, "web_url": "u", "title": "t", "state": state, "sha": "abc"}
+            | {"source_project_id": src, "target_project_id": 1}
+            for n, state, src in ((4, "merged", 1), (5, "closed", 1), (6, "closed", 2))
+        ]
+        fake = FakeProcess({("glab", "mr", "list"): (0, json.dumps(rows), "")})
+    monkeypatch.setattr(forge.subprocess, "run", fake)
+    assert [(r.number, r.head) for r in forge.closed(kind, "feat/x", repo)] == [("5", "abc")]

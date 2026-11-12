@@ -138,7 +138,7 @@ Stacked session (`aw session` shows a non-empty `base`) → `aw finish` refuses 
 ~/.agents/bin/aw restack      # rebases onto main_branch, force-pushes, retargets the merge request, clears base
 ```
 
-Tell the user its summary line. The merged base's worktree and branches need not exist. A conflict → name the files to the user, resolve them, `git add`, `git rebase --continue`, then `aw restack` again. Do not start another rebase while one is active. A rebase completed onto the recorded target, or a failed push or retarget → rerun `aw restack` to finish; do not edit the session's fork point by hand. `--dry-run` previews recovery without pushing or changing session metadata. The push restarts CI: back to step 9, then the gate.
+Tell the user its summary line. The merged base's worktree and branches need not exist. A conflict → name the files to the user, resolve them, `git add`, `git rebase --continue`, then `aw restack` again. Do not start another rebase while one is active. A rebase completed onto the recorded target, or a failed push or retarget → rerun `aw restack` to finish; do not edit the session's fork point by hand. `--dry-run` previews recovery without pushing or changing session metadata. Restack refuses because the request was closed without merging → stop and show the message; the user reopens it or gives it up. The push restarts CI: back to step 9, then the gate.
 
 ```bash
 ~/.agents/bin/aw finish      # the branch's open request; forge = none: after the manual merge

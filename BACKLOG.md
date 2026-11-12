@@ -543,6 +543,25 @@ This repo's own hardening plan hit the second set right after it was written (20
 
 **Related:** the existing CI-wait reliability and per-skill model-selection items cover adjacent concerns; this item specifically releases the parent session through a read-only delegated watch.
 
+---
+
+### [MEDIUM] aw abandon refuses while an open request targets the branch
+
+**Context:** `aw finish` and `aw merge` retarget the requests stacked on a branch to `main_branch` before they delete it (0.1.18): a push that deletes a branch makes GitHub close every open pull request into it, and a closed one cannot be retargeted. `aw abandon` still deletes the remote branch with `git push origin --delete` (`src/aw/finish.py`, `abandon`) without looking at requests into it.
+
+**Problem:** abandoning a base session closes the requests stacked on it, silently. Retargeting them to `main_branch` is wrong here: the base never merged, so a stacked request would suddenly carry the abandoned commits.
+
+**Scope:**
+- `aw abandon`: when `forge.stacked_on` lists an open request into the branch, refuse before any change and name the requests; a failed or partial listing refuses too.
+- `--discard` does not override it: the stacked work belongs to another session.
+- A test with a stacked open request: abandon refuses, worktree and branches stay.
+
+**Acceptance criteria:**
+- `aw abandon` on a branch with an open request into it exits non-zero, names the request, and deletes nothing.
+- A failed listing of requests into the branch refuses the same way.
+
+**Effort:** small: one forge call and one guard, reusing `forge.stacked_on`.
+
 ## Considered and not planned
 
 - **Personas and multi-agent roles** (BMAD), **spec-driven phases** (spec-kit), **label-based handoff queues** (zaks-io): full methods of their own; out of scope for a session-workflow standard.

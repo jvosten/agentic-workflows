@@ -163,6 +163,7 @@ def test_merge_after_a_squash_moves_the_branch_to_main_and_deletes_the_remote(st
     monkeypatch.setattr(forge, "merge", lambda *a: squash(*a) or state.update(merged=True))
     monkeypatch.setattr(forge, "is_merged", lambda kind, pr, cwd: state["merged"])
     monkeypatch.setattr(forge, "head", lambda kind, pr, cwd: head)
+    monkeypatch.setattr(forge, "stacked_on", lambda kind, b, cwd: [])
     log = finish.merge(load(), session.read(), None)
     assert log[0] == "merged #7"
     assert f"deleted origin/{branch}; the next `git push -u` recreates it" in log
@@ -266,6 +267,78 @@ def test_merge_warns_about_sessions_stacked_on_the_branch(started, repo, monkeyp
     merge_by_hand(repo, started["branch"])
     log = finish.merge(load(), session.read(), None)
     assert f"warning: {out['branch']} is stacked on {started['branch']}; run `aw restack` in {out['worktree']}" in log
+
+
+def no_requests(monkeypatch):
+    monkeypatch.setenv("AW_FORGE", "github")
+    monkeypatch.setattr(forge, "find_open", lambda kind, b, cwd: None)
+    monkeypatch.setattr(forge, "merged", lambda kind, b, cwd: [])
+
+
+def test_finish_retargets_requests_stacked_on_the_branch_before_deleting_it(started, repo, monkeypatch):
+    """GitHub closes a request whose base branch a push deletes, and a closed one cannot be retargeted."""
+    branch = started["branch"]
+    no_requests(monkeypatch)
+    monkeypatch.setattr(forge, "stacked_on", lambda kind, b, cwd: [forge.MergeRequest("9", "u")] if b == branch else [])
+    retargeted = []
+
+    def retarget(kind, ref, to, cwd):
+        assert git("ls-remote", "--heads", "origin", branch, cwd=repo), "retarget before the branch is deleted"
+        retargeted.append((ref, to))
+
+    monkeypatch.setattr(forge, "retarget", retarget)
+    monkeypatch.chdir(started["worktree"])
+    merge_by_hand(repo, branch)
+    log = finish.run(load(), session.read(), None)
+    assert retargeted == [("9", "main")]
+    assert log.index("retargeted #9 to main") < log.index(f"deleted origin/{branch}")
+
+
+@pytest.mark.parametrize("step", ["stacked_on", "retarget"])
+def test_finish_keeps_the_remote_branch_when_stacked_requests_cannot_move(started, repo, monkeypatch, step):
+    branch = started["branch"]
+    no_requests(monkeypatch)
+    monkeypatch.setattr(forge, "stacked_on", lambda kind, b, cwd: [forge.MergeRequest("9", "u")])
+    monkeypatch.setattr(forge, "retarget", lambda kind, ref, to, cwd: None)
+
+    def boom(*a):
+        raise AwError("boom")
+
+    monkeypatch.setattr(forge, step, boom)
+    monkeypatch.chdir(started["worktree"])
+    merge_by_hand(repo, branch)
+    log = finish.run(load(), session.read(), None)
+    assert f"warning: kept origin/{branch}: deleting it would close the requests stacked on it: boom" in log
+    assert git("ls-remote", "--heads", "origin", branch, cwd=repo)
+
+
+def test_merge_retargets_stacked_requests_before_a_squash_deletes_the_branch(started, repo, monkeypatch):
+    wt, branch = started["worktree"], started["branch"]
+    monkeypatch.chdir(wt)
+    monkeypatch.setenv("AW_FORGE", "github")
+    monkeypatch.setenv("AW_MERGE_METHOD", "squash")
+    head = git("rev-parse", "HEAD", cwd=wt)
+
+    def squash(*a):
+        git("merge", "-q", "--squash", branch, cwd=repo)
+        git("commit", "-qm", "feat: thing (#7)", cwd=repo)
+        git("push", "-q", "origin", "main", cwd=repo)
+        git("reset", "-q", "--hard", "HEAD~1", cwd=repo)
+        state["merged"] = True
+
+    state = {"merged": False}
+    monkeypatch.setattr(forge, "find_open", lambda kind, b, cwd: forge.MergeRequest("7", "u"))
+    monkeypatch.setattr(forge, "merge", squash)
+    monkeypatch.setattr(forge, "is_merged", lambda kind, pr, cwd: state["merged"])
+    monkeypatch.setattr(forge, "head", lambda kind, pr, cwd: head)
+    monkeypatch.setattr(forge, "stacked_on", lambda kind, b, cwd: [forge.MergeRequest("9", "u")])
+    retargeted = []
+    monkeypatch.setattr(forge, "retarget", lambda kind, ref, to, cwd: retargeted.append((ref, to)))
+    log = finish.merge(load(), session.read(), None)
+    assert retargeted == [("9", "main")]
+    assert log.index("retargeted #9 to main") < log.index(
+        f"deleted origin/{branch}; the next `git push -u` recreates it"
+    )
 
 
 def test_finish_never_cleans_up_after_a_request_that_does_not_cover_head(started, repo, monkeypatch):
