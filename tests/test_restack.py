@@ -458,6 +458,99 @@ def test_cli_reports_recovered_commits(
     assert git("rev-parse", "HEAD", cwd=stacked) == git("rev-parse", "@{upstream}", cwd=stacked)
 
 
+@pytest.mark.parametrize("method", ["rewrite", "squash", "rebase"])
+def test_recovery_accepts_rewritten_history(
+    stacked: Path, repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], method: str
+) -> None:
+    base_commit(repo, "own.txt", "theirs\n")
+    if method == "rewrite":
+        git("checkout", "-q", "feat/a", cwd=repo)
+        git("reset", "--soft", "main", cwd=repo)
+        git("commit", "-qm", "rewritten base", cwd=repo)
+        git("push", "-q", "--force-with-lease", "origin", "feat/a", cwd=repo)
+        git("checkout", "-q", "main", cwd=repo)
+        upstream = "origin/feat/a"
+    else:
+        merge_base_into_main(repo, method)
+        monkeypatch.setattr(forge, "merged", lambda kind, branch, cwd: [forge.MergeRequest("4", "u")])
+        upstream = "origin/main"
+    assert cli.main(["restack"]) == 1
+    capsys.readouterr()
+    pending = session.read()["restack_onto"]
+    assert pending == git("rev-parse", upstream, cwd=stacked)
+    (stacked / "own.txt").write_text("resolved\n", encoding="utf-8")
+    git("add", "own.txt", cwd=stacked)
+    subprocess.run(
+        ["git", "-c", "core.editor=true", "rebase", "--continue"], cwd=stacked, check=True, capture_output=True
+    )
+    meta = session.read()
+    assert meta["fork_point"] not in git("rev-list", "HEAD", cwd=stacked).splitlines()
+
+    assert cli.main(["restack", "--dry-run"]) == 0
+    assert session.read() == meta
+    capsys.readouterr()
+    assert cli.main(["restack"]) == 0
+
+    assert capsys.readouterr().out.splitlines()[-1].startswith(f"restacked {meta['branch']}: 1 commit onto ")
+    assert own_commits(stacked, pending) == ["own.txt"]
+    meta = session.read()
+    assert meta["fork_point"] == pending and meta["restack_onto"] == ""
+    assert meta["base"] == ("feat/a" if method == "rewrite" else "")
+    assert git("rev-parse", "HEAD", cwd=stacked) == git("rev-parse", "@{upstream}", cwd=stacked)
+
+
+@pytest.mark.parametrize("json_output", [False, True])
+@pytest.mark.parametrize("base_merged", [False, True])
+def test_dry_run_preserves_recovery(
+    stacked: Path,
+    repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    json_output: bool,
+    base_merged: bool,
+) -> None:
+    base_commit(repo, "own.txt", "theirs\n")
+    branch = session.read()["branch"]
+    retargeted: list[tuple[str, str]] = []
+    if base_merged:
+        merge_base_into_main(repo, "squash")
+        monkeypatch.setattr(forge, "merged", lambda kind, b, cwd: [forge.MergeRequest("4", "u")])
+        monkeypatch.setattr(
+            forge, "find_open", lambda kind, b, cwd: forge.MergeRequest("9", "u") if b == branch else None
+        )
+        monkeypatch.setattr(forge, "target", lambda kind, ref, cwd: "feat/a")
+        monkeypatch.setattr(forge, "retarget", lambda kind, ref, to, cwd: retargeted.append((ref, to)))
+    assert cli.main(["restack"]) == 1
+    capsys.readouterr()
+    (stacked / "own.txt").write_text("resolved\n", encoding="utf-8")
+    git("add", "own.txt", cwd=stacked)
+    subprocess.run(
+        ["git", "-c", "core.editor=true", "rebase", "--continue"], cwd=stacked, check=True, capture_output=True
+    )
+    meta = session.read()
+    head = git("rev-parse", "HEAD", cwd=stacked)
+    remote_ref = f"refs/heads/{meta['branch']}"
+    remote = git("ls-remote", "origin", remote_ref, cwd=stacked)
+
+    args = ["restack", "--dry-run"] + (["--json"] if json_output else [])
+    assert cli.main(args) == 0
+
+    assert git("ls-remote", "origin", remote_ref, cwd=stacked) == remote
+    assert session.read() == meta
+    assert git("rev-parse", "HEAD", cwd=stacked) == head
+    assert retargeted == []
+    out = capsys.readouterr().out
+    onto = "main (base feat/a merged)" if base_merged else "feat/a"
+    summary = f"would restack {branch}: 1 commit onto {onto}"
+    if json_output:
+        data = json.loads(out)
+        assert data["dry_run"] and data["commits"] == 1
+        assert data["summary"] == summary
+    else:
+        assert out.splitlines()[-1] == summary
+        assert "pushed" not in out
+
+
 def test_cli_reports_lines_a_summary_and_json(stacked, repo, capsys):
     base_commit(repo, "more.txt")
     head = git("rev-parse", "HEAD", cwd=stacked)
@@ -490,7 +583,7 @@ def test_cli_conflict_names_files_and_next_step(stacked, repo, capsys):
 
 
 @pytest.mark.parametrize("pending", [False, True])
-def test_restack_refuses_a_fork_point_outside_the_branch(stacked, repo, pending):
+def test_restack_refuses_a_fork_point_outside_the_branch(stacked: Path, repo: Path, pending: bool) -> None:
     tip = base_commit(repo, "more.txt")
     session.update(stacked, fork_point=tip, restack_onto=tip if pending else "")
     meta, head = session.read(), git("rev-parse", "HEAD", cwd=stacked)

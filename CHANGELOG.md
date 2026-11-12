@@ -9,6 +9,9 @@
   rebase target is saved before rebasing and retained through failed pushes or retargets. Retries preserve the
   session's commit boundary, including when the base merges during conflict resolution; recovery dry runs
   never push, retarget or change session metadata.
+  Stacked checkpoints can verify, commit, push and open a draft part request against their base, then wait before
+  merging; resuming reuses the request, rechecks CI and applies the merge gate after restacking.
+  The CLI reports the package version, with a regression check that keeps the two aligned.
 
 ## 0.1.15 — 2026-10-22 (#16)
 

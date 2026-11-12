@@ -1,5 +1,6 @@
 import os
 import stat
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,16 @@ def fake_exe(tmp_path):
     exe.write_text("#!/bin/sh\n")
     exe.chmod(exe.stat().st_mode | stat.S_IXUSR)
     return exe
+
+
+def test_cli_matches_package_version(capsys: pytest.CaptureFixture[str]) -> None:
+    from aw import cli
+
+    project = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text(encoding="utf-8"))
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["--version"])
+    assert exc.value.code == 0
+    assert capsys.readouterr().out == f"aw {project['project']['version']}\n"
 
 
 def test_install_links_and_is_idempotent(env, tmp_path):

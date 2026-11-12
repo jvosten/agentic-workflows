@@ -61,7 +61,7 @@ Fill the template following [Sections](#sections). Do not add the issue's closin
 - Standalone: show the title and body and wait for a go before the real create. From `/aw-finalize` or `/aw-checkpoint`: create directly; the merge gate comes later.
 - One part of a multi-merge session (from `/aw-checkpoint`): `--part`. The request then references the issue as `Refs #12 (part N)` instead of closing it; the dry run prints N. Add ` (part N)` to the title unless the rules define titles. Without `--part`, after earlier parts, `aw mr create` lists them (`Earlier parts: #314, #315`) and closes the issue.
 - Stacked session: the request targets the base; the dry run shows it as `<branch> → <base>`. Say in the description that it builds on the base's merge request.
-- `--draft` when the rules ask for it, or the work is not ready for review.
+- `--draft` when the rules ask for it, the work is not ready for review, or `/aw-checkpoint` is waiting for an open base request.
 - `already open` → this branch has a merge request. Show the old and new description and update it on a go: `~/.agents/bin/aw mr update --title "<title>" --body-file -` (`--dry-run` first).
 - After create and update, `aw` reads what the request will close. `does not close <issue>` (an error; the request exists) → add the closing line with `aw mr update`. `also closes #N` (a warning) → reword the phrase that names #N (`Closed: #N` counts as a closing keyword), then `aw mr update`.
 - Print the merge request link.

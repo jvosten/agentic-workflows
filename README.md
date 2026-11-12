@@ -171,6 +171,8 @@ Some changes have to be live before the next step can be built or checked: a Git
 
 `aw merge [--pr N]` merges the branch's open request (`forge = none`: after a manual merge), refuses a request that is not at the branch's head (another branch's request, or commits pushed after it merged) before merging or cleaning up anything, updates `main`, and moves the branch to `main`'s tip: a fast-forward after a merge commit; after a squash or rebase merge a `reset --keep`, and the merged remote branch is deleted so the next `git push -u` needs no force. It comments on the issue (`Part 2 merged: #315`) and runs `on_merge` (e.g. `flux reconcile source git flux-system`), as `aw finish` does after the last merge. Worktree, branch and issue stay. Which parts merged and where a checkpoint stopped come from the forge and git, so an interrupted checkpoint resumes where it was.
 
+A stacked checkpoint can verify, commit, push and open or update a draft part request while the base request is open. It targets and links the recorded base, runs CI and review, then waits before the merge gate. Resume reuses the same request; after the base merges, run `aw restack`, verify again and recheck CI on the new HEAD before seeking fresh approval when `merge_gate = approve`.
+
 Promotion across environments and changes split across repos are not covered yet.
 
 ## Stacked sessions
@@ -198,7 +200,7 @@ With no pending work and an unchanged base, a repeat run reports `up_to_date` wi
 
 Output is one line per action and a summary line; `--json` gives the same as a structured result.
 
-Not covered: a stacked branch ready before its base, `forge = none`, stacks deeper than two, and part merges (`aw merge`) in the base session beyond the warning.
+Not covered: `forge = none`, stacks deeper than two, and part merges (`aw merge`) in the base session beyond the warning.
 
 ## Set up a project
 
