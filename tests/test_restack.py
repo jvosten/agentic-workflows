@@ -606,5 +606,33 @@ def test_restack_refuses_to_push_over_a_request_closed_without_a_merge(stacked, 
         restack.run(load(), session.read())
     assert git("rev-parse", f"origin/{branch}", cwd=stacked) == before
     assert own_commits(stacked, "origin/feat/a") == ["own.txt"]
-    shut[0].head = "0" * 40  # pushed since the close: cannot reopen anyway
+    commit(stacked, "later.txt")
+    git("push", "-q", "origin", branch, cwd=stacked)
+    with pytest.raises(AwError, match=r"#9 from .* was closed without merging"):  # a push on top keeps it reopenable
+        restack.run(load(), session.read())
+    shut[0].head = "0" * 40  # no longer in the branch: cannot reopen anyway
     assert restack.run(load(), session.read()).state == "restacked"
+
+
+def test_restack_reads_its_own_remote_branch_not_one_that_ends_alike(stacked, repo, monkeypatch):
+    base_commit(repo, "more.txt")
+    branch = session.read()["branch"]
+    before = git("rev-parse", f"origin/{branch}", cwd=stacked)
+    git("push", "-q", "origin", f"origin/main:refs/heads/a/{branch}", cwd=stacked)
+    monkeypatch.setattr(forge, "closed", lambda kind, b, cwd: [forge.MergeRequest("9", "u", head=before)])
+    with pytest.raises(AwError, match=r"#9 from .* was closed without merging"):
+        restack.run(load(), session.read())
+    assert git("rev-parse", f"origin/{branch}", cwd=stacked) == before
+
+
+def test_restack_points_the_request_back_at_a_base_that_goes_on(stacked, repo, monkeypatch):
+    """A part merge in the base session moved the request to main; the base is not merged, so it goes back."""
+    base_commit(repo, "more.txt")
+    branch = session.read()["branch"]
+    monkeypatch.setattr(forge, "find_open", lambda kind, b, cwd: forge.MergeRequest("9", "u") if b == branch else None)
+    monkeypatch.setattr(forge, "target", lambda kind, ref, cwd: "main")
+    retargeted = []
+    monkeypatch.setattr(forge, "retarget", lambda kind, ref, to, cwd: retargeted.append((ref, to)))
+    result = restack.run(load(), session.read())
+    assert retargeted == [("9", "feat/a")] and result.retargeted == "#9"
+    assert result.log[-1] == "retargeted #9 to feat/a"
