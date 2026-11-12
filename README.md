@@ -19,6 +19,8 @@ make doctor
 
 The editable install means edits to this repo take effect without reinstalling. Re-run `make install` after adding or removing a skill: it also prunes links to skills that are gone. It prints one summary line per target; `make install V=1` lists every link. It warns when `aw` is not on your PATH: skills still work, since they call `~/.agents/bin/aw`, and `uv tool update-shell` makes `aw` available in your shell.
 
+The installed `aw` and every agent's skills run whatever this clone has checked out, in every project. Review someone else's branch in a worktree or another clone, never by checking it out here; `aw doctor` warns when the clone is off its default branch or has uncommitted changes in `src/` or `skills/`.
+
 `make install` installs the tool; `aw init` (below) configures one project.
 
 Without a clone, install the package (not editable; the skills come from the package). While the repository is private, this needs read access and git credentials for it:
@@ -157,7 +159,7 @@ Pushing an item to the tracker: `aw issue dupes <backlog_parent> --terms ...` sh
 | `aw mr update [ref] --title T --body-file F` | Replaces title and description; keeps the closing line or the part reference `create` appended, and checks what the request closes, as `create` does |
 | `aw mr view [ref]` | State, the issues it closes, CI, review, unresolved threads, files and lines changed: what the merge gate shows |
 | `aw mr checks [ref] [--watch]` | One line of counts plus the failing and pending checks; `--watch` waits without streaming progress. Exit 0 passed, 1 failed, 2 pending. With CI in the checkout (`.github/workflows/*.yml`, `.gitlab-ci.yml`), no checks reported is `no checks yet` and exit 2, never a pass: `--watch` waits up to two minutes for the first one |
-| `aw mr comments [ref]` | Unresolved review threads with file and line, then general comments |
+| `aw mr comments [ref]` | Unresolved review threads with file and line, then general comments; an author without write access is marked `[outside]` (`aw issue view` marks comments and the issue's author the same way), and the skills never act on such text. Write access is the repository permission (admin, maintain, write; GitLab: Developer or above), looked up once per author; whatever `aw` cannot tell, a deleted account or an app, is outside unless `trusted_bots` names it. Every body line is quoted (`> `), so no body can pass for an author line of its own |
 
 `ref` is a number or branch, the current branch by default; `aw pr` is the same command. GitHub runs this repository's own pull requests: create, checks, comments, view, and `aw finish` merging, removing the worktree and deleting both branches. GitLab is taken from the `glab` documentation and not tested against a live instance yet.
 
@@ -226,7 +228,11 @@ aw doctor
 
 Later layers win. `aw config --sources` shows which layer set each value. All keys, types and help texts are in [`src/aw/schema.toml`](src/aw/schema.toml).
 
-**Trusted keys.** `merge_gate`, `merge_method`, `on_start`, `on_merge` and `on_issue_status` decide what runs or merges on the host. In a session worktree their project value comes from the primary checkout's `.agents/aw.toml`, not from the branch's: a branch, perhaps written by an agent, never picks its own merge gate or hooks. The user, local and env layers apply as usual; `aw config --sources` shows such a value as `primary`. A branch that changes one of them takes effect once it has merged; until then `aw finish`, `aw merge` and `aw doctor` print `ignored from the branch: <keys>`.
+**Trusted keys.** `merge_gate`, `merge_method`, `on_start`, `on_merge` and `on_issue_status` decide what runs or merges on the host, and `jira_base_url` where the Jira credentials go. In a session worktree their project value comes from the primary checkout's `.agents/aw.toml`, not from the branch's: a branch, perhaps written by an agent, never picks its own merge gate, hooks or credential host. The user, local and env layers apply as usual; `aw config --sources` shows such a value as `primary`. A branch that changes one of them takes effect once it has merged; until then `aw finish`, `aw merge` and `aw doctor` print `ignored from the branch: <keys>`.
+
+**Paths.** Keys that name a file or directory (`instructions_file`, `changelog_file`, `contributing_file`, `backlog_file`, `memory_dir`, `definition_of_done`, `templates`, `plan_dir`, `plan_file`) are relative to the repo root. In the committed `.agents/aw.toml` they stay inside the repo: `~`, an absolute path or a `..` past the root is refused, and `aw` follows no link out of the repo where it reads or writes. A template shared by several projects goes into the user or local layer. `aw doctor` fails a path that links out of the repo.
+
+**Private terms.** `private_terms` lists words that must never leave this machine: a private project, host or person. `aw issue create`, `update` and `comment`, `aw mr create` and `update`, `aw backlog add` and `aw memory add` refuse a text that names one (case-insensitive), and `aw doctor` lists tracked files that do. Set it in `~/.agents/aw/config.toml` or `.agents/aw.local.toml`: the committed file refuses it, since committing the list would publish it.
 
 **Sandboxed sessions.** A sandbox runner sets `AW_SANDBOXED=1` (env only; a config file cannot set it). `aw finish`, `aw merge` and `aw issue rollup --close` then refuse with `sandboxed: <command> runs on the host`: the session pushes its branch, and the host merges, with its own configuration. This is a contract for runners, not a security boundary.
 
@@ -278,7 +284,7 @@ How states, boards and the hook fit together on each tracker: [docs/boards.md](d
 
 **Hook:** `on_issue_status` runs after every status change (`aw issue set-status`, session start, `aw finish`) with `{issue}`, `{status}` (canonical) and `{status_name}` (from `status_map`), for anything beyond the board: a notification, a board on another system. A failing hook makes `set-status` exit non-zero; at session start and finish it is a warning. In every hook (`on_start`, `on_merge`, `on_issue_status`) `aw` shell-quotes each placeholder value, so `In Progress` arrives as one argument and an empty `{issue}` as an empty one: write placeholders without quotes.
 
-**Jira setup:** `aw init` asks for `jira_base_url` and `jira_project` when `tracker = jira`. Credentials come from the environment only: `JIRA_USER_EMAIL`, `JIRA_API_TOKEN`, and optionally `JIRA_CLOUD_ID` for scoped tokens (routes through `api.atlassian.com`). Instance-specific fields go into `jira_fields`, e.g. `aw init --set jira_fields=acceptance_criteria=customfield_10000`. `aw doctor` checks that the variables are set, never their values, and runs a one-issue search.
+**Jira setup:** `aw init` asks for `jira_base_url` (an `https://` URL; every request carries the credentials) and `jira_project` when `tracker = jira`. Credentials come from the environment only: `JIRA_USER_EMAIL`, `JIRA_API_TOKEN`, and optionally `JIRA_CLOUD_ID` for scoped tokens (routes through `api.atlassian.com`). Instance-specific fields go into `jira_fields`, e.g. `aw init --set jira_fields=acceptance_criteria=customfield_10000`. `aw doctor` checks that the variables are set, never their values, and runs a one-issue search.
 
 ## Commands
 
@@ -288,12 +294,12 @@ How states, boards and the hook fit together on each tracker: [docs/boards.md](d
 | `aw init [-y] [--set K=V] [-v] [--check]` | Create or update `.agents/aw.toml`; reports what changed, `-v` every value and where it came from; `--check` reports what would change and writes nothing (exit 1 when anything would) |
 | `aw update [--agent claude]` | Update `aw` (editable: fast-forward the clone; packaged: `uv tool upgrade`), relink the skills, and inside a project run `aw init --check` |
 | `aw config [--get KEY] [--sources]` | Print resolved configuration |
-| `aw start-task <type> <slug> [--issue N] [--base B]` | Fast-forward the local main (the primary checkout may be on any branch), create branch + worktree from main (`--base`: from `origin/B`, a [stacked session](#stacked-sessions)), direnv (a tracked `.envrc` is kept; a missing or failing `direnv` is a warning), `on_start` |
+| `aw start-task <type> <slug> [--issue N] [--base B]` | Fast-forward the local main (the primary checkout may be on any branch), create branch + worktree from main (`--base`: from `origin/B`, a [stacked session](#stacked-sessions)), direnv (a tracked `.envrc` is kept and left for you to read and `direnv allow`; a missing or failing `direnv` is a warning), `on_start` |
 | `aw restack [--dry-run] [--json]` | Stacked session: rebase onto the base's tip, or onto main once the base merged; push, retarget |
 | `aw session` | Print the current worktree's session metadata |
 | `aw verify` | Run `verify_cmd` in the current checkout (through direnv if enabled) |
 | `aw merge [--pr N]` | Merge one part; the branch catches up with main, worktree and issue stay, `on_merge` runs |
-| `aw finish [--pr N] [--close-parent]` | Last merge with `merge_method` (skipped when nothing is left); refuses a request that is not at the branch's head, so commits after it are never deleted; remove worktree, update main, delete local + remote branch; `--close-parent` also closes the parent story (see [Parent rollup](#issue-trackers)) |
+| `aw finish [--pr N] [--close-parent]` | Last merge with `merge_method` (skipped when nothing is left); refuses a request that is not at the branch's head, so commits after it are never deleted, and merges exactly that commit (a push in between makes the forge refuse); a request from a fork is never the branch's; remove worktree, update main, delete local + remote branch; `--close-parent` also closes the parent story (see [Parent rollup](#issue-trackers)) |
 | `aw abandon [--discard] [--status backlog\|ready]` | End the session without a merge: an issue still in progress goes back (default backlog), worktree and branch (also on origin) are removed; refuses while the branch holds work main lacks or has an open merge request, unless `--discard` drops that work |
 | `aw issue view\|children\|list\|search\|create\|update\|set-parent\|comment\|set-status\|set-field\|rollup\|ref\|pr-text` | Tracker operations; see [Issue trackers](#issue-trackers) |
 | `aw plan path <ref> [--slug S]` | Plan file of a story or subtask (subtask: through its parent); `--slug` composes the path to write |

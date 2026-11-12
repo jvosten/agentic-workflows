@@ -19,7 +19,7 @@ from dataclasses import replace
 from typing import Any
 
 from aw.config import AwError, Config
-from aw.trackers import Issue, Row, Tracker, adf, status_name
+from aw.trackers import Comment, Issue, Row, Tracker, adf, status_name
 
 CREDENTIALS = ("JIRA_USER_EMAIL", "JIRA_API_TOKEN")
 TIMEOUT = 20
@@ -59,6 +59,8 @@ class Jira(Tracker):
         url = self.cfg.get("jira_base_url") or os.environ.get("JIRA_BASE_URL", "")
         if not url:
             raise AwError("jira_base_url is not set (aw init, or JIRA_BASE_URL)")
+        if not url.startswith("https://"):  # every request carries the Basic-auth credentials
+            raise AwError(f"jira_base_url must start with https://, got {url!r}")
         return url.rstrip("/")
 
     def api_base(self) -> str:
@@ -144,8 +146,8 @@ class Jira(Tracker):
             body=adf.to_markdown(f.get("description")),
             sections={name: _field_text(f.get(fid)) for name, fid in extra.items()},
             children=self.children(issue),
-            comments=[
-                ((c.get("author") or {}).get("displayName", "unknown"), adf.to_markdown(c.get("body")))
+            comments=[  # a Jira site admits only its own users: none of them is outside
+                Comment((c.get("author") or {}).get("displayName", "unknown"), adf.to_markdown(c.get("body")))
                 for c in comments
             ],
         )

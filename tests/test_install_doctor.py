@@ -5,8 +5,14 @@ from pathlib import Path
 
 import pytest
 
-from aw import doctor, init, install
+from aw import doctor, init, install, update
 from aw.config import AwError, git
+
+
+@pytest.fixture(autouse=True)
+def no_source_clone(monkeypatch):
+    """doctor checks the clone an editable install runs from: here that would be whatever runs the tests."""
+    monkeypatch.setattr(update, "source_clone", lambda: None)
 
 
 def fake_exe(tmp_path):
@@ -134,6 +140,23 @@ def test_every_bundled_skill_has_valid_frontmatter():
     assert [r for skill in install.source_skills() for r in doctor.check_skill(skill) if r[0] != "ok"] == []
 
 
+GATED = ("aw merge", "aw finish", "aw abandon", "aw issue rollup", "aw issue set-status")
+READ_ONLY = "/aw issue rollup --json:*"
+
+
+def test_no_skill_pre_approves_a_command_that_merges_or_closes():
+    """allowed-tools skip the permission prompt; a merge or a close must keep it, whatever the model was told."""
+    pre_approved = [
+        f"{skill.name}: {tool}"
+        for skill in install.source_skills()
+        for line in (skill / "SKILL.md").read_text().splitlines()
+        if line.startswith("allowed-tools:")
+        for tool in line.removeprefix("allowed-tools:").split(") ")
+        if any(f"/{command}" in tool for command in GATED) and not tool.rstrip(")").endswith(READ_ONLY)
+    ]
+    assert pre_approved == []
+
+
 def test_menu_lists_skills_before_commands(capsys):
     from aw import cli
 
@@ -185,7 +208,8 @@ def test_doctor_names_a_template_outside_the_checkout(env, repo, tmp_path):
     shared.parent.mkdir()
     shared.write_text("## Summary\n")
     (repo / ".agents").mkdir()
-    (repo / ".agents/aw.toml").write_text(f'forge = "github"\ntemplates = {{ mr = "{shared}" }}\n')
+    (repo / ".agents/aw.toml").write_text('forge = "github"\n')
+    (repo / ".agents/aw.local.toml").write_text(f'templates = {{ mr = "{shared}" }}\n')  # outside: never committed
     results = {msg: level for level, msg in doctor.run()}
     assert results[f"merge request template: {shared}"] == "ok"
 
@@ -205,3 +229,66 @@ def test_doctor_in_a_worktree_names_the_keys_it_ignores_from_the_branch(repo, tm
     monkeypatch.chdir(wt)
     infos = [msg for level, msg in doctor.check_project() if level == "info"]
     assert any(msg.startswith("ignored from the branch: merge_method;") for msg in infos)
+
+
+def test_doctor_fails_a_path_key_that_links_out_of_the_repo(env, repo, tmp_path):
+    """Skills read instructions_file and contributing_file themselves; a committed link out of the repo would hand
+    them any file."""
+    (tmp_path / "secret.md").write_text("x\n")
+    (repo / "AGENTS.md").unlink()
+    (repo / "AGENTS.md").symlink_to(tmp_path / "secret.md")
+    (repo / ".agents").mkdir()
+    (repo / ".agents/aw.toml").write_text("aw_version = 1\n")
+    results = {msg: level for level, msg in doctor.run()}
+    assert results[f"instructions_file: {repo}/AGENTS.md resolves outside the repo; aw follows no link out of it"] == (
+        "fail"
+    )
+
+
+def test_doctor_warns_when_the_editable_install_runs_other_code_than_its_default_branch(repo):
+    """The installed aw and every agent's skills run from the clone: a pull request checked out there runs as aw in
+    every project."""
+    (repo / "skills").mkdir()
+    assert doctor.check_source(repo) == [("ok", f"editable install: {repo} on main")]
+    git("switch", "-q", "-c", "someones-pr", cwd=repo)
+    (repo / "skills/x.md").write_text("new\n")
+    assert doctor.check_source(repo) == [
+        (
+            "warn",
+            f"editable install: {repo} has someones-pr checked out, not main; aw and its skills run that code in "
+            "every project. Check out other branches in a worktree",
+        ),
+        ("warn", f"editable install: {repo} has uncommitted changes in src/ or skills/; aw runs them in every project"),
+    ]
+    assert doctor.check_source(None) == []  # packaged: the code comes from the package
+
+
+def test_doctor_lists_tracked_files_that_name_a_private_term(env, repo):
+    (repo / ".agents").mkdir()
+    (repo / ".agents/aw.toml").write_text("aw_version = 1\n")
+    (repo / ".agents/aw.local.toml").write_text('private_terms = ["acme"]\n')
+    (repo / "notes.md").write_text("Tested on ACME's board.\n")
+    git("add", "notes.md", ".agents/aw.toml", cwd=repo)
+    results = {msg: level for level, msg in doctor.run()}
+    assert results["notes.md names a private term (private_terms)"] == "warn"
+
+
+def test_doctor_reports_git_trouble_in_the_clone_instead_of_stopping(tmp_path):
+    """A clone git refuses to read (dubious ownership in a container, a primary checkout not mounted)."""
+    (tmp_path / "not-a-repo").mkdir()
+    results = doctor.check_source(tmp_path / "not-a-repo")
+    assert len(results) == 1 and results[0][0] == "warn"
+    assert results[0][1].startswith(f"editable install: cannot read {tmp_path}/not-a-repo:")
+
+
+def test_a_failing_private_terms_scan_is_not_reported_clean(env, repo, monkeypatch):
+    (repo / ".agents").mkdir()
+    (repo / ".agents/aw.toml").write_text("aw_version = 1\n")
+    (repo / ".agents/aw.local.toml").write_text('private_terms = ["acme"]\n')
+    from aw.config import load
+
+    cfg = load(repo)
+    monkeypatch.setenv("GIT_DIR", str(repo / "missing.git"))  # from here on, every git call fails
+    results = doctor.check_config(cfg)
+    assert ("ok", "no tracked file names a private term") not in results
+    assert any(level == "fail" and msg.startswith("private_terms: scan failed") for level, msg in results)

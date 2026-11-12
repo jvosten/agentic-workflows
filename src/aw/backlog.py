@@ -21,7 +21,7 @@ def file(cfg: Config, checkout: Path | None = None) -> Path:
     name = cfg.get("backlog_file")
     if not name:
         raise AwError("backlog_file is not set")
-    return (checkout or cfg.checkout) / name
+    return cfg.inside("backlog_file", (checkout or cfg.checkout) / name)
 
 
 def home(cfg: Config) -> str:

@@ -8,8 +8,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from aw import install, memory, plan, templates, trackers, ui
-from aw.config import PROJECT_FILE, AwError, Config, load, load_schema, repo_root
+from aw import install, memory, plan, templates, trackers, ui, update
+from aw.config import PROJECT_FILE, AwError, Config, git, load, load_schema, repo_root
 from aw.trackers.github import GitHub
 from aw.trackers.jira import CREDENTIALS, Jira
 
@@ -83,7 +83,36 @@ def check_cli() -> list[Result]:
     ]
     if not shutil.which("aw"):
         results.append(("warn", "`aw` is not on your PATH; skills still work. For your shell: `uv tool update-shell`"))
-    return results
+    return results + check_source(update.source_clone())
+
+
+def check_source(clone: Path | None) -> list[Result]:
+    """An editable install runs whatever its clone has checked out, as aw in every project and as every agent's
+    skills: a pull request checked out there to review it would run with the user's credentials."""
+    if clone is None:
+        return []
+    try:
+        branch, current = update.default_branch(clone), git("branch", "--show-current", cwd=clone)
+        dirty = git("status", "--porcelain", "--", "src", "skills", cwd=clone)
+    except AwError as e:
+        return [("warn", f"editable install: cannot read {clone}: {e}")]
+    results: list[Result] = []
+    if current != branch:
+        results.append(
+            (
+                "warn",
+                f"editable install: {clone} has {current or 'a detached HEAD'} checked out, not {branch}; aw and its "
+                "skills run that code in every project. Check out other branches in a worktree",
+            )
+        )
+    if dirty:
+        results.append(
+            (
+                "warn",
+                f"editable install: {clone} has uncommitted changes in src/ or skills/; aw runs them in every project",
+            )
+        )
+    return results or [("ok", f"editable install: {clone} on {branch}")]
 
 
 def check_skills() -> list[Result]:
@@ -192,6 +221,32 @@ def check_config(cfg: Config) -> list[Result]:
                 )
             )
 
+    for key, spec in cfg.schema.items():  # skills read some of these files themselves, past any check in aw
+        names = cfg.get(key).values() if spec["type"] == "table" else [cfg.get(key)]
+        for name in (n for n in names if n) if spec.get("path") and key not in ("plan_dir", "plan_file") else ():
+            try:
+                cfg.inside(key, cfg.checkout / name)
+            except AwError as e:
+                results.append(("fail", str(e)))
+    try:  # plan_dir has its own rule: an untracked local plan directory is the user's, wherever it points
+        plans = plan.directory(cfg)
+    except AwError as e:
+        results.append(("fail", str(e)))
+        plans = None
+    if terms := cfg.get("private_terms"):
+        scan = subprocess.run(
+            ["git", "grep", "-I", "-l", "-i", "-F", *(arg for term in terms for arg in ("-e", term))],
+            cwd=cfg.checkout,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if scan.returncode not in (0, 1):  # 1: no match; anything else, the scan itself failed
+            results.append(("fail", f"private_terms: scan failed: {scan.stderr.strip()}"))
+        elif named := scan.stdout.splitlines():
+            results += [("warn", f"{name} names a private term (private_terms)") for name in named]
+        else:
+            results.append(("ok", "no tracked file names a private term"))
     results.append(
         ("ok", f"instructions_file {cfg.get('instructions_file')}")
         if (cfg.checkout / cfg.get("instructions_file")).is_file()
@@ -211,8 +266,8 @@ def check_config(cfg: Config) -> list[Result]:
             results.append(("ok", f"merge request template: {shown or 'bundled'}"))
         except AwError as e:
             results.append(("fail", str(e)))
-    if cfg.get("plan_scope") == "local" and not plan.ignored(cfg):
-        results.append(("warn", f"plan_scope = local but {plan.directory(cfg)} is not gitignored"))
+    if plans and cfg.get("plan_scope") == "local" and not plan.ignored(cfg):
+        results.append(("warn", f"plan_scope = local but {plans} is not gitignored"))
     results += check_memory(cfg)
     return results
 

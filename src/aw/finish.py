@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from aw import backlog, forge, rollup, session, trackers
-from aw.config import STDERR_FD, AwError, Config, fast_forward, git
+from aw.config import STDERR_FD, AwError, Config, fast_forward, git, worktrees
 from aw.trackers import canonical
 
 PREFIX = {"github": "#", "gitlab": "!"}
@@ -68,20 +68,21 @@ def _merge_request(cfg: Config, kind: str, branch: str, pr: str | None, worktree
             raise AwError(f"{branch} has no open merge request; open one with `aw mr create`, or pass --pr")
         pr = request.number
     merged = forge.is_merged(kind, pr, root)
-    _require_head(kind, pr, branch, merged, worktree)
+    head = _require_head(kind, pr, branch, merged, worktree)
     if not merged:
-        forge.merge(kind, pr, cfg.get("merge_method"), root)
+        forge.merge(kind, pr, cfg.get("merge_method"), head, root)
         log.append(f"merged {PREFIX[kind]}{pr}")
     if not forge.is_merged(kind, pr, root):
         raise AwError(f"{PREFIX[kind]}{pr} is not merged (pending checks or auto-merge?); rerun when it is")
     return pr
 
 
-def _require_head(kind: str, pr: str, branch: str, merged: bool, worktree: Path) -> None:
-    """Refuse a request that is not at the branch's head: it is another branch's, or commits came after it."""
+def _require_head(kind: str, pr: str, branch: str, merged: bool, worktree: Path) -> str:
+    """The branch's head, when the request is at it; refused otherwise: it is another branch's, or commits came
+    after it. The merge is pinned to the returned commit, so a push after this check cannot slip in."""
     at = forge.head(kind, pr, worktree)
     if at == git("rev-parse", "HEAD", cwd=worktree):
-        return
+        return at
     ref = f"{PREFIX[kind]}{pr}"
     if not merged:
         raise AwError(
@@ -121,11 +122,15 @@ def _refuse_stacked(meta: dict[str, Any]) -> None:
 
 def _warn_stacked(root: Path, branch: str, log: list[str]) -> None:
     """Sessions in other worktrees stacked on branch have to restack."""
-    for line in git("worktree", "list", "--porcelain", cwd=root).splitlines():
-        if not line.startswith("worktree "):
+    for entry in worktrees(root):
+        if not Path(entry["worktree"]).is_dir():
+            log.append(
+                f"warning: {entry['worktree']} is listed as a worktree but its directory is gone; "
+                "`git worktree prune` drops it"
+            )
             continue
         try:
-            other = session.read(line.removeprefix("worktree "))
+            other = session.read(entry["worktree"])
         except session.NoSession:
             continue
         except AwError as e:
@@ -243,6 +248,20 @@ def run(cfg: Config, meta: dict[str, Any], pr: str | None, close_parent: bool = 
     else:
         pr = _merge_request(cfg, kind, branch, pr, worktree, log)
 
+    done = len(log)
+    try:
+        _clean_up(cfg, meta, pr, nothing_left, close_parent, log)
+    except AwError as e:  # the merge stands: say what ran, the user finishes the rest by hand
+        ran = "\n".join(f"  {line}" for line in log[done:]) or "  none"
+        raise AwError(f"{e}\nthe merge is done; these steps ran before aw finish stopped:\n{ran}") from None
+    return log
+
+
+def _clean_up(
+    cfg: Config, meta: dict[str, Any], pr: str | None, nothing_left: bool, close_parent: bool, log: list[str]
+) -> None:
+    """After the merge: issue and story, worktree, main, on_merge, branch."""
+    root, main, branch, worktree = cfg.root, cfg.get("main_branch"), meta["branch"], Path(meta["worktree"])
     issue = meta.get("issue")
     tracker = trackers.get(cfg)
     if issue and cfg.get("sync_issue_status"):
@@ -281,7 +300,6 @@ def run(cfg: Config, meta: dict[str, Any], pr: str | None, close_parent: bool = 
         log.append(f"deleted origin/{branch}")
     git("remote", "prune", "origin", cwd=root)
     _warn_stacked(root, branch, log)
-    return log
 
 
 def abandon(cfg: Config, meta: dict[str, Any], discard: bool = False, status: str = "backlog") -> list[str]:

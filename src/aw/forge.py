@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from aw.config import AwError, json_pages
+from aw.trackers import Comment, github_access, github_comment, gitlab_access
 from aw.trackers import run as _run  # one runner: a missing gh or glab is an AwError, not a traceback
 
 MERGE_FLAGS = {
@@ -38,13 +39,15 @@ def is_merged(forge: str, pr: str, cwd: Path) -> bool:
     raise AwError(f"forge {forge!r} has no pull requests")
 
 
-def merge(forge: str, pr: str, method: str, cwd: Path) -> None:
-    """Merge without deleting the head branch; the worktree still has it checked out."""
+def merge(forge: str, pr: str, method: str, head: str, cwd: Path) -> None:
+    """Merge at head, the commit the caller checked, without deleting the head branch (the worktree still has it
+    checked out). A request that moved since is refused by the forge instead of merged with commits nobody checked."""
     flag = MERGE_FLAGS[forge][method]
+    flags = [flag] if flag else []
     if forge == "github":
-        _run(["gh", "pr", "merge", pr, *([flag] if flag else [])], cwd)
+        _run(["gh", "pr", "merge", pr, *flags, "--match-head-commit", head], cwd)
     elif forge == "gitlab":
-        _run(["glab", "mr", "merge", pr, "--yes", "--remove-source-branch=false", *([flag] if flag else [])], cwd)
+        _run(["glab", "mr", "merge", pr, "--yes", "--remove-source-branch=false", *flags, "--sha", head], cwd)
     else:
         raise AwError(f"forge {forge!r} has no pull requests")
 
@@ -72,7 +75,7 @@ class Check:
 class Thread:
     path: str
     line: int | None
-    comments: list[tuple[str, str]]  # (author, body)
+    comments: list[Comment]
 
 
 @dataclass
@@ -93,7 +96,8 @@ class Summary:
 THREADS = """query($owner:String!,$repo:String!,$number:Int!,$endCursor:String){repository(owner:$owner,name:$repo){
   pullRequest(number:$number){reviewThreads(first:100,after:$endCursor){pageInfo{hasNextPage endCursor}
   nodes{isResolved path line
-  comments(first:20){nodes{author{login} body}}}} comments(last:30){nodes{author{login} body}}}}}"""
+  comments(first:20){nodes{author{__typename login} authorAssociation body}}}}
+  comments(last:30){nodes{author{__typename login} authorAssociation body}}}}}"""
 GITHUB_BUCKETS = {"pass": "pass", "fail": "fail", "cancel": "fail", "pending": "pending", "skipping": "skip"}
 GITLAB_PIPELINE = {"success": "pass", "failed": "fail", "canceled": "fail", "skipped": "skip", "manual": "skip"}
 CHECKS_APPEAR = 8  # polls, 15 s apart: how long configured CI may take to report the first check of a new request
@@ -135,40 +139,78 @@ def next_number(kind: str, cwd: Path) -> str:
     return str(max(numbers, default=0) + 1)
 
 
-def find_open(kind: str, branch: str, cwd: Path) -> MergeRequest | None:
-    """The open merge request whose source is branch, if there is one."""
+LISTED = 100  # requests listed per branch; a full page may hold more, and forks can fill one
+
+
+def _own(kind: str, branch: str, rows: list[dict] | None) -> list[dict]:
+    """Requests from this repository's branch. The source branch filter matches the name only, so a fork's request
+    from a branch with the same name comes back too, and anyone can open one on a public repository. A request aw
+    cannot place (no project ids) is not this repository's; a full page is refused, never read as complete."""
+    rows = rows or []
+    if len(rows) >= LISTED:
+        raise AwError(f"{LISTED} or more requests from {branch}; the listing may be partial, pass the number")
     if kind == "github":
-        rows = _json(["gh", "pr", "list", "--head", branch, "--state", "open", "--json", "number,url,title"], cwd)
+        return [r for r in rows if r.get("isCrossRepository") is False]
+    return [
+        r
+        for r in rows
+        if r.get("source_project_id") is not None and r["source_project_id"] == r.get("target_project_id")
+    ]
+
+
+def find_open(kind: str, branch: str, cwd: Path) -> MergeRequest | None:
+    """The open merge request whose source is branch in this repository, if there is one."""
+    if kind == "github":
+        fields = "number,url,title,isCrossRepository"
+        args = ["gh", "pr", "list", "--head", branch, "--state", "open", "--limit", str(LISTED), "--json", fields]
+        rows = _own(kind, branch, _json(args, cwd))
         return MergeRequest(str(rows[0]["number"]), rows[0]["url"], rows[0]["title"], "open") if rows else None
     if kind == "gitlab":
-        rows = _json(["glab", "mr", "list", "--source-branch", branch, "--output", "json"], cwd)
+        args = ["glab", "mr", "list", "--source-branch", branch, "--per-page", str(LISTED), "--output", "json"]
+        rows = _own(kind, branch, _json(args, cwd))
         return MergeRequest(str(rows[0]["iid"]), rows[0]["web_url"], rows[0]["title"], "open") if rows else None
     raise _unsupported(kind)
 
 
 def merged(kind: str, branch: str, cwd: Path) -> list[MergeRequest]:
-    """Merged requests from branch, oldest first: the parts a multi-merge session has shipped."""
+    """Merged requests from branch in this repository, oldest first: the parts a multi-merge session has shipped."""
     if kind == "github":
-        rows = _json(
-            [
-                "gh",
-                "pr",
-                "list",
-                "--head",
-                branch,
-                "--state",
-                "merged",
-                "--limit",
-                "100",
-                "--json",
-                "number,url,title,headRefOid,mergedAt",
-            ],
-            cwd,
+        rows = _own(
+            kind,
+            branch,
+            _json(
+                [
+                    "gh",
+                    "pr",
+                    "list",
+                    "--head",
+                    branch,
+                    "--state",
+                    "merged",
+                    "--limit",
+                    str(LISTED),
+                    "--json",
+                    "number,url,title,headRefOid,mergedAt,isCrossRepository",
+                ],
+                cwd,
+            ),
         )
         rows = sorted(rows, key=lambda r: r["mergedAt"])
         return [MergeRequest(str(r["number"]), r["url"], r["title"], "merged", r["headRefOid"]) for r in rows]
     if kind == "gitlab":
-        rows = _json(["glab", "mr", "list", "--source-branch", branch, "--merged", "--output", "json"], cwd) or []
+        args = [
+            "glab",
+            "mr",
+            "list",
+            "--source-branch",
+            branch,
+            "--merged",
+            "--per-page",
+            str(LISTED),
+            "--output",
+            "json",
+        ]
+        rows = _own(kind, branch, _json(args, cwd))
         rows = sorted(rows, key=lambda r: r.get("merged_at") or "")
         return [MergeRequest(str(r["iid"]), r["web_url"], r["title"], "merged", r.get("sha", "")) for r in rows]
     raise _unsupported(kind)
@@ -329,9 +371,16 @@ def _checks(kind: str, ref: str, cwd: Path, watch: bool) -> list[Check]:
     raise _unsupported(kind)
 
 
-def comments(kind: str, ref: str, cwd: Path) -> tuple[list[Thread], list[tuple[str, str]], int]:
-    """Unresolved review threads, general comments, and how many threads are resolved."""
+def comments(kind: str, ref: str, cwd: Path, trusted: list[str] | None) -> tuple[list[Thread], list[Comment], int]:
+    """Unresolved review threads, general comments, and how many threads are resolved. A comment whose author has
+    no write access is marked outside (trusted: trusted_bots). trusted None: only counted, never shown, so nobody's
+    access is looked up and nothing is marked."""
     if kind == "github":
+        access = github_access(trusted or [], lambda *args: _run(["gh", *args], cwd)) if trusted is not None else None
+
+        def node(c: dict) -> Comment:
+            return github_comment(c, access) if access else Comment((c.get("author") or {}).get("login", ""), "")
+
         number = ref if ref.isdigit() else str(_json(["gh", "pr", "view", ref, "--json", "number"], cwd)["number"])
         pages = json_pages(
             _run(
@@ -358,23 +407,29 @@ def comments(kind: str, ref: str, cwd: Path) -> tuple[list[Thread], list[tuple[s
             Thread(
                 t["path"],
                 t.get("line"),
-                [((c.get("author") or {}).get("login", "?"), c["body"]) for c in t["comments"]["nodes"]],
+                [node(c) for c in t["comments"]["nodes"]],
             )
             for t in threads
             if not t["isResolved"]
         ]
-        general = [((c.get("author") or {}).get("login", "?"), c["body"]) for c in data["comments"]["nodes"]]
+        general = [node(c) for c in data["comments"]["nodes"]]
         return open_threads, general, len(threads) - len(open_threads)
     if kind == "gitlab":
         iid = ref if ref.isdigit() else str(_json(["glab", "mr", "view", ref, "--output", "json"], cwd)["iid"])
         discussions = _pages(["glab", "api", "--paginate", f"projects/:id/merge_requests/{iid}/discussions"], cwd)
+        marks = gitlab_access(trusted or [], lambda *args: _run(["glab", *args], cwd)) if trusted is not None else None
+
+        def note(n: dict) -> Comment:
+            author = (n.get("author") or {}).get("username", "")
+            return marks.comment(author, n["body"]) if marks else Comment(author, "")
+
         open_threads, general, resolved = [], [], 0
         for d in discussions:
             notes = [n for n in d.get("notes", []) if not n.get("system")]
             if not notes:
                 continue
             if not notes[0].get("resolvable"):
-                general += [((n.get("author") or {}).get("username", "?"), n["body"]) for n in notes]
+                general += [note(n) for n in notes]
             elif all(n.get("resolved") for n in notes if n.get("resolvable")):
                 resolved += 1
             else:
@@ -383,7 +438,7 @@ def comments(kind: str, ref: str, cwd: Path) -> tuple[list[Thread], list[tuple[s
                     Thread(
                         position.get("new_path", ""),
                         position.get("new_line"),
-                        [((n.get("author") or {}).get("username", "?"), n["body"]) for n in notes],
+                        [note(n) for n in notes],
                     )
                 )
         return open_threads, general, resolved
@@ -410,7 +465,7 @@ def summary(kind: str, ref: str, cwd: Path) -> Summary:
             "CHANGES_REQUESTED": "changes requested",
             "REVIEW_REQUIRED": "review required",
         }.get(d.get("reviewDecision") or "", "none")
-        threads, _, _ = comments(kind, str(d["number"]), cwd)
+        threads, _, _ = comments(kind, str(d["number"]), cwd, None)
         return Summary(
             MergeRequest(str(d["number"]), d["url"], d["title"], d["state"].lower()),
             d["isDraft"],
@@ -426,7 +481,7 @@ def summary(kind: str, ref: str, cwd: Path) -> Summary:
     if kind == "gitlab":
         d = _json(["glab", "mr", "view", ref, "--output", "json"], cwd)
         iid = str(d["iid"])
-        threads, _, _ = comments(kind, iid, cwd)
+        threads, _, _ = comments(kind, iid, cwd, None)
         status = d.get("detailed_merge_status") or ""
         review = "review required" if status == "not_approved" else "none"
         files = int(str(d.get("changes_count") or "0").rstrip("+") or 0)

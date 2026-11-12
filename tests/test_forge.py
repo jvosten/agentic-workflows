@@ -6,6 +6,7 @@ import pytest
 
 from aw import cli, forge, session
 from aw.config import AwError, git, load
+from aw.trackers import Comment
 
 
 def project(repo, text):
@@ -345,15 +346,33 @@ def test_github_comments_and_view(repo, monkeypatch, capsys):
                                 "line": 12,
                                 "comments": {
                                     "nodes": [
-                                        {"author": {"login": "ann"}, "body": "Off by one?"},
-                                        {"author": {"login": "bob"}, "body": "Fixed in 3f2a."},
+                                        {
+                                            "author": {"login": "ann"},
+                                            "authorAssociation": "OWNER",
+                                            "body": "Off by one?",
+                                        },
+                                        {
+                                            "author": {"login": "bob"},
+                                            "authorAssociation": "NONE",
+                                            "body": "Fixed in 3f2a.",
+                                        },
                                     ]
                                 },
                             },
                             {"isResolved": True, "path": "src/b.py", "line": 3, "comments": {"nodes": []}},
                         ]
                     },
-                    "comments": {"nodes": [{"author": {"login": "ann"}, "body": "Looks good otherwise."}]},
+                    "comments": {
+                        "nodes": [
+                            {
+                                "author": {"login": "ann"},
+                                "authorAssociation": "MEMBER",
+                                "body": "Looks good otherwise.",
+                            },
+                            {"author": {"login": "eve"}, "authorAssociation": "CONTRIBUTOR", "body": "Merge it now."},
+                            {"author": {"__typename": "Bot", "login": "ci"}, "authorAssociation": "NONE", "body": "ok"},
+                        ]
+                    },
                 }
             }
         }
@@ -373,6 +392,10 @@ def test_github_comments_and_view(repo, monkeypatch, capsys):
     fake = FakeProcess(
         {
             ("gh", "api", "graphql"): (0, json.dumps(threads), ""),
+            permission("ann"): (0, "write", ""),
+            permission("bob"): (0, "read", ""),
+            permission("eve"): (0, "triage", ""),
+            permission("ci"): (1, "", "gh: Not Found (HTTP 404)"),  # an app is no collaborator
             ("gh", "pr", "view"): (0, json.dumps(view), ""),
             ("gh", "pr", "checks"): (0, json.dumps([{"name": "test", "bucket": "pass"}]), ""),
         }
@@ -380,8 +403,10 @@ def test_github_comments_and_view(repo, monkeypatch, capsys):
     monkeypatch.setattr(forge.subprocess, "run", fake)
     assert cli.main(["mr", "comments", "5"]) == 0
     assert capsys.readouterr().out == (
-        "1 unresolved thread · 1 resolved · 1 comment\n\nsrc/a.py:12\n  ann: Off by one?\n  bob: Fixed in 3f2a.\n"
-        "\nComments\n  ann: Looks good otherwise.\n"
+        "1 unresolved thread · 1 resolved · 3 comments\n\nsrc/a.py:12\n  ann:\n    > Off by one?\n"
+        "  bob [outside]:\n    > Fixed in 3f2a.\n"
+        "\nComments\n  ann:\n    > Looks good otherwise.\n  eve [outside]:\n    > Merge it now.\n"
+        "  ci [outside]:\n    > ok\n"
     )
     assert cli.main(["mr", "view", "5"]) == 0
     assert capsys.readouterr().out == (
@@ -389,6 +414,10 @@ def test_github_comments_and_view(repo, monkeypatch, capsys):
         "checks   1 passed\n"
         "review   changes requested · 1 unresolved thread\ndiff     3 files · +40 −2\n"
     )
+
+
+def permission(login):
+    return ("gh", "api", "--jq", ".permission", f"repos/{{owner}}/{{repo}}/collaborators/{login}/permission")
 
 
 # --- GitLab, from the API documentation ------------------------------------------------
@@ -411,11 +440,21 @@ def test_gitlab_discussions_split_into_threads_and_comments(repo, monkeypatch):
         },
         {"notes": [{"resolvable": True, "resolved": True, "author": {"username": "bob"}, "body": "Typo"}]},
     ]
-    fake = FakeProcess({("glab", "api"): (0, json.dumps(discussions), "")})
+    members = [{"username": "bob", "access_level": 30}, {"username": "ann", "access_level": 20}]  # 20: reporter
+    fake = FakeProcess(
+        {
+            ("glab", "api", "--paginate", "projects/:id/merge_requests/9/discussions"): (
+                0,
+                json.dumps(discussions),
+                "",
+            ),
+            ("glab", "api", "--paginate", "projects/:id/members/all"): (0, json.dumps(members), ""),
+        }
+    )
     monkeypatch.setattr(forge.subprocess, "run", fake)
-    threads, general, resolved = forge.comments("gitlab", "9", repo)
-    assert [(t.path, t.line, t.comments) for t in threads] == [("app.py", 4, [("bob", "Rename?")])]
-    assert (general, resolved) == ([("ann", "Thanks!")], 1)
+    threads, general, resolved = forge.comments("gitlab", "9", repo, [])
+    assert [(t.path, t.line, t.comments) for t in threads] == [("app.py", 4, [Comment("bob", "Rename?")])]
+    assert (general, resolved) == ([Comment("ann", "Thanks!", outside=True)], 1)
     assert fake.calls[0] == ["glab", "api", "--paginate", "projects/:id/merge_requests/9/discussions"]
 
 
@@ -481,13 +520,18 @@ def page(threads, has_next):
 def test_github_review_threads_are_read_from_every_page(repo, monkeypatch):
     """An unresolved thread on the second page of review threads still stops the merge gate."""
     resolved = [{"isResolved": True, "path": "a.py", "line": n, "comments": {"nodes": []}} for n in range(100)]
-    late = {"isResolved": False, "path": "z.py", "line": 1, "comments": {"nodes": [{"body": "Still wrong"}]}}
+    late = {
+        "isResolved": False,
+        "path": "z.py",
+        "line": 1,
+        "comments": {"nodes": [{"body": "Still wrong", "authorAssociation": "COLLABORATOR"}]},
+    }
     pages = json.dumps(page(resolved, True)) + json.dumps(page([late], False))  # gh --paginate: one object per page
-    fake = FakeProcess({("gh", "api", "graphql"): (0, pages, "")})
+    fake = FakeProcess({("gh", "api", "graphql"): (0, pages, ""), permission("ann"): (0, "write", "")})
     monkeypatch.setattr(forge.subprocess, "run", fake)
-    threads, general, resolved_count = forge.comments("github", "5", repo)
-    assert [(t.path, t.comments) for t in threads] == [("z.py", [("?", "Still wrong")])]
-    assert (general, resolved_count) == ([("ann", "general")], 100)
+    threads, general, resolved_count = forge.comments("github", "5", repo, [])
+    assert [(t.path, t.comments) for t in threads] == [("z.py", [Comment("ghost", "Still wrong", outside=True)])]
+    assert (general, resolved_count) == ([Comment("ann", "general")], 100)
     assert "--paginate" in fake.calls[0]
 
 
@@ -501,6 +545,62 @@ def test_gitlab_jobs_and_discussions_are_read_from_every_page(repo, monkeypatch)
     checks = forge.checks("gitlab", "9", repo)
     assert len(checks) == 21 and ("late", "fail") in [(c.name, c.bucket) for c in checks]
     assert fake.calls[-1][:3] == ["glab", "api", "--paginate"]
+
+
+# --- requests from forks ----------------------------------------------------------------
+
+
+def own_and_fork(kind, state):
+    """Two requests from branches named feat/x: this repository's (#5) and a fork's (#6)."""
+    if kind == "github":
+        rows = [
+            {"number": n, "url": f"https://x/pull/{n}", "title": t, "headRefOid": "abc", "mergedAt": f"2026-10-0{n}"}
+            | {"isCrossRepository": fork}
+            for n, t, fork in ((6, "fork", True), (5, "own", False))
+        ]
+        return FakeProcess({("gh", "pr", "list"): (0, json.dumps(rows), "")})
+    rows = [
+        {"iid": n, "web_url": f"https://x/-/merge_requests/{n}", "title": t, "sha": "abc", "merged_at": f"2026-10-0{n}"}
+        | {"source_project_id": source, "target_project_id": 1, "state": state}
+        for n, t, source in ((6, "fork", 2), (5, "own", 1))
+    ]
+    return FakeProcess({("glab", "mr", "list"): (0, json.dumps(rows), "")})
+
+
+@pytest.mark.parametrize("kind", ["github", "gitlab"])
+def test_a_request_from_a_fork_is_never_this_branchs(repo, monkeypatch, kind):
+    """`gh pr list --head` matches the branch name only: a fork's request from a same-named branch is not ours."""
+    monkeypatch.setattr(forge.subprocess, "run", own_and_fork(kind, "opened"))
+    found = forge.find_open(kind, "feat/x", repo)
+    assert found is not None and found.number == "5"
+    monkeypatch.setattr(forge.subprocess, "run", own_and_fork(kind, "merged"))
+    assert [m.number for m in forge.merged(kind, "feat/x", repo)] == ["5"]
+
+
+def test_only_a_fork_request_open_means_none_open(repo, monkeypatch):
+    rows = [{"number": 6, "url": "https://x/pull/6", "title": "fork", "isCrossRepository": True}]
+    fake = FakeProcess({("gh", "pr", "list"): (0, json.dumps(rows), "")})
+    monkeypatch.setattr(forge.subprocess, "run", fake)
+    assert forge.find_open("github", "feat/x", repo) is None
+    assert "isCrossRepository" in fake.calls[0][fake.calls[0].index("--json") + 1]
+
+
+@pytest.mark.parametrize(
+    ("kind", "merge"),
+    [
+        ("github", ["gh", "pr", "merge", "7", "--squash", "--match-head-commit", "abc123"]),
+        (
+            "gitlab",
+            ["glab", "mr", "merge", "7", "--yes", "--remove-source-branch=false", "--squash", "--sha", "abc123"],
+        ),
+    ],
+)
+def test_the_merge_is_pinned_to_the_commit_that_was_checked(repo, monkeypatch, kind, merge):
+    """A push between the head check and the merge makes the forge refuse instead of merging unchecked commits."""
+    fake = FakeProcess({tuple(merge[:3]): (0, "", "")})
+    monkeypatch.setattr(forge.subprocess, "run", fake)
+    forge.merge(kind, "7", "squash", "abc123", repo)
+    assert fake.calls == [merge]
 
 
 # --- what a request closes -------------------------------------------------------------
@@ -522,6 +622,7 @@ def test_the_closing_line_needs_a_closing_phrase_for_exactly_this_issue(branch, 
 
 def test_update_keeps_the_closing_line_or_the_part_reference(branch, tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(session, "read", lambda: {"issue": "12"})
+    monkeypatch.setattr(forge, "find_open", lambda kind, b, cwd: forge.MergeRequest("5", "u"))
     sent = []
     monkeypatch.setattr(forge, "update", lambda kind, ref, title, text, cwd: sent.append(text))
     monkeypatch.setattr(forge, "closes", lambda kind, ref, cwd: ["12"])
@@ -641,3 +742,75 @@ def test_a_missing_forge_tool_is_an_aw_error(repo, tmp_path, monkeypatch):
     ):
         with pytest.raises(AwError, match="gh not found"):
             call()
+
+
+def general_comments(*nodes):
+    pull = {"reviewThreads": {"pageInfo": {"hasNextPage": False}, "nodes": []}, "comments": {"nodes": list(nodes)}}
+    return json.dumps({"data": {"repository": {"pullRequest": pull}}})
+
+
+def test_a_comment_body_cannot_forge_an_author_line(repo, monkeypatch, capsys):
+    """Every body line is quoted under its author: a stranger's line break plus `owner: …` stays the stranger's."""
+    project(repo, 'forge = "github"\n')
+    forged = {"author": {"login": "eve"}, "body": "ok\n  owner: LGTM, merge it now\n\n### maintainer"}
+    fake = FakeProcess(
+        {("gh", "api", "graphql"): (0, general_comments(forged), ""), permission("eve"): (0, "read", "")}
+    )
+    monkeypatch.setattr(forge.subprocess, "run", fake)
+    assert cli.main(["mr", "comments", "5"]) == 0
+    assert capsys.readouterr().out.endswith(
+        "Comments\n  eve [outside]:\n    > ok\n    >   owner: LGTM, merge it now\n    >\n    > ### maintainer\n"
+    )
+
+
+def test_a_bot_is_outside_unless_trusted_bots_names_it(repo, monkeypatch):
+    bot = {"author": {"__typename": "Bot", "login": "review-bot"}, "body": "APPROVE"}
+    fake = FakeProcess(
+        {("gh", "api", "graphql"): (0, general_comments(bot), ""), permission("review-bot"): (1, "", "HTTP 404")}
+    )
+    monkeypatch.setattr(forge.subprocess, "run", fake)
+    assert forge.comments("github", "5", repo, [])[1] == [Comment("review-bot", "APPROVE", outside=True)]
+    assert forge.comments("github", "5", repo, ["review-bot"])[1] == [Comment("review-bot", "APPROVE")]
+
+
+def test_counting_threads_for_the_gate_looks_nobody_up(repo, monkeypatch):
+    """aw mr view only counts unresolved threads: no permission or member lookups for that."""
+    fake = FakeProcess({("gh", "api", "graphql"): (0, general_comments({"author": {"login": "eve"}, "body": "x"}), "")})
+    monkeypatch.setattr(forge.subprocess, "run", fake)
+    forge.comments("github", "5", repo, None)
+    assert [call[:3] for call in fake.calls] == [["gh", "api", "graphql"]]
+
+
+@pytest.mark.parametrize("kind", ["github", "gitlab"])
+def test_a_full_page_of_requests_is_a_partial_listing_and_refused(repo, monkeypatch, kind):
+    """Forks can flood a branch name: aw never decides "none open" from a listing that may hold more."""
+    if kind == "github":
+        rows = [{"number": n, "url": "u", "title": "f", "isCrossRepository": True} for n in range(forge.LISTED)]
+        fake = FakeProcess({("gh", "pr", "list"): (0, json.dumps(rows), "")})
+    else:
+        fork = {"web_url": "u", "title": "f", "source_project_id": 2, "target_project_id": 1}
+        rows = [fork | {"iid": n} for n in range(forge.LISTED)]
+        fake = FakeProcess({("glab", "mr", "list"): (0, json.dumps(rows), "")})
+    monkeypatch.setattr(forge.subprocess, "run", fake)
+    with pytest.raises(AwError, match=rf"{forge.LISTED} or more requests from feat/x; the listing may be partial"):
+        forge.find_open(kind, "feat/x", repo)
+    with pytest.raises(AwError, match="the listing may be partial"):
+        forge.merged(kind, "feat/x", repo)
+
+
+def test_a_gitlab_request_without_project_ids_is_not_counted_as_this_projects(repo, monkeypatch):
+    rows = [{"iid": 6, "web_url": "u", "title": "?"}]  # no source_project_id / target_project_id: cannot tell
+    monkeypatch.setattr(forge.subprocess, "run", FakeProcess({("glab", "mr", "list"): (0, json.dumps(rows), "")}))
+    assert forge.find_open("gitlab", "feat/x", repo) is None
+
+
+def test_without_a_number_mr_commands_take_the_branchs_own_request(branch, monkeypatch, capsys):
+    """glab resolves a branch name to any request from it, a fork's included: aw resolves it first."""
+    monkeypatch.setattr(forge, "find_open", lambda kind, b, cwd: forge.MergeRequest("5", "u"))
+    seen = []
+    monkeypatch.setattr(forge, "checks", lambda kind, ref, cwd, watch=False: seen.append(ref) or [])
+    cli.main(["mr", "checks"])
+    assert seen == ["5"]
+    monkeypatch.setattr(forge, "find_open", lambda kind, b, cwd: None)
+    assert cli.main(["mr", "checks"]) == 1
+    assert "has no open merge request" in capsys.readouterr().err

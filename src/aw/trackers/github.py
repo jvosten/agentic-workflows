@@ -11,13 +11,14 @@ from functools import cached_property
 from typing import Any
 
 from aw.config import AwError, json_pages
-from aw.trackers import STATUSES, Issue, Row, Tracker, run, status_name
+from aw.trackers import STATUSES, Access, Issue, Row, Tracker, github_access, github_comment, run, status_name
 
 PART_OF = re.compile(r"\bPart of #(\d+)", re.IGNORECASE)
 TASK_REF = re.compile(r"^\s*[-*] \[[ xX]\] .*?#(\d+)", re.MULTILINE)
 
 META = """query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){
-  issue(number:$number){body issueType{name} parent{number title state issueType{name} repository{nameWithOwner}}}}}"""
+  issue(number:$number){body issueType{name} parent{number title state issueType{name} repository{nameWithOwner}}
+  author{__typename login} authorAssociation}}}"""
 SEARCH = """query($q:String!,$first:Int!){search(query:$q,type:ISSUE,first:$first){
   nodes{... on Issue{number title state parent{number}}}}}"""
 PART_OF_SEARCH = """query($q:String!){search(query:$q,type:ISSUE,first:100){
@@ -60,6 +61,10 @@ class GitHub(Tracker):
 
     def pr_text(self, issue: str) -> str:
         return f"{self.cfg.get('pr_close_keyword')} #{issue}"
+
+    @cached_property
+    def access(self) -> Access:
+        return github_access(self.cfg.get("trusted_bots"), self.gh)
 
     def gh(self, *args: str, stdin: str | None = None) -> str:
         return run(["gh", *args], self.cfg.checkout, stdin)
@@ -144,9 +149,8 @@ class GitHub(Tracker):
             parent=self._parent(meta),
             body=body,
             children=self.children(issue, body),
-            comments=[
-                ((c.get("author") or {}).get("login", "unknown"), c.get("body", "")) for c in d.get("comments", [])
-            ],
+            comments=[github_comment(c, self.access) for c in d.get("comments", [])],
+            opened_by=github_comment(meta | {"body": ""}, self.access) if "author" in meta else None,
         )
 
     def native_children(self, issue: str) -> list[Row]:

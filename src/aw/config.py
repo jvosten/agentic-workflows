@@ -7,9 +7,10 @@ Resolution order, later wins:
   <primary>/.agents/aw.local.toml machine, gitignored (primary checkout only)
   AW_<KEY> environment variables
 
-A trusted key (schema: trusted = true) decides what runs or merges on the host. Its project value comes from the
-primary checkout's .agents/aw.toml, never from a session worktree's: the branch being merged does not choose its own
-merge gate or hooks. An env-only key (env_only = true) describes where aw runs, not the project: only AW_<KEY> sets it.
+A trusted key (schema: trusted = true) decides what runs or merges on the host, or where credentials go. Its project
+value comes from the primary checkout's .agents/aw.toml, never from a session worktree's: the branch being merged
+does not choose its own merge gate, hooks or credential host. An env-only key (env_only = true) describes where aw
+runs, not the project: only AW_<KEY> sets it.
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ import shlex
 import subprocess
 import tomllib
 from dataclasses import dataclass, field
+from functools import cached_property
 from importlib import resources
 from pathlib import Path
 from typing import Any
@@ -45,6 +47,8 @@ def user_file() -> Path:
 
 
 def git(*args: str, cwd: Path | str | None = None) -> str:
+    if cwd is not None and not Path(cwd).is_dir():  # subprocess would raise FileNotFoundError, past every handler
+        raise AwError(f"git {' '.join(args)}: no such directory: {cwd}")
     r = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=False)
     if r.returncode:
         raise AwError(f"git {' '.join(args)}: {r.stderr.strip()}")
@@ -60,6 +64,21 @@ def json_pages(text: str) -> list[Any]:
     return pages
 
 
+def worktrees(root: Path) -> list[dict[str, str]]:
+    """`git worktree list --porcelain`, one entry per worktree: worktree (its path), HEAD, branch (a ref).
+
+    A worktree whose directory was deleted without `git worktree remove` stays listed until `git worktree prune`.
+    """
+    entries = []
+    for block in git("worktree", "list", "--porcelain", cwd=root).split("\n\n"):
+        entry = {}
+        for line in block.splitlines():
+            key, _, value = line.partition(" ")
+            entry[key] = value
+        entries.append(entry)
+    return entries
+
+
 def fast_forward(root: Path, branch: str) -> str:
     """Bring the local branch up to origin's, whatever the primary checkout has checked out.
 
@@ -70,10 +89,9 @@ def fast_forward(root: Path, branch: str) -> str:
     git("fetch", "--quiet", "origin", branch, cwd=root)
     ref, upstream = f"refs/heads/{branch}", f"refs/remotes/origin/{branch}"
     where = None
-    for block in git("worktree", "list", "--porcelain", cwd=root).split("\n\n"):
-        lines = block.splitlines()
-        if f"branch {ref}" in lines:
-            where = lines[0].removeprefix("worktree ")
+    for entry in worktrees(root):
+        if entry.get("branch") == ref and Path(entry["worktree"]).is_dir():
+            where = entry["worktree"]
     if where:
         try:
             git("merge", "--ff-only", "--quiet", upstream, cwd=where)
@@ -192,6 +210,36 @@ class Config:
         if self.values["sandboxed"]:
             raise AwError(f"sandboxed: {command} runs on the host; push the branch and run it there")
 
+    def public(self, *texts: str | None) -> None:
+        """Refuse a text that names a private term: what aw publishes reaches the tracker, the forge or the repo."""
+        for term in self.values["private_terms"]:
+            if any(text and term.casefold() in text.casefold() for text in texts):
+                raise AwError(
+                    f"the text names the private term {term!r} ({self.sources['private_terms']}); reword it, "
+                    "nothing was written or sent"
+                )
+
+    def inside(self, key: str, path: Path, base: Path | None = None) -> Path:
+        """path, built from a path key, if it stays under base (the checkout by default), out of the git dir, and
+        through no link out: a committed symlink must not take aw's reads and writes elsewhere. Only an absolute or
+        ~ value from the user or local layer or the environment may point anywhere: the user wrote it, no branch.
+        (Stopgap: the refactor plan's S4a puts every project file behind one component.)"""
+        base = base or self.checkout
+        if self.sources.get(key) not in (None, "default", "project") and not path.is_relative_to(base):
+            return path
+        resolved = path.resolve()
+        if not resolved.is_relative_to(base.resolve()):
+            raise AwError(f"{key}: {path} resolves outside the repo; aw follows no link out of it")
+        if any(resolved.is_relative_to(git_dir) for git_dir in self.git_dirs):
+            raise AwError(f"{key}: {path} resolves into the git dir; aw never reads or writes there")
+        return path
+
+    @cached_property
+    def git_dirs(self) -> tuple[Path, ...]:
+        """The checkout's git dir and the repository's common one (they differ in a linked worktree)."""
+        dirs = ("--absolute-git-dir", "--git-common-dir")
+        return tuple(Path(git("rev-parse", "--path-format=absolute", d, cwd=self.checkout)).resolve() for d in dirs)
+
 
 def read_toml(path: Path) -> dict[str, Any]:
     try:
@@ -260,8 +308,15 @@ def load(cwd: Path | str | None = None) -> Config:
             if schema[key].get("env_only"):
                 cfg.misplaced.append((layer, key))
                 continue
+            if schema[key].get("local_only") and layer == "project":
+                raise AwError(
+                    f"{key} in {PROJECT_FILE}: a committed value is published; set it in ~/.agents/aw/config.toml or "
+                    f"{LOCAL_FILE}"
+                )
             cfg.values[key] = coerce(key, schema[key], value)
             cfg.sources[key] = "primary" if layer == "project" and key in from_primary else layer
+            if layer == "project" and schema[key].get("path"):
+                refuse_outside(cfg, key, value)
 
     for key, spec in schema.items():
         env = os.environ.get("AW_" + key.upper())
@@ -269,6 +324,19 @@ def load(cwd: Path | str | None = None) -> Config:
             cfg.values[key] = parse_text(key, spec, env)
             cfg.sources[key] = "env"
     return cfg
+
+
+def refuse_outside(cfg: Config, key: str, value: str | dict[str, str]) -> None:
+    """A committed path stays in the repo: a branch can change it, and aw reads, writes and deletes there."""
+    named = value.items() if isinstance(value, dict) else [("", value)]
+    for name, text in named:
+        path = cfg.expand(text)
+        if path.startswith("~") or Path(path).is_absolute() or Path(os.path.normpath(path)).parts[:1] == ("..",):
+            shown = f"{key}.{name}" if name else key
+            raise AwError(
+                f"{shown} = {text!r} in project points outside the repo; name a path outside it in the user or "
+                f"local config (~/.agents/aw/config.toml, {LOCAL_FILE})"
+            )
 
 
 def _read_layer(path: Path, migrations: list[dict[str, Any]]) -> tuple[dict[str, Any], list[str]]:

@@ -55,16 +55,30 @@ def test_direnv_trouble_is_a_warning_and_the_start_goes_on(configured, tmp_path,
     assert "warning: direnv allow" in capfd.readouterr().err
 
 
-def test_a_tracked_envrc_is_never_overwritten(configured, tmp_path, monkeypatch):
+def test_a_tracked_envrc_is_never_overwritten_nor_allowed(configured, tmp_path, monkeypatch, capfd):
+    """A tracked .envrc runs on the host with the user's environment: whoever changed it last, the user allows it."""
     (configured / ".envrc").write_text("export PROJECT=own\n")
     git("add", ".envrc", cwd=configured)
     git("commit", "-qm", "envrc", cwd=configured)
     git("push", "-q", "origin", "main", cwd=configured)
     monkeypatch.setenv("AW_DIRENV", "true")
-    fake_direnv(tmp_path, monkeypatch, "exit 0")
+    fake_direnv(tmp_path, monkeypatch, f'echo "$@" >> {tmp_path}/direnv.log')
     out = start_task.run(load(), "docs", "one", None)
     assert (Path(out["worktree"]) / ".envrc").read_text() == "export PROJECT=own\n"
     assert not git("status", "--porcelain", ".envrc", cwd=out["worktree"])
+    assert not (tmp_path / "direnv.log").exists()
+    assert (
+        f"warning: {out['worktree']}/.envrc is tracked, so aw does not allow it: read it, then "
+        f"`direnv allow {out['worktree']}`"
+    ) in capfd.readouterr().err
+
+
+def test_the_envrc_aw_writes_is_allowed(configured, tmp_path, monkeypatch):
+    monkeypatch.setenv("AW_DIRENV", "true")
+    fake_direnv(tmp_path, monkeypatch, f'echo "$@" >> {tmp_path}/direnv.log')
+    out = start_task.run(load(), "docs", "one", None)
+    assert (Path(out["worktree"]) / ".envrc").read_text() == start_task.ENVRC
+    assert (tmp_path / "direnv.log").read_text() == f"allow {out['worktree']}\n"
 
 
 def test_without_an_issue_the_worktree_is_the_slug(configured, tmp_path):

@@ -70,7 +70,7 @@ class Entry:
 def directory(cfg: Config, kind: str) -> Path:
     if kind not in KINDS:
         raise AwError(f"unknown memory kind: {kind} (known: {', '.join(KINDS)})")
-    return cfg.checkout / cfg.get("memory_dir") / KINDS[kind]
+    return cfg.inside("memory_dir", cfg.checkout / cfg.get("memory_dir") / KINDS[kind])
 
 
 def slugify(title: str) -> str:
@@ -149,12 +149,12 @@ def entries(cfg: Config, kind: str | None = None) -> list[Entry]:
     found = []
     for name in [kind] if kind else KINDS:
         root = directory(cfg, name)
-        found += [parse(p, name) for p in sorted(root.glob("*.md"))] if root.is_dir() else []
+        found += [parse(cfg.inside("memory_dir", p), name) for p in sorted(root.glob("*.md"))] if root.is_dir() else []
     return found
 
 
 def vocabulary(cfg: Config) -> dict[str, str]:
-    path = cfg.checkout / cfg.get("memory_dir") / "tags.toml"
+    path = cfg.inside("memory_dir", cfg.checkout / cfg.get("memory_dir") / "tags.toml")
     if not path.is_file():
         return {}
     try:

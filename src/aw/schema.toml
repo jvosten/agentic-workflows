@@ -5,9 +5,12 @@
 # when:    ask only if these keys already have these values
 # detect:  name of a detector in init.py that proposes the default
 # default: fallback when nothing else sets the key
-# trusted: decides what runs or merges on the host; in a session worktree the project value comes from the primary
-#          checkout's .agents/aw.toml, never from the branch's
+# trusted: decides what runs or merges on the host, or where credentials go; in a session worktree the project value
+#          comes from the primary checkout's .agents/aw.toml, never from the branch's
 # env_only: describes where aw runs, not the project; only AW_<KEY> sets it
+# local_only: set in the user or local layer or the environment; the committed file refuses it (it would publish it)
+# path:    a file or directory relative to the repo root (a table: each value). A committed value must stay inside
+#          the repo, and aw follows no link out of it; a path outside belongs in the user or local layer
 #
 # Placeholders, expanded when read: {project} {repo_parent} everywhere;
 # {type} {slug} {date} {issue} in branch_name, worktree_name, on_start ({issue} empty without one; in a name,
@@ -54,6 +57,7 @@ help = "Issue tracker"
 
 [keys.jira_base_url]
 type = "str"
+trusted = true
 ask = true
 when = { tracker = "jira" }
 default = ""
@@ -116,6 +120,7 @@ default = ["Epic"]
 help = "Issue types above story level: a parent rollup never moves or closes them (Jira: also any type above story level; GitHub board: also a card without a column)"
 
 [keys.instructions_file]
+path = true
 type = "str"
 ask = true
 detect = "instructions_file"
@@ -137,6 +142,7 @@ default = ""
 help = "Command that validates a change before commit (empty: none)"
 
 [keys.changelog_file]
+path = true
 type = "str"
 ask = true
 detect = "changelog_file"
@@ -157,6 +163,7 @@ default = ""
 help = "Forge merge request template by name: .gitlab/merge_request_templates/<name>.md or .github/PULL_REQUEST_TEMPLATE/<name>.md (empty: GitLab's Default, GitHub's pull_request_template.md, else the bundled one)"
 
 [keys.contributing_file]
+path = true
 type = "str"
 default = "CONTRIBUTING.md"
 help = "Contribution rules (commit style, merge request title and sections, labels, reviewers); they win over the template"
@@ -178,6 +185,7 @@ default = "tracker"
 help = "Where deferred work lives: tracker (backlog_file is a session inbox, emptied by aw-finalize) or file (backlog_file is the backlog)"
 
 [keys.backlog_file]
+path = true
 type = "str"
 default = "BACKLOG.md"
 help = "Backlog file, relative to the repo root: the backlog itself, or the session inbox when backlog_home = tracker"
@@ -193,6 +201,7 @@ default = ""
 help = "Issue type for backlog items pushed to the tracker (empty: the tracker default)"
 
 [keys.memory_dir]
+path = true
 type = "str"
 default = ".agents/memory"
 help = "Directory with the project's committed memory: decisions/, gotchas/ (one file per entry) and tags.toml"
@@ -204,6 +213,7 @@ default = "full"
 help = "What a session start loads: full (every active gotcha) or tags (the tag list; plans pull matching gotchas)"
 
 [keys.definition_of_done]
+path = true
 type = "str"
 default = ""
 help = "File with the team's definition of done, cited by plans and subtasks (empty: none)"
@@ -214,11 +224,13 @@ default = ""
 help = "Model that skills name when they delegate mechanical steps to a subagent (empty: none)"
 
 [keys.templates]
+path = true
 type = "table"
 default = {}
 help = "Document templates that override the bundled ones, name = path from the repo root (story, subtask, plan)"
 
 [keys.plan_dir]
+path = true
 type = "str"
 default = ".agents/plans"
 help = "Directory with plan documents, relative to the repo root"
@@ -230,6 +242,7 @@ default = "repo"
 help = "repo: plans are committed with the work; local: gitignored, kept in the primary checkout for this clone only"
 
 [keys.plan_file]
+path = true
 type = "str"
 default = "{area}/{issue}-{slug}-{date}.md"
 help = "Plan file path under plan_dir; placeholders {issue} {slug} {date} {parent} {parent_slug} {area} ({parent}-{parent_slug}; empty without a parent, and the folder drops out)"
@@ -277,6 +290,18 @@ type = "bool"
 env_only = true
 default = false
 help = "Set by a sandbox runner (AW_SANDBOXED=1): aw finish, aw merge and aw issue rollup --close refuse, the host runs them"
+
+[keys.trusted_bots]
+type = "list"
+trusted = true
+default = []
+help = "Logins of apps whose comments skills may act on, as aw mr comments prints them (e.g. a review bot). Everyone else needs write access to the repository; a bot never has it, so without this its comments are marked [outside]"
+
+[keys.private_terms]
+type = "list"
+local_only = true
+default = []
+help = "Words that never leave this machine (a private project, host or person): aw issue create, update and comment, aw mr create and update, aw backlog add and aw memory add refuse a text naming one, case-insensitively. Set it in ~/.agents/aw/config.toml or .agents/aw.local.toml, never in the committed file"
 
 [keys.pr_close_keyword]
 type = "str"

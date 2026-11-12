@@ -14,6 +14,7 @@ from aw.config import (
     LOCAL_FILE,
     PROJECT_FILE,
     AwError,
+    Config,
     checkout_root,
     dump_toml,
     git,
@@ -21,6 +22,7 @@ from aw.config import (
     migrate,
     parse_text,
     read_toml,
+    refuse_outside,
     repo_root,
     toml_value,
 )
@@ -160,6 +162,8 @@ def run(assume_yes: bool, sets: list[str], check: bool = False) -> Report:
             raise AwError(f"--set expects KEY=VALUE with a known key: {item!r}")
         if schema[key].get("env_only"):
             raise AwError(f"{key} is set by the environment only (AW_{key.upper()}), not in {PROJECT_FILE}")
+        if schema[key].get("local_only"):
+            raise AwError(f"{key}: a committed value is published; set it in ~/.agents/aw/config.toml or {LOCAL_FILE}")
         overrides[key] = parse_text(key, schema[key], text)
 
     detected = detect(root, schema)
@@ -183,6 +187,10 @@ def run(assume_yes: bool, sets: list[str], check: bool = False) -> Report:
     if interactive:
         print()
 
+    committed = Config(root=root, checkout=root, schema=schema)  # for placeholders: the file's paths stay in the repo
+    for key, value in values.items():
+        if key in schema and schema[key].get("path"):
+            refuse_outside(committed, key, value)
     if not check:
         path.parent.mkdir(exist_ok=True)
         path.write_text(dump_toml(values))

@@ -30,10 +30,19 @@ def _fill(cfg: Config, key: str, ph: dict[str, str]) -> str:
 
 def _direnv(worktree: Path) -> None:
     """Delegate to the primary checkout's .envrc unless the project tracks its own; trouble with direnv is a warning,
-    since the worktree and branch exist already and the rest of the start still runs."""
+    since the worktree and branch exist already and the rest of the start still runs.
+
+    Only the delegating .envrc aw writes is allowed here. A tracked one runs on the host with the user's environment,
+    and whoever changed it last (a merged branch, the --base branch) is not the user: the user reads it and allows it.
+    """
     envrc = worktree / ".envrc"
-    if not envrc.exists():
-        envrc.write_text(ENVRC)
+    if envrc.exists():
+        print(
+            f"warning: {envrc} is tracked, so aw does not allow it: read it, then `direnv allow {worktree}`",
+            file=sys.stderr,
+        )
+        return
+    envrc.write_text(ENVRC)
     try:
         r = subprocess.run(["direnv", "allow", str(worktree)], stdout=STDERR_FD, check=False)
     except FileNotFoundError:
@@ -73,6 +82,7 @@ def run(cfg: Config, kind: str, slug: str, issue: str | None, base: str | None =
 
     ph = {"type": kind, "slug": slug, "date": date.today().strftime("%Y%m%d"), "issue": issue}
     branch = _fill(cfg, "branch_name", ph)
+    cfg.public(branch)  # the session pushes it
     worktree = Path(cfg.get("worktree_root", **ph)) / _fill(cfg, "worktree_name", ph)
 
     if (
