@@ -431,6 +431,118 @@ This repo's own hardening plan hit the second set right after it was written (20
 
 **Effort:** medium — the hook contract, the copy rules and the sandbox guard, tested with faked hook input.
 
+---
+
+### [MEDIUM] Finish cleanup after the forge deletes the merged remote branch
+
+**Context:** A live session reported that `aw finish` refused after the merge because the forge had already deleted the remote source branch. The session skipped `aw finish` and needed manual cleanup. This report has not yet been reproduced here.
+
+**Problem:** Remote branch deletion after a merge can block local branch and worktree cleanup and leave final tracker updates unfinished, even when the request contains all session work.
+
+**Scope:**
+- Reproduce the missing-remote-branch case with a local bare origin and fake forge responses, across merge, squash and rebase merges.
+- Confirm the merged request covers the local session head without requiring the remote source branch to exist.
+- Treat a confirmed missing remote branch as already removed; distinguish it from failed or uncertain remote queries.
+- Preserve the existing checks for unmerged or unpushed work before local cleanup, tracker updates and hooks.
+
+**Acceptance criteria:**
+- `aw finish` completes its normal cleanup and final updates when the merged request covers the session head and the remote source branch is already gone.
+- An absent remote branch alone never authorizes cleanup: unknown merge state, local commits not covered by the request, and failed remote queries still refuse without destructive effects.
+- Tests cover forge-driven source branch deletion for merge, squash and rebase merges without network access.
+
+**Effort:** medium; merge verification and cleanup must distinguish expected branch deletion from uncertain or incomplete work.
+
+### [MEDIUM] Make `aw-finalize` merge-request waiting reliable
+
+**Context:** In a docs session (AIDA-1937, MR !85) the wait after a push was slow and misleading. After a force-push `aw mr checks --watch` printed `1 passed` and `aw mr view` printed `mergeable: conflict` at once; both described the old state. GitLab computes the pipeline and the mergeability asynchronously. The conflict (a rebase onto `main`, in `CHANGELOG.md`) only appeared at step 9, after the merge request existed and CI had run. Piping the watch through `tail` hid all progress, and a `sed -i` call that works on Linux failed on macOS and cut off its `&&` chain without a visible error.
+
+**Scope:**
+- `aw mr checks --watch`: wait for the pipeline whose SHA equals local `HEAD`. No pipeline for that SHA yet counts as pending (exit 2). Do not report the previous pipeline.
+- `aw mr wait` (new): block until the pipeline for `HEAD` finished and mergeability left `checking`/`unchecked`/`approvals syncing`. Print one summary line (SHA, checks, mergeable, unresolved threads); exit 0 ready, 1 failed or conflict, 2 timeout. Add `--timeout` and one output line per state change, so it works as a background process.
+- Conflict preflight before the merge request opens (step 6 or 7 of `aw-finalize`): `git fetch` and `git merge-tree --write-tree origin/<main_branch> HEAD`. Name the conflicting files before CI runs.
+- Changelog: `aw changelog add` or fragment files, so a top-of-file insert in a shared `CHANGELOG.md` no longer conflicts in every merge request. Also settle how the entry names the merge request number without a second commit and a second CI run.
+- `aw-finalize` skill text: run `--watch` without a pipe; edit files with `aw` or a portable tool, never `sed -i` (BSD `sed` needs `-i ''`); do not chain a commit and push after an edit whose success is not checked.
+
+**Done when:** a force-push followed by `aw mr wait` returns only after the new pipeline and mergeability are known, and a branch that conflicts with `main` fails the preflight before `aw mr create`.
+
+---
+
+### [MEDIUM] Keep verification usable when direnv activation is forbidden
+
+**Context:** A reported agent session's default `aw verify` invocation exceeded the caller's 120-second limit although the configured `make check` passed directly. Its generated worktree `.envrc` delegated to a primary checkout whose environment template included vault-backed loading. Password-manager commands were forbidden. In that session, `AW_DIRENV=false aw verify` ran the original checks successfully in 12 seconds. The specific environment hook responsible for the timeout was not established.
+
+**Additional evidence (2026-11-04):** A later reported finalization attempt identified a password-manager command in the repository's direnv startup path before execution. Direct checks worked in the already loaded environment. With `verify_cmd = "make check"`, the per-command override resolved `direnv` to `false` and the configured check passed. No password-manager command was run. This report does not establish the cause of the earlier timeout.
+
+**Problem:** `aw.finish.verify` wraps `verify_cmd` in `direnv exec <checkout> sh -c ...` when `direnv` is enabled. A worktree can delegate environment setup to the primary checkout, so its visible `.envrc` does not bound the startup path. Environment activation therefore precedes verification and may run interactive or forbidden credential-loading hooks. A timeout does not by itself prove that the checks ran or identify which activation hook blocked. The wrapper behavior is confirmed in the source; the reported timeout has not been reproduced here.
+
+**Scope:**
+- Document the existing invocation-scoped workaround, `AW_DIRENV=false aw verify`, when the current environment already supplies the configured check's requirements. It leaves configuration files unchanged and skips environment bootstrapping, not the configured checks or merge gate.
+- State that the override supplies no missing variables. If required values are unavailable, stop for operator setup; never retrieve credentials or run a password manager.
+- Explain worktree-to-primary-checkout delegation so agents do not treat the visible worktree `.envrc` as the entire startup path. Cover delegated activation with fake processes, never live credential hooks.
+- Show how to confirm the effective settings without activating the directory: `AW_DIRENV=false aw config --get direnv` and `AW_DIRENV=false aw config --get verify_cmd`. The first must resolve to `false`; the second must retain the original verification command.
+- Update verification guidance in the README and calling skills to distinguish environment activation from the verification command. Do not recommend running a forbidden environment hook as a diagnostic step.
+- Cover enabled and disabled direnv paths with fake processes; preserve the configured command and its exit status. Keep normal direnv activation available when the project requires it rather than silently disabling it by default.
+
+**Acceptance criteria:**
+- A restricted agent can find and use the documented environment override without running direnv, vault or password-manager commands, or displaying secret values.
+- Tests prove that `AW_DIRENV=false` bypasses a simulated forbidden activation step, executes the unchanged verification command and returns its exit status.
+- Project configuration and the merge gate remain unchanged; the enabled-direnv path remains covered.
+- Guidance requires operator setup when the current environment lacks values needed by the configured check; it never recommends credential retrieval or password-manager execution.
+- Documentation distinguishes the earlier unidentified timeout from the later pre-execution password-manager finding and does not claim that the later report establishes the earlier timeout's cause.
+
+**Effort:** small; the override already exists, so the work is documentation and regression coverage, not a new CLI option.
+
+---
+
+### [HIGH] Audit destructive commands and gate force pushes
+
+**Context:** A stacked-session report exposed an unrequested `git push --force-with-lease` during `aw restack --dry-run`. The current fix blocks dry-run pushes, but normal `aw restack` still force-pushes automatically after a rebase or manual conflict recovery. A lease checks the expected remote state; it does not establish user approval to rewrite published history.
+
+**Problem:** Potentially destructive operations can sit inside otherwise routine workflow commands. A request to restack, verify or prepare a merge request must not implicitly authorize a force push, deletion or other destructive action. Skill instructions and agent tool allowlists are not sufficient runtime gates.
+
+**Scope:**
+- Audit mutating paths across the CLI, forge/tracker adapters, hooks and calling skills. Include force pushes, history rewrites and resets, local/remote branch deletion, worktree removal, merges, issue closure and deployment hooks.
+- Record each operation's entry points, targets, possible loss, current approval checks and recovery options. Classify which operations need explicit approval.
+- Gate force pushes, including `--force-with-lease`, in the CLI before the destructive action. Show the remote, branch, expected old/new tips and consequences; require explicit approval scoped to that action. Refuse when approval is absent, uncertain or stale, including in non-interactive use.
+- Keep destructive-action authorization separate from merge approval: `merge_gate = auto`, a previous approval, a skill allowlist or a successful lease check must not authorize a force push.
+- Update workflow guidance and add regression tests for every gated path, including restack recovery after `git rebase --continue`.
+
+**Acceptance criteria:**
+- A repository-wide inventory identifies destructive operations, their callers and their enforced gates; any remaining gaps have explicit follow-up work.
+- Direct and indirect force-push paths refuse without explicit action-scoped approval. The refusal occurs before any destructive mutation, and the message identifies what needs approval.
+- Tests cover denied, approved and stale approvals, plus dry runs and manual conflict recovery. Denied and dry-run paths do not push, delete, rewrite branch history or write session metadata.
+- Documentation distinguishes concurrency protection (`--force-with-lease`) from authorization and explains the affected operations and recovery steps.
+
+**Effort:** medium to large; the audit spans several modules and workflows, and approval enforcement needs tests at each destructive boundary.
+
+---
+
+### [MEDIUM] Offload finalize CI watching to a configurable low-cost subagent
+
+**Context:** During a real `aw-finalize` run, the parent session spent minutes waiting on `aw mr checks --watch`. The user had to ask whether a lower-cost subagent could own that read-only watch while the main session remained available.
+
+**Problem:** Routine CI-status follow-up occupies the main session and makes finalization look stalled. The goal is to release the parent and reduce the cost of status interpretation, not to make CI execute faster. CLI waiting itself does not require continuous model calls.
+
+**Scope:**
+- Let `aw-finalize` hand CI/review-status watching to a configurable low-cost subagent when the agent harness supports it; do not hardcode a provider or model.
+- Give the watcher a bounded read-only brief: repository/session, merge request, expected HEAD, permitted status queries, completion conditions and when to escalate.
+- Keep deterministic waiting in `aw`; avoid model-level polling loops. Reuse the CI-wait reliability work rather than creating a second pipeline-state implementation.
+- Notify the parent on completion, failure, timeout or required attention. The parent owns fixes, review replies, pushes, merge approval and cleanup.
+- Define explicit behavior when delegation is unavailable or fails. Never infer green status or silently bypass a gate.
+
+**Acceptance criteria:**
+- With delegation enabled and supported, finalization starts the configured low-cost watcher and returns control promptly instead of blocking the parent on the watch.
+- The watcher cannot edit files, rerun local verification, change the merge request, push, merge or clean up.
+- Reported status belongs to the expected HEAD and includes pending/failed downstream pipelines; a short parent-job success is not sufficient.
+- Completion and failure notifications retain enough context for the parent to resume the same finalization safely, without duplicating a watcher or a merge attempt.
+- Merge approval, unresolved-review and stacked-base gates remain unchanged.
+- Output contains status and relevant links, not credentials or raw job-log payloads.
+- Tests cover supported delegation, unavailable/failed delegation, stale or pending CI, timeout and successful handoff, without real network access.
+
+**Effort:** medium — skill/configuration orchestration plus completion and failure handoff tests; the existing CLI remains the owner of CI-state logic.
+
+**Related:** the existing CI-wait reliability and per-skill model-selection items cover adjacent concerns; this item specifically releases the parent session through a read-only delegated watch.
+
 ## Considered and not planned
 
 - **Personas and multi-agent roles** (BMAD), **spec-driven phases** (spec-kit), **label-based handoff queues** (zaks-io): full methods of their own; out of scope for a session-workflow standard.

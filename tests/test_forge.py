@@ -176,23 +176,43 @@ def test_create_expect_refuses_a_moved_number_and_names_a_raced_one(branch, tmp_
     assert "--expect takes a request number" in capsys.readouterr().err
 
 
-def test_create_in_a_stacked_session_targets_the_base(branch, tmp_path, monkeypatch, capsys):
+@pytest.mark.parametrize("draft_part", [False, True])
+def test_stacked_request_targets_base(
+    branch: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    draft_part: bool,
+) -> None:
     monkeypatch.setattr(session, "read", lambda: {"issue": "", "base": "feat/a"})
     body = tmp_path / "body.md"
-    body.write_text("x\n")
-    assert cli.main(["mr", "create", "--title", "t", "--body-file", str(body), "--dry-run"]) == 0
-    assert capsys.readouterr().out.startswith("DRY RUN (github): feat/retries → feat/a ")
+    body.write_text("Builds on base request #4.\n", encoding="utf-8")
+    args = ["mr", "create", "--title", "t", "--body-file", str(body)]
+    if draft_part:
+        args.extend(["--part", "--draft"])
+    assert cli.main([*args, "--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith(f"DRY RUN (github): feat/retries → feat/a title='t' draft={draft_part}")
+    assert "Builds on base request #4." in out
+    if draft_part:
+        assert "part=1" in out
 
     git("push", "-qu", "origin", "feat/retries", cwd=branch)
-    targets = []
+    targets: list[tuple[str, bool]] = []
     monkeypatch.setattr(forge, "find_open", lambda kind, b, cwd: None)
     monkeypatch.setattr(
         forge,
         "create",
-        lambda kind, b, base, title, text, draft, cwd: targets.append(base) or forge.MergeRequest("9", "u"),
+        lambda kind, b, base, title, text, draft, cwd: targets.append((base, draft)) or forge.MergeRequest("9", "u"),
     )
-    assert cli.main(["mr", "create", "--title", "t", "--body-file", str(body)]) == 0
-    assert targets == ["feat/a"]
+    assert cli.main(args) == 0
+    assert targets == [("feat/a", draft_part)]
+    capsys.readouterr()
+
+    monkeypatch.setattr(forge, "find_open", lambda kind, b, cwd: forge.MergeRequest("9", "u"))
+    assert cli.main(args) == 0
+    assert capsys.readouterr().out == "#9 already open: u (aw mr update changes it)\n"
+    assert targets == [("feat/a", draft_part)]
 
 
 def test_mr_needs_a_forge(repo, capsys):
