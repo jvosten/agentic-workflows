@@ -24,6 +24,7 @@
 
 - Title: a conventional-commit summary of the outcome.
 - One `CHANGELOG.md` entry per pull request, under the version it ships in, in the commits the request opens with.
+- A pull request that only bumps a dependency (Dependabot) needs no entry and no version.
 - The description has three sections: Summary, Evidence (the test that failed before and passes now), Merge danger.
 - Pull requests merge with a merge commit, after the four CI checks pass.
 
