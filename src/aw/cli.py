@@ -431,7 +431,6 @@ def _memory(args: argparse.Namespace) -> None:
     op = args.op
     if op == "add":
         text = _body(args.body_file)
-        cfg.public(args.title, text)
         path = memory.add(cfg, args.kind, args.title, text, _ids(args.tags or ""), args.ref, args.intent)
         print(f"wrote {path.relative_to(cfg.checkout)}")
     elif op == "find":
@@ -463,7 +462,6 @@ def _memory(args: argparse.Namespace) -> None:
         print(f"implemented {path.relative_to(cfg.checkout)}")
     elif op == "import":
         lines = (sys.stdin.read() if args.json == "-" else Path(args.json).read_text()).splitlines()
-        cfg.public(*lines)
         written = memory.import_json(cfg, lines)
         kinds = {k: sum(p.parent.name == d for p in written) for k, d in memory.KINDS.items()}
         print(f"imported {', '.join(ui.plural(n, k) for k, n in kinds.items() if n) or 'nothing'}")

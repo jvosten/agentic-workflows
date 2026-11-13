@@ -41,7 +41,7 @@ class GitLab(Tracker):
             labels=d.get("labels", []),
             body=d.get("description") or "",
             opened_by=gitlab_access(self.cfg.get("trusted_bots"), self.glab).comment(
-                (d.get("author") or {}).get("username", ""), ""
+                (d.get("author") or {}).get("username", ""), "", bot=True
             ),
         )
 

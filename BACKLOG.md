@@ -562,6 +562,20 @@ This repo's own hardening plan hit the second set right after it was written (20
 
 **Effort:** small: one forge call and one guard, reusing `forge.stacked_on`.
 
+---
+
+### [LOW] trusted_bots covers a bot's comments on an issue
+
+**Context:** `trusted_bots` counts only for an author GitHub reports as a bot, so a user account with the same login stays `[outside]`. `aw mr comments` and the issue's author come from GraphQL, which gives the author's type. `aw issue view` reads an issue's comments from `gh issue view --json comments`, which gives only the login.
+
+**Problem:** a trusted bot's comment on an issue is marked `[outside]`, although `trusted_bots` names the bot.
+
+**Scope:**
+- Read the comments of an issue through GraphQL with `author{__typename login}`, all pages or refused.
+- `aw issue view` marks a listed bot's comment as inside; a user with the same login stays outside.
+
+**Effort:** small — one query and its pagination, tests with recorded payloads.
+
 ## Considered and not planned
 
 - **Personas and multi-agent roles** (BMAD), **spec-driven phases** (spec-kit), **label-based handoff queues** (zaks-io): full methods of their own; out of scope for a session-workflow standard.

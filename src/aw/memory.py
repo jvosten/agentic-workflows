@@ -201,6 +201,7 @@ def add(
 ) -> Path:
     if intent and kind != "decision":
         raise AwError(INTENT_ONLY)
+    cfg.public(title, text, issue, *tags)
     _check_tags(cfg, kind, tags)
     slug = slugify(title)
     path = directory(cfg, kind) / f"{slug}.md"
@@ -288,6 +289,7 @@ def import_json(cfg: Config, lines: list[str]) -> list[Path]:
                 raise ValueError("sections must map a heading to its text")
             body = d.get("body") or "\n\n".join(f"## {k}\n\n{str(v).strip()}" for k, v in sections.items() if v)
             entry = _entry(kind, slug, {key: d.get(key) for key in FIELDS}, str(body))
+            cfg.public(slug, entry.title, entry.body, entry.issue, *entry.tags, *entry.aliases)
             _check_tags(cfg, kind, entry.tags)
             new.append(entry)
         except (KeyError, ValueError, TypeError, AwError) as e:

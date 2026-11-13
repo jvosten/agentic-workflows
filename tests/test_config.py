@@ -281,6 +281,26 @@ def test_every_other_text_aw_publishes_is_checked_for_private_terms(repo, monkey
     assert not git("branch", "--list", "feat/acme-*", cwd=repo)
 
 
+@pytest.mark.parametrize(
+    ("argv", "stdin"),
+    [
+        (["memory", "import", "--json", "-"], '{"kind": "gotcha", "title": "T", "body": "Runs at Ac\\u006de."}\n'),
+        (["memory", "add", "gotcha", "--title", "T", "--body-file", "-", "--ref", "ACME-12"], "Body.\n"),
+    ],
+    ids=lambda value: " ".join(value[:2]) if isinstance(value, list) else "",
+)
+def test_memory_checks_the_decoded_entry_for_private_terms(repo, monkeypatch, capsys, argv, stdin):
+    """An escaped term in an import line and the issue reference of an entry reach the committed file too."""
+    from aw import cli
+
+    (repo / ".agents").mkdir()
+    (repo / ".agents/aw.local.toml").write_text('private_terms = ["acme"]\n')
+    monkeypatch.setattr("sys.stdin", io.StringIO(stdin))
+    assert cli.main(argv) == 1
+    assert "names the private term 'acme'" in capsys.readouterr().err
+    assert not list((repo / ".agents").rglob("*.md"))
+
+
 def test_the_lines_aw_mr_create_appends_are_checked_too(repo, monkeypatch, capsys):
     """A Jira key can be the private term: the closing line names it after the body passed the check."""
     from aw import cli, session

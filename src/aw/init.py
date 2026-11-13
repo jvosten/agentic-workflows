@@ -200,11 +200,11 @@ def run(assume_yes: bool, sets: list[str], check: bool = False) -> Report:
     plans = Path(merged["plan_dir"] or schema["plan_dir"]["default"])
     if merged["plan_scope"] == "local" and plans.parts[:1] == (path.parent.name,):
         entries.append(plans.relative_to(path.parent.name).as_posix() + "/")
-    present = ignore.read_text().split() if ignore.is_file() else []
-    missing = [entry for entry in entries if entry not in present]
+    ignored = ignore.read_text() if ignore.is_file() else ""
+    missing = [entry for entry in entries if entry not in ignored.split()]
     if missing and not check:
         with ignore.open("a") as f:
-            f.write("".join(f"{entry}\n" for entry in missing))
+            f.write(("\n" if ignored and not ignored.endswith("\n") else "") + "".join(f"{e}\n" for e in missing))
     written = {k: v for k, v in values.items() if k != "aw_version"}
     previous = {k: v for k, v in raw.items() if k != "aw_version"} if existed else None
     version = (raw.get("aw_version"), full["version"]) if existed and raw.get("aw_version") != full["version"] else None
