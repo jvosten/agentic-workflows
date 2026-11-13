@@ -15,7 +15,7 @@ aw = "aw.cli:main"
 dev = [
     "pytest>=8",
     "ruff==0.17.0",
-    "ty==0.0.86",
+    "ty==0.0.100",
 ]
 
 [build-system]
