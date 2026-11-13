@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.1.19 — 2026-11-13 (#23)
+
+Fixes from the review before publication, merged as parts #20, #21 and #22.
+
+### Security
+
+- `trusted_bots` applies to bot accounts only. A person whose login equals a trusted bot's name is `[outside]`
+  unless they can push. A trusted bot's comments on an issue are `[outside]` for now.
+- `aw memory add` and `aw memory import` check every field of the entry against `private_terms`, also when the
+  entry comes from JSON.
+
+### Fixed
+
+- `aw init` keeps the last entry of an `.agents/.gitignore` that has no final newline.
+- `aw restack` compares the closed request with the remote branch itself (`refs/heads/<branch>`), not with a branch
+  whose name ends alike, and retargets the session's request after the push: to the base, or to `main_branch` when
+  the base merged.
+- `aw abandon` refuses while an open request targets the branch: deleting the branch would close it.
+- `aw mr`, `aw finish`, `aw merge` and `aw abandon` refuse a detached HEAD.
+- `gh` and `glab` calls end after 60 s, git network calls after 120 s (`push`: 600 s), and git never prompts for
+  credentials. A Jira reply that is not JSON, or a failure past the connection, is an `aw` error.
+- `aw mr create` adds the issue's closing line unless the body holds that exact line.
+- `aw backlog add` refuses a body heading that would become an item of its own.
+
 ## 0.1.18 — 2026-11-12 (#19)
 
 ### Fixed

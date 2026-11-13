@@ -1,6 +1,6 @@
 [project]
 name = "agentic-workflows"
-version = "0.1.18"
+version = "0.1.19"
 description = "Generic agent skills for standardized session workflows, configured per project"
 readme = "README.md"
 license = "MIT"
