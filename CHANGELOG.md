@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.21 — 2026-11-13 (#25)
+
+### Added
+
+- `SECURITY.md`, `CONTRIBUTING.md`, issue forms for bugs and features, and Dependabot for GitHub Actions and `uv`.
+
+### Changed
+
+- The README gives the clone URL and states the alpha status. Examples use a neutral board owner.
+- CI pins its actions to commits and checks out without stored credentials.
+
 ## 0.1.20 — 2026-11-13 (#24)
 
 ### Fixed

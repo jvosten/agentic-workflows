@@ -1,6 +1,6 @@
 [project]
 name = "agentic-workflows"
-version = "0.1.20"
+version = "0.1.21"
 description = "Generic agent skills for standardized session workflows, configured per project"
 readme = "README.md"
 license = "MIT"
@@ -40,7 +40,7 @@ select = ["E", "F", "I", "B", "UP", "RUF", "SIM", "C4", "PTH", "RET", "ARG", "PT
 ignore = [
     "S603", "S607",  # aw runs git, gh and glab by name with argument lists; no shell, no user-built command
     "ANN401",        # Any stays at the decoding boundary of raw JSON and TOML
-    # Complexity limits: the CLI dispatch and adapters exceed them today; revisit when S16 reshapes the modules.
+    # Complexity limits: the CLI dispatch and adapters exceed them today; revisit when the modules are reshaped.
     "PLR0911", "PLR0912", "PLR0913", "PLR0915", "PLR0917", "PLR2004",
 ]
 allowed-confusables = ["−", "›", "–"]  # typographic characters in user-facing text
