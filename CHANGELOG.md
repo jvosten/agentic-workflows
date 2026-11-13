@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.20 — 2026-11-13 (#24)
+
+### Fixed
+
+- `aw restack` sets the upstream when it pushes, so `aw mr create` works on a branch that had none.
+- `aw memory load`, `find`, `tags` and `show` skip an invalid entry file with a warning; one bad file stopped
+  every memory command. `aw doctor`, every write, and `show` of that entry still refuse it.
+- `/aw-finalize` asks its decisions (the backlog inbox) before any other step, counts uncommitted and untracked
+  work, and no longer reviews finished work: a session that did not do the work skips the docs and memory steps,
+  the docs step covers only what the changed files make wrong, and nothing runs after `aw verify` passes. A
+  limited run ("only the pull request") skips the named steps and never means `--no-verify`.
+
+### Changed
+
+- `/aw-start-task` states where each change belongs before any code; when no place fits, it asks.
+
 ## 0.1.19 — 2026-11-13 (#23)
 
 Fixes from the review before publication, merged as parts #20, #21 and #22.
