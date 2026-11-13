@@ -14,7 +14,7 @@ aw = "aw.cli:main"
 [dependency-groups]
 dev = [
     "pytest>=8",
-    "ruff==0.17.0",
+    "ruff==0.17.4",
     "ty==0.0.86",
 ]
 
