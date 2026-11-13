@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 import tomllib
 from dataclasses import dataclass, field
 from datetime import date
@@ -145,11 +146,18 @@ def parse(path: Path, kind: str) -> Entry:
         raise AwError(f"{path}: {e}") from None
 
 
-def entries(cfg: Config, kind: str | None = None) -> list[Entry]:
+def entries(cfg: Config, kind: str | None = None, skip: bool = False) -> list[Entry]:
+    """Every entry; skip: an invalid file is reported on stderr and left out, for commands that only read."""
     found = []
     for name in [kind] if kind else KINDS:
         root = directory(cfg, name)
-        found += [parse(cfg.inside("memory_dir", p), name) for p in sorted(root.glob("*.md"))] if root.is_dir() else []
+        for path in sorted(root.glob("*.md")) if root.is_dir() else []:
+            try:
+                found.append(parse(cfg.inside("memory_dir", path), name))
+            except AwError as e:
+                if not skip:
+                    raise
+                print(f"warning: skipped {e}", file=sys.stderr)
     return found
 
 
@@ -167,7 +175,7 @@ def vocabulary(cfg: Config) -> dict[str, str]:
 def resolve(cfg: Config, ref: str) -> Entry:
     """An entry by slug or alias (a number like 95, an id like D15). A slug in both kinds is refused, never picked."""
     wanted = ref.strip().removeprefix("#").casefold()
-    every = entries(cfg)
+    every = entries(cfg, skip=True)
     same = sorted((e for e in every if e.slug.casefold() == wanted), key=lambda e: e.kind)
     if len(same) > 1:
         raise AwError(f"{same[0].slug} is both a {same[0].kind} and a {same[1].kind}; rename one, aw doctor lists it")
@@ -175,6 +183,9 @@ def resolve(cfg: Config, ref: str) -> Entry:
         return same[0]
     hits = [e for e in every if wanted in (a.casefold() for a in e.aliases)]
     if not hits:
+        for kind in KINDS:
+            if (path := directory(cfg, kind) / f"{wanted}.md").is_file():
+                parse(cfg.inside("memory_dir", path), kind)
         raise AwError(f"no memory entry {ref!r} (slug or alias)")
     if len(hits) > 1:
         raise AwError(f"alias {ref!r} is claimed by {', '.join(e.slug for e in hits)}; aw doctor lists it")
@@ -220,7 +231,7 @@ def add(
 def find(cfg: Config, kind: str | None, tags: list[str], terms: list[str], retired: bool) -> list[Entry]:
     """Entries with any of the tags and all of the terms (case-insensitive, title, body, tags and aliases)."""
     found = []
-    for entry in entries(cfg, kind):
+    for entry in entries(cfg, kind, skip=True):
         if entry.status == "retired" and not retired:
             continue
         if tags and not set(tags) & set(entry.tags):
@@ -235,7 +246,7 @@ def tag_counts(cfg: Config) -> list[tuple[str, int, str]]:
     """Every tag of the vocabulary with its number of active gotchas, most first."""
     vocab = vocabulary(cfg)
     counts = dict.fromkeys(vocab, 0)
-    for entry in entries(cfg, "gotcha"):
+    for entry in entries(cfg, "gotcha", skip=True):
         if entry.status == "active":
             for tag in entry.tags:
                 counts[tag] = counts.get(tag, 0) + 1
@@ -346,11 +357,11 @@ def start_text(cfg: Config, has_plan: bool) -> str:
                 "`aw memory find --tags <tag> --compact`, then `aw memory show <id>`.\n" + " · ".join(counts)
             )
     else:
-        active = [e for e in entries(cfg, "gotcha") if e.status == "active"]
+        active = [e for e in entries(cfg, "gotcha", skip=True) if e.status == "active"]
         if active:
             parts.append("# Gotchas\n\n" + "\n\n".join(f"## {e.title}\n\n{e.body}" for e in active))
     if not has_plan:
-        decisions = [e.compact() for e in entries(cfg, "decision") if e.status != "retired"]
+        decisions = [e.compact() for e in entries(cfg, "decision", skip=True) if e.status != "retired"]
         if decisions:
             parts.append(
                 "Decisions in force (`aw memory show <id>` for one; do not reopen them):\n"

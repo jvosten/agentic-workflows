@@ -269,9 +269,19 @@ def test_a_malformed_entry_names_its_file_and_field(vocab, capsys, line, message
     head = {"title": 'title: "Odd entry"', "tags": 'tags: ["flux"]', "status": 'status: "active"'}
     head[line.split(":")[0]] = line
     (gotchas / "odd-entry.md").write_text("---\n" + "\n".join(head.values()) + "\n---\n\nBody.\n")
-    assert cli.main(["memory", "find", "--tags", "flux"]) == 1
+    (gotchas / "sound-entry.md").write_text('---\ntitle: "Sound entry"\ntags: ["flux"]\n---\n\nBody.\n')
+    assert cli.main(["memory", "find", "--tags", "flux", "--compact"]) == 0
+    out, err = capsys.readouterr()
+    assert "sound-entry" in out and "odd-entry" not in out
+    assert f"warning: skipped {gotchas / 'odd-entry.md'}" in err and message in err
+    assert cli.main(["memory", "load"]) == 0
+    assert "Sound entry" in capsys.readouterr().out
+    assert cli.main(["memory", "show", "sound-entry"]) == 0
+    capsys.readouterr()
+    assert cli.main(["memory", "show", "odd-entry"]) == 1
     err = capsys.readouterr().err
     assert str(gotchas / "odd-entry.md") in err and message in err
+    assert doctor.check_memory(load())[0][0] == "fail"
 
 
 def test_an_imported_line_meets_the_same_rules_as_a_file(vocab, capsys):
