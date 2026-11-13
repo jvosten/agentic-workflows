@@ -1,0 +1,38 @@
+name: Bug
+description: A command or a skill does not do what the README says.
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `aw --version`.
+    validations:
+      required: true
+  - type: input
+    id: setup
+    attributes:
+      label: Setup
+      description: Forge, tracker and agent, for example "github, jira, Claude Code".
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps
+      description: The command or skill and what led to it. Remove names of private projects, hosts and people.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual result
+      description: Include the exact output of `aw`.
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: aw doctor
+      description: Output of `aw doctor`, when the problem may be the installation or the configuration.
+      render: text

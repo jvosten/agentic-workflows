@@ -50,7 +50,7 @@ Deferred features and open checks. Each entry has enough context to be picked up
 
 ### [LOW] Native blocking links between issues
 
-**Context:** `aw-to-subtasks` writes blocking edges as a `## Blocked by` section in the body, because Jira link types are per-instance (`Blocks`, `is blocked by`, renamed schemes). The story template does the same with `- Blocked by: <id>` under `## Links`. GitHub now has native issue dependencies: GraphQL `addBlockedBy` / `removeBlockedBy`, and `blockedBy` / `blocking` on issues (also `gh issue view --json blockedBy,blocking`). Seen in a real run: an epic with seven ordered stories (workflow-orchestrator, AIDA-1925) carried its order only as body text; the user had to add every Jira link by hand.
+**Context:** `aw-to-subtasks` writes blocking edges as a `## Blocked by` section in the body, because Jira link types are per-instance (`Blocks`, `is blocked by`, renamed schemes). The story template does the same with `- Blocked by: <id>` under `## Links`. GitHub now has native issue dependencies: GraphQL `addBlockedBy` / `removeBlockedBy`, and `blockedBy` / `blocking` on issues (also `gh issue view --json blockedBy,blocking`). Seen in a real run: an epic with seven ordered stories in an adopting project carried its order only as body text; the user had to add every Jira link by hand.
 
 **Scope:** `aw issue link <id> blocks <other>`: GitHub through `addBlockedBy`, Jira with link-type discovery, text fallback elsewhere. Works for stories and subtasks alike; `aw-to-story` and `aw-to-subtasks` call it for each `Blocked by` entry. `aw issue view` shows blocked-by and blocking; `aw doctor` reports the available Jira link types.
 
@@ -123,7 +123,7 @@ Deferred features and open checks. Each entry has enough context to be picked up
 - `local` (gitignored, primary checkout): the plan exists on one machine in one clone. Another machine never sees it, a re-clone (e.g. a history rewrite and republish) loses it unless copied by hand, and a sandboxed session with a fresh clone has no plan at all.
 - `repo`, but planned outside a session: live test in an adopting project, 2026-10-07. `aw-plan-story` for its tracker-migration story ran in the primary checkout on `main_branch` and wrote the plan there, untracked; `/aw-to-subtasks` wrote the subtask ids into that file too. `aw start-task` creates the worktree from `main_branch`, so the plan is not in it and `aw plan path` in the worktree finds nothing; the first session moved the file in by hand. A copy left behind broke `aw finish` when updating `main_branch` ("untracked working tree files would be overwritten by merge"; since 2026-10-07 that update is a warning, not a failure). `aw memory add decision` in `aw-plan-story` has the same problem.
 
-This repo's own hardening plan hit the second set right after it was written (2026-10-10).
+This repo's own first plan hit the second set right after it was written (2026-10-10).
 
 **Options to weigh:**
 - `repo` plus a lifecycle: `aw-finalize` sets `**Status:** done` and the merge date when the story's last subtask closes; `aw plan state` reports it; `aw-plan` treats `done` as finished; plans are not moved or deleted, so cited paths keep working.
@@ -363,10 +363,10 @@ This repo's own hardening plan hit the second set right after it was written (20
 
 ### [MEDIUM] Tagged releases with built wheels
 
-**Context:** S11 of the hardening plan (2026-10-18) made `aw` installable without a clone: `uv tool install git+https://github.com/jvosten/agentic-workflows`, then `aw install`, and `aw update` runs `uv tool upgrade`. CI installs that package non-editable and checks the skills link into the packaged `aw/_skills`. Asked at the end: is this now comparable to a binary install?
+**Context:** Since 2026-10-18 `aw` is installable without a clone: `uv tool install git+https://github.com/jvosten/agentic-workflows`, then `aw install`, and `aw update` runs `uv tool upgrade`. CI installs that package non-editable and checks the skills link into the packaged `aw/_skills`. Asked at the end: is this now comparable to a binary install?
 
 **Problem:** Not yet. The package bundles CLI and skills at one version, but:
-- each install builds the wheel from git source, so it needs git, network access to the repository (credentials while it is private) and a build backend;
+- each install builds the wheel from git source, so it needs git, network access to the repository and a build backend;
 - `uv tool upgrade` follows the default branch's HEAD: there are no releases to pin or to move between, only commits;
 - there is no artifact to checksum or to keep for an offline or sandboxed install;
 - installing takes two steps: `aw install` must run after `uv tool install`, or no agent sees the skills, and a wheel cannot run that step on install.
@@ -454,7 +454,7 @@ This repo's own hardening plan hit the second set right after it was written (20
 
 ### [MEDIUM] Make `aw-finalize` merge-request waiting reliable
 
-**Context:** In a docs session (AIDA-1937, MR !85) the wait after a push was slow and misleading. After a force-push `aw mr checks --watch` printed `1 passed` and `aw mr view` printed `mergeable: conflict` at once; both described the old state. GitLab computes the pipeline and the mergeability asynchronously. The conflict (a rebase onto `main`, in `CHANGELOG.md`) only appeared at step 9, after the merge request existed and CI had run. Piping the watch through `tail` hid all progress, and a `sed -i` call that works on Linux failed on macOS and cut off its `&&` chain without a visible error.
+**Context:** In a docs session of an adopting project (GitLab) the wait after a push was slow and misleading. After a force-push `aw mr checks --watch` printed `1 passed` and `aw mr view` printed `mergeable: conflict` at once; both described the old state. GitLab computes the pipeline and the mergeability asynchronously. The conflict (a rebase onto `main`, in `CHANGELOG.md`) only appeared at step 9, after the merge request existed and CI had run. Piping the watch through `tail` hid all progress, and a `sed -i` call that works on Linux failed on macOS and cut off its `&&` chain without a visible error.
 
 **Scope:**
 - `aw mr checks --watch`: wait for the pipeline whose SHA equals local `HEAD`. No pipeline for that SHA yet counts as pending (exit 2). Do not report the previous pipeline.
@@ -556,6 +556,21 @@ This repo's own hardening plan hit the second set right after it was written (20
 - `aw issue view` marks a listed bot's comment as inside; a user with the same login stays outside.
 
 **Effort:** small — one query and its pagination, tests with recorded payloads.
+
+---
+
+### [LOW] max_subagents setting next to subagent_model
+
+**Context:** A repo skill in an adopting project started three research subagents at once without a model, so they ran on the session's own, most expensive model: about 514k tokens for read-and-summarize work. `aw` has `subagent_model` (`aw config` prints it; `aw-plan-story`, `aw-to-story` and `aw-to-subtasks` use it), but nothing bounds how many delegated agents run at once, so each skill would write its own limit.
+
+**Proposal:**
+- A key `max_subagents` (integer, default 1), printed by `aw config` next to `subagent_model`.
+- At most that many delegated agents run at the same time in one session; 0 means no delegation (work inline), independent of `subagent_model`.
+- An empty `subagent_model` keeps meaning "no cheap model configured": skills that delegate only for cost then work inline.
+- The delegating skills state "respect `max_subagents` and `subagent_model` from `aw config`" once, in the same words, so repo skills can copy the sentence.
+- `aw init` writes both keys.
+
+**Done when:** `aw config` prints `max_subagents`, the three skills name it, and a repo skill can rely on one documented sentence instead of its own rule.
 
 ## Considered and not planned
 

@@ -1,0 +1,20 @@
+name: Feature
+description: Something `aw` or a skill should do.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What you tried to do and where the workflow stopped you.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: The behavior you want. A command, a config key or a skill step, if you have one in mind.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you do today

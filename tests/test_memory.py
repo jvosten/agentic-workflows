@@ -127,7 +127,7 @@ def test_import_validates_everything_before_writing(vocab, capsys):
             "tags": ["talos"],
             "aliases": ["1"],
             "date": "2026-01-02",
-            "sections": {"Symptom": "fails", "Cause": "inventory", "Fix": "add pve01"},
+            "sections": {"Symptom": "fails", "Cause": "inventory", "Fix": "add the host"},
         },
         {
             "kind": "decision",
