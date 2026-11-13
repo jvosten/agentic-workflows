@@ -47,6 +47,7 @@ It syncs `main_branch`, creates branch and worktree, sets up direnv, moves the i
 - Create one task per plan step. No plan → plan the approach with the user before any code.
 - A `Checkpoint:` step becomes its own task: run `/aw-checkpoint` there, then continue with the next task.
 - State the scope: what this session delivers, what it defers.
+- State the placement, before any code: which existing module, file or section each change belongs to, by the structure rules in `instructions_file` or the architecture document it names. No place fits → that is a design question: put it to the user. Never solve it by adding to the nearest file.
 
 ## 5. Hand over
 
@@ -59,6 +60,7 @@ Session <worktree directory name> ready
   issue:    <issue ref> | none
   verify:   <verify_cmd> | none
   scope:    <one line>
+  place:    <where the change goes> | open: <the design question>
 Implementation starts now. All file operations use absolute paths under <worktree>.
 ```
 

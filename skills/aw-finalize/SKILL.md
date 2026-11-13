@@ -13,24 +13,36 @@ Request: $ARGUMENTS
 
 ## 1. Load session and settings
 
-Run both from the session worktree:
+Run these from the session worktree:
 
 ```bash
 ~/.agents/bin/aw session
 ~/.agents/bin/aw config
+~/.agents/bin/aw backlog list
+git status --short
 ```
 
 On error, show it and stop. `session` gives `branch`, `worktree`, `issue`; all paths below are under `worktree`.
 
+**Decisions first.** Ask the user now, in one question, before any other step:
+
+- `aw backlog list` names items and `backlog_home = tracker` → per item: **send** to the tracker or **discard**. `aw finish` refuses while the inbox holds items. `no items` → nothing to ask.
+
+**A session you did not work in** (a new conversation with no memory of the changes): the work is finished. Do not review, audit or re-verify it. Skip step 3, write nothing in step 4, and do not load project skills to check the work.
+
+**The user limits the run** ("only the pull request", "no verification") → skip the named steps and say so in the report. Nothing else changes: never pass `--no-verify` to git, and keep the changelog entry and `--expect` unless the user names them.
+
 ## 2. Review the work
 
-- `git -C <worktree> status` and `git -C <worktree> diff <target>...HEAD`. `<target>` is the session's `base` while it is stacked, else `main_branch`.
+- `git -C <worktree> diff --stat <target>...HEAD` for the commits and `git -C <worktree> diff --stat HEAD` for uncommitted work, with the `git status --short` of step 1 for new files. `<target>` is the session's `base` while it is stacked, else `main_branch`. Uncommitted and untracked work is the session's work: an empty commit diff does not mean nothing changed. Read a diff itself only as far as the summary needs it.
 - List what changed and why, in a few lines. You need this for docs, the PR, and the changelog.
 - After checkpoints (`/aw-checkpoint`), earlier parts are already in `main`: the diff holds only what came after the last one, and may be empty. Fill only what is missing below; never redo what a part already merged.
 
 ## 3. Documentation
 
 Apply the documentation rules in `<worktree>/<instructions_file>`: decision records, reference docs, runbooks, known pitfalls — whatever the project requires for this kind of change. No rules there → update docs the change makes wrong, nothing more.
+
+The bound: only docs that the files changed in this session make wrong or that a rule names for them. Never check finished docs against the source code, and run no build or check here; step 6 verifies.
 
 ## 4. Project memory
 
@@ -66,7 +78,7 @@ Then, with `backlog_home = tracker` (and a tracker set), empty the session inbox
 ```
 
 - `no items` → nothing to do.
-- Otherwise load `aw-backlog-item` to empty the inbox: per item, the user decides **send** to the tracker or **discard**. Nothing stays in the file; `aw finish` refuses while it holds items.
+- Otherwise load `aw-backlog-item` to empty the inbox with the user's answers from step 1 (**send** to the tracker: its steps; **discard**: `~/.agents/bin/aw backlog pop --title "<title>"`). Ask again only for leftovers added in this step. Nothing stays in the file; `aw finish` refuses while it holds items.
 - The emptied file is deleted. It was committed earlier in the session → commit its deletion with the rest of the work.
 
 With `backlog_home = file`, the items stay in `backlog_file` and are committed with the session.
@@ -78,6 +90,8 @@ With `backlog_home = file`, the items stay in `backlog_file` and are committed w
 ```
 
 Non-zero exit → fix the cause and re-run. Do not continue on a failing check.
+
+Exit 0 is the result. Run no further build, test or linter, also when an issue or a plan names one: tell the user it names one, and go on.
 
 ## 7. Changelog
 

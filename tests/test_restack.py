@@ -62,6 +62,13 @@ def test_restack_follows_new_base_commits(stacked, repo):
     assert git("rev-parse", "HEAD", cwd=stacked) == head and session.read() == meta
 
 
+def test_restack_sets_the_upstream_for_a_branch_without_one(stacked, repo):
+    git("branch", "--unset-upstream", cwd=stacked)
+    base_commit(repo, "more.txt")
+    assert restack.run(load(), session.read()).state == "restacked"
+    assert git("rev-parse", "--abbrev-ref", "@{upstream}", cwd=stacked) == f"origin/{session.read()['branch']}"
+
+
 def merge_base_into_main(repo, method):
     """What the forge does when it merges feat/a's request into main."""
     git("checkout", "-q", "main", cwd=repo)

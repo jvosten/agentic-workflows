@@ -107,7 +107,7 @@ What the project learned is committed under `memory_dir` (default `.agents/memor
 | `decisions/<slug>.md` | What the project settled, and why it won; `intent` while it is accepted but not built |
 | `tags.toml` | The tag vocabulary: `flux = "Flux CD: kustomizations, HelmReleases"` |
 
-Each file has a small frontmatter (title, tags, status, aliases, date, issue), one JSON value per field; a value of the wrong type, such as a YAML list `tags: [git, gh]`, is an error that names the file and the field. The slug comes from the title and is the entry's permanent id, unique across decisions and gotchas; numbers from an older numbering live on as aliases (`aw memory show 95`). Titles are claims (`boto3 is pinned below 1.36`): plans list entries by title alone. Entries are retired, never deleted. Parallel sessions write different files, so they never conflict. A workflow pitfall that bites whatever the tool is not a gotcha but a rule for `instructions_file`.
+Each file has a small frontmatter (title, tags, status, aliases, date, issue), one JSON value per field; a value of the wrong type, such as a YAML list `tags: [git, gh]`, is an error that names the file and the field. Commands that only read (`load`, `find`, `tags`, `show` of another entry) skip such a file with a warning; `aw doctor` and every write refuse it. The slug comes from the title and is the entry's permanent id, unique across decisions and gotchas; numbers from an older numbering live on as aliases (`aw memory show 95`). Titles are claims (`boto3 is pinned below 1.36`): plans list entries by title alone. Entries are retired, never deleted. Parallel sessions write different files, so they never conflict. A workflow pitfall that bites whatever the tool is not a gotcha but a rule for `instructions_file`.
 
 | Command | Does |
 |---|---|
@@ -295,7 +295,7 @@ How states, boards and the hook fit together on each tracker: [docs/boards.md](d
 | `aw update [--agent claude]` | Update `aw` (editable: fast-forward the clone; packaged: `uv tool upgrade`), relink the skills, and inside a project run `aw init --check` |
 | `aw config [--get KEY] [--sources]` | Print resolved configuration |
 | `aw start-task <type> <slug> [--issue N] [--base B]` | Fast-forward the local main (the primary checkout may be on any branch), create branch + worktree from main (`--base`: from `origin/B`, a [stacked session](#stacked-sessions)), direnv (a tracked `.envrc` is kept and left for you to read and `direnv allow`; a missing or failing `direnv` is a warning), `on_start` |
-| `aw restack [--dry-run] [--json]` | Stacked session: rebase onto the base's tip, or onto main once the base merged; push, retarget |
+| `aw restack [--dry-run] [--json]` | Stacked session: rebase onto the base's tip, or onto main once the base merged; push (sets the upstream), retarget |
 | `aw session` | Print the current worktree's session metadata |
 | `aw verify` | Run `verify_cmd` in the current checkout (through direnv if enabled) |
 | `aw merge [--pr N]` | Merge one part; the branch catches up with main, worktree and issue stay, `on_merge` runs |
