@@ -4,12 +4,14 @@ Generic agent skills that give every project the same session workflow. Project 
 
 Skills follow the [Agent Skills](https://agentskills.io/specification) format and install to `~/.agents/skills/`. Pi, Codex, Cursor, Gemini CLI, OpenCode and Copilot read that directory directly. Claude Code does not, so `aw install` links each skill into `~/.claude/skills/` as well.
 
+**Status: alpha.** Before 1.0, a minor version may break commands, output and configuration; `CHANGELOG.md` says what changed. Report a vulnerability in private, see `SECURITY.md`; contributions follow `CONTRIBUTING.md`.
+
 ## Install
 
 Requires `git`, `make` and [`uv`](https://docs.astral.sh/uv/).
 
 ```bash
-git clone <this repo> ~/projects/agentic-workflows
+git clone https://github.com/jvosten/agentic-workflows ~/projects/agentic-workflows
 cd ~/projects/agentic-workflows
 make install       # installs the `aw` CLI, links skills and ~/.agents/bin/aw
 make doctor
@@ -23,7 +25,7 @@ The installed `aw` and every agent's skills run whatever this clone has checked 
 
 `make install` installs the tool; `aw init` (below) configures one project.
 
-Without a clone, install the package (not editable; the skills come from the package). While the repository is private, this needs read access and git credentials for it:
+Without a clone, install the package (not editable; the skills come from the package).:
 
 ```bash
 uv tool install git+https://github.com/jvosten/agentic-workflows

@@ -93,7 +93,7 @@ The default with `tracker = "github"`. Issues are open or closed; projects board
 A GitHub issue has no workflow state, but a Projects board does: its single-select **Status** field. Pointing `aw` at the board makes that field the issue's state:
 
 ```toml
-github_project = "jvosten/1"     # owner/number; user- or organization-owned
+github_project = "your-org/5"    # owner/number; user- or organization-owned
 status_field = "Status"          # the default
 board_fields = { "area/" = "Area", "priority/" = "Priority" }   # label prefix = field; optional
 board_required = ["Area", "Priority"]   # fields every new issue sets; optional

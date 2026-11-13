@@ -955,7 +955,7 @@ BOARD = {
 
 def board_cfg(repo, extra=""):
     (repo / ".agents").mkdir(exist_ok=True)
-    (repo / ".agents/aw.toml").write_text(f'tracker = "github"\ngithub_project = "jvosten/1"\n{extra}')
+    (repo / ".agents/aw.toml").write_text(f'tracker = "github"\ngithub_project = "your-org/5"\n{extra}')
     return load()
 
 
@@ -1100,7 +1100,7 @@ def test_doctor_checks_scope_columns_and_advises_on_workflows(repo, monkeypatch)
 
     monkeypatch.setattr(doctor, "_gh_scopes", lambda: ["repo", "project"])
     results = doctor.check_board(load())
-    assert results[0] == ("ok", "board jvosten/1 (Workflows), field Status")
+    assert results[0] == ("ok", "board your-org/5 (Workflows), field Status")
     assert results[1][0] == "fail" and "in_review → In review" in results[1][1]
     assert results[2] == (
         "info",
