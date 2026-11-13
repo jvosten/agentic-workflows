@@ -139,6 +139,26 @@ def test_where_jira_credentials_go_is_the_primary_checkouts_choice(repo, tmp_pat
     assert cfg.ignored == ["jira_base_url"]
 
 
+def test_git_network_calls_have_a_timeout_and_never_prompt(repo, monkeypatch):
+    from aw import config
+
+    seen = {}
+
+    def fake(args, **kwargs):
+        seen[args[1]] = kwargs
+        if args[1] == "push":
+            raise config.subprocess.TimeoutExpired(args, kwargs["timeout"])
+        return config.subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(config.subprocess, "run", fake)
+    git("fetch", "origin", cwd=repo)
+    git("status", cwd=repo)
+    with pytest.raises(AwError, match="git push origin: timed out after 600 s"):
+        git("push", "origin", cwd=repo)
+    assert seen["fetch"]["timeout"] == 120 and seen["status"]["timeout"] is None
+    assert seen["fetch"]["env"]["GIT_TERMINAL_PROMPT"] == "0"
+
+
 # --- private terms -----------------------------------------------------------------------------
 
 

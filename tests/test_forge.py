@@ -236,20 +236,9 @@ class FakeProcess:
     def __init__(self, answers):
         self.answers, self.calls = answers, []
 
-    def __call__(
-        self, args, cwd=None, input=None, capture_output=False, text=False, check=False, stdout=None, stderr=None
-    ):
+    def __call__(self, args, **kwargs):
         if args[0] not in ("gh", "glab"):
-            return REAL_RUN(
-                args,
-                cwd=cwd,
-                input=input,
-                capture_output=capture_output,
-                text=text,
-                check=check,
-                stdout=stdout,
-                stderr=stderr,
-            )
+            return REAL_RUN(args, **kwargs)
         self.calls.append(args)
         for prefix, (code, out, err) in self.answers.items():
             if tuple(args[: len(prefix)]) == prefix:
@@ -606,11 +595,21 @@ def test_the_merge_is_pinned_to_the_commit_that_was_checked(repo, monkeypatch, k
 # --- what a request closes -------------------------------------------------------------
 
 
+def test_mr_refuses_a_detached_head(branch, capsys):
+    """Without a branch, the forge would list every open request and aw would take the first."""
+    git("checkout", "-q", "--detach", cwd=branch)
+    create = ["mr", "create", "--title", "t", "--body-file", "-"]
+    for argv in (["mr", "view"], ["mr", "update", "--title", "t"], create):
+        assert cli.main(argv) == 1
+        assert "detached HEAD" in capsys.readouterr().err
+
+
 def test_the_closing_line_needs_a_closing_phrase_for_exactly_this_issue(branch, tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(session, "read", lambda: {"issue": "12"})
     body = tmp_path / "body.md"
     for text, appended in (
         ("Follow-up to #123.\n", True),  # #12 is not #123
+        ("Fixes #123 as well.\n", True),
         ("See #12 for the background.\n", True),  # a mention closes nothing
         ("Closes #12 already.\n", False),
         ("fixed: #12\n", False),

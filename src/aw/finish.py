@@ -180,6 +180,12 @@ def _on_merge(cfg: Config, meta: dict[str, Any], pr: str, final: bool, log: list
     log.append(f"on_merge: {cmd}" if r.returncode == 0 else f"warning: on_merge exited {r.returncode}: {cmd}")
 
 
+def _branch(meta: dict[str, Any]) -> str:
+    if not meta["branch"]:
+        raise AwError("detached HEAD: check out the session branch first (a rebase in progress? finish it)")
+    return meta["branch"]
+
+
 def _ignored(cfg: Config) -> list[str]:
     """The trusted keys the branch sets and aw did not take: the primary checkout's values decide."""
     return [f"ignored from the branch: {', '.join(cfg.ignored)}"] if cfg.ignored else []
@@ -188,7 +194,7 @@ def _ignored(cfg: Config) -> list[str]:
 def merge(cfg: Config, meta: dict[str, Any], pr: str | None) -> list[str]:
     """Merge one part and bring the branch to main's tip; worktree, branch and issue stay."""
     cfg.on_host("aw merge")
-    root, main, branch = cfg.root, cfg.get("main_branch"), meta["branch"]
+    root, main, branch = cfg.root, cfg.get("main_branch"), _branch(meta)
     worktree, kind = Path(meta["worktree"]), cfg.get("forge")
     if branch == main:
         raise AwError(f"on {main}: aw merge runs in a session worktree")
@@ -232,7 +238,7 @@ def run(cfg: Config, meta: dict[str, Any], pr: str | None, close_parent: bool = 
     close_parent: also close the issue's parent story, when nothing else keeps it open (rollup.close).
     """
     cfg.on_host("aw finish")
-    root, main, branch = cfg.root, cfg.get("main_branch"), meta["branch"]
+    root, main, branch = cfg.root, cfg.get("main_branch"), _branch(meta)
     if close_parent and not meta.get("issue"):
         raise AwError("--close-parent needs a session with an issue")
     worktree = Path(meta["worktree"])
@@ -321,7 +327,7 @@ def abandon(cfg: Config, meta: dict[str, Any], discard: bool = False, status: st
     Work that exists only on this branch (uncommitted changes, commits main lacks, locally or on origin) is
     never dropped silently: it refuses unless discard. An open merge request is never left dangling.
     """
-    root, main, branch = cfg.root, cfg.get("main_branch"), meta["branch"]
+    root, main, branch = cfg.root, cfg.get("main_branch"), _branch(meta)
     worktree, kind = Path(meta["worktree"]), cfg.get("forge")
     git("fetch", "--quiet", "origin", main, cwd=worktree)
     remote = bool(git("ls-remote", "origin", f"refs/heads/{branch}", cwd=root))

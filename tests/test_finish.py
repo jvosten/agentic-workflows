@@ -86,6 +86,17 @@ def test_finish_refuses_dirty_or_unpushed(started, monkeypatch):
         finish.run(cfg, meta, None)
 
 
+def test_lifecycle_commands_refuse_a_detached_head(started):
+    wt = started["worktree"]
+    git("checkout", "-q", "--detach", cwd=wt)
+    cfg, meta = load(wt), session.read(wt)
+    for command in (finish.run, finish.merge):
+        with pytest.raises(AwError, match="detached HEAD"):
+            command(cfg, meta, None)
+    with pytest.raises(AwError, match="detached HEAD"):
+        finish.abandon(cfg, meta)
+
+
 def test_session_outside_worktree(repo):
     with pytest.raises(AwError, match="not in a session worktree"):
         session.read()
