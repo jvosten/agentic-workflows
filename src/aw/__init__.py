@@ -1,3 +1,3 @@
 """agentic-workflows: generic agent skills configured per project."""
 
-__version__ = "0.1.21"
+__version__ = "0.1.22"
