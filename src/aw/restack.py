@@ -153,7 +153,7 @@ def run(cfg: Config, meta: dict[str, Any], dry_run: bool = False) -> Result:
             log.append(f"rebase onto {upstream} stopped; left in progress")
             return result
         log.append(f"rebased {plural(result.commits, 'commit')} onto {upstream} ({onto[:12]})")
-    git("push", "--quiet", "--force-with-lease", "origin", branch, cwd=worktree)
+    git("push", "--quiet", "--force-with-lease", "--set-upstream", "origin", branch, cwd=worktree)
     log.append(f"pushed {branch} (--force-with-lease)")
     if number := _retarget(kind, branch, target, worktree):
         result.retargeted = f"{PREFIX[kind]}{number}"
