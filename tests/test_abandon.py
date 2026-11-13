@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 from test_rollup import Board, story
 
-from aw import finish, session, start_task, trackers
+from aw import finish, forge, session, start_task, trackers
 from aw.config import AwError, git, load
 
 
@@ -49,6 +49,33 @@ def test_work_only_on_the_branch_is_never_dropped_silently(board, repo):
     assert board.moves[-1] == ("2", "ready")
     assert not git("ls-remote", "--heads", "origin", branch, cwd=repo)
     assert not wt.exists()
+
+
+def test_a_remote_branch_that_only_ends_alike_is_not_the_session_branch(board, repo):
+    wt, branch = Path(board.started["worktree"]), board.started["branch"]
+    git("push", "-q", "origin", f"HEAD:refs/heads/a/{branch}", cwd=wt)
+    finish.abandon(load(), session.read())
+    assert not wt.exists() and git("ls-remote", "origin", f"refs/heads/a/{branch}", cwd=repo)
+
+
+@pytest.mark.parametrize("listing", ["open", "failed"])
+def test_abandon_refuses_while_a_request_is_stacked_on_the_branch(board, repo, monkeypatch, listing):
+    """Deleting the remote branch closes every request into it, and that work belongs to another session."""
+    wt, branch = Path(board.started["worktree"]), board.started["branch"]
+    git("push", "-q", "-u", "origin", branch, cwd=wt)
+    monkeypatch.setenv("AW_FORGE", "github")
+    monkeypatch.setattr(forge, "find_open", lambda kind, b, cwd: None)
+
+    def stacked_on(kind, b, cwd):
+        if listing == "failed":
+            raise AwError("gh pr list: HTTP 502")
+        return [forge.MergeRequest("9", "u")]
+
+    monkeypatch.setattr(forge, "stacked_on", stacked_on)
+    expected = "HTTP 502" if listing == "failed" else rf"#9 targets {branch}; .*deleting {branch} would close"
+    with pytest.raises(AwError, match=expected):
+        finish.abandon(load(), session.read(), discard=True)
+    assert wt.exists() and git("ls-remote", "origin", f"refs/heads/{branch}", cwd=repo)
 
 
 def test_an_issue_someone_moved_on_stays_where_it_is(board):

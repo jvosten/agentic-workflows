@@ -70,11 +70,11 @@ def _rebasing(worktree: Path) -> bool:
     )
 
 
-def _contains(worktree: Path, commit: str) -> bool:
-    return (
-        subprocess.run(["git", "merge-base", "--is-ancestor", commit, "HEAD"], cwd=worktree, check=False).returncode
-        == 0
+def _contains(worktree: Path, commit: str, tip: str = "HEAD") -> bool:
+    run = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", commit, tip], cwd=worktree, check=False, capture_output=True
     )
+    return run.returncode == 0
 
 
 def _base_merged(kind: str, base: str, cwd: Path) -> bool:
@@ -82,24 +82,24 @@ def _base_merged(kind: str, base: str, cwd: Path) -> bool:
     return bool(forge.merged(kind, base, cwd)) and forge.find_open(kind, base, cwd) is None
 
 
-def _retarget(kind: str, branch: str, main: str, cwd: Path) -> str:
-    """Point the open request at main when the forge did not; returns its number when it moved."""
+def _retarget(kind: str, branch: str, target: str, cwd: Path) -> str:
+    """Point the open request at target when it is elsewhere; returns its number when it moved."""
     request = forge.find_open(kind, branch, cwd)
-    if request is None or forge.target(kind, request.number, cwd) == main:
+    if request is None or forge.target(kind, request.number, cwd) == target:
         return ""
-    forge.retarget(kind, request.number, main, cwd)
+    forge.retarget(kind, request.number, target, cwd)
     return request.number
 
 
 def _refuse_closed(kind: str, branch: str, worktree: Path) -> None:
-    """A request closed at the branch's remote head can still reopen; a force-push would end that."""
+    """A closed request whose head the remote branch still holds can reopen; a force-push would end that."""
     if forge.find_open(kind, branch, worktree):
         return
-    remote = git("ls-remote", "--heads", "origin", branch, cwd=worktree).split()
+    remote = git("ls-remote", "origin", f"refs/heads/{branch}", cwd=worktree).split()
     for request in forge.closed(kind, branch, worktree):
-        if remote and request.head == remote[0]:
+        if remote and request.head and _contains(worktree, request.head, remote[0]):
             raise AwError(
-                f"{PREFIX[kind]}{request.number} from {branch} was closed without merging; reopen it, or push "
+                f"{PREFIX[kind]}{request.number} from {branch} was closed without merging; reopen it, or force-push "
                 f"{branch} yourself to give it up, before `aw restack`: after a force-push it cannot reopen"
             )
 
@@ -155,9 +155,9 @@ def run(cfg: Config, meta: dict[str, Any], dry_run: bool = False) -> Result:
         log.append(f"rebased {plural(result.commits, 'commit')} onto {upstream} ({onto[:12]})")
     git("push", "--quiet", "--force-with-lease", "origin", branch, cwd=worktree)
     log.append(f"pushed {branch} (--force-with-lease)")
-    if merged and (number := _retarget(kind, branch, main, worktree)):
+    if number := _retarget(kind, branch, target, worktree):
         result.retargeted = f"{PREFIX[kind]}{number}"
-        log.append(f"retargeted {result.retargeted} to {main}")
+        log.append(f"retargeted {result.retargeted} to {target}")
     session.update(worktree, fork_point=onto, restack_onto="", **({"base": ""} if merged else {}))
     result.fork_point = onto
     if merged:

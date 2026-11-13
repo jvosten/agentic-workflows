@@ -72,7 +72,7 @@ def run(cfg: Config, kind: str, slug: str, issue: str | None, base: str | None =
         raise AwError("--base needs a forge: aw restack follows the base through its merge request")
     if base == main:
         raise AwError(f"--base {main}: a session already starts from {main}")
-    if base and not git("ls-remote", "--heads", "origin", base, cwd=root):
+    if base and not git("ls-remote", "origin", f"refs/heads/{base}", cwd=root):
         raise AwError(f"origin has no branch {base}; push it first")
     # The worktree starts from the main ref, so the primary checkout may have any branch checked out.
     if "origin" in git("remote", cwd=root).split():
