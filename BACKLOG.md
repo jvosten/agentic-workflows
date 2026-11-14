@@ -572,6 +572,18 @@ This repo's own first plan hit the second set right after it was written (2026-1
 
 **Done when:** `aw config` prints `max_subagents`, the three skills name it, and a repo skill can rely on one documented sentence instead of its own rule.
 
+---
+
+### [LOW] Require signed commits on main
+
+**Context:** The ruleset on `main` does not require signed commits, because the maintainer's commits are unsigned today; the rule would refuse every push.
+
+**Next:** once commits verify on GitHub, add `required_signatures` to the `main` ruleset. In the same change, make the tests ignore a signing setup from the caller (`tests/conftest.py` isolates `HOME`, not `XDG_CONFIG_HOME`).
+
+**Open:** commits made in a sandbox have no signing key; the rule must not come before that has an answer.
+
+**Done when:** an unsigned commit in a pull request blocks its merge, and `make check` passes on a machine with `commit.gpgsign = true`.
+
 ## Considered and not planned
 
 - **Personas and multi-agent roles** (BMAD), **spec-driven phases** (spec-kit), **label-based handoff queues** (zaks-io): full methods of their own; out of scope for a session-workflow standard.

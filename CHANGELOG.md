@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.22 — 2026-11-13 (#30)
+
+### Changed
+
+- Dependabot opens one grouped pull request a week for GitHub Actions and one for Python dependencies.
+- A pull request that only bumps a dependency needs no changelog entry.
+
 ## 0.1.21 — 2026-11-13 (#25)
 
 ### Added

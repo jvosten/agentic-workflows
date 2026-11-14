@@ -40,7 +40,7 @@ CI (`.github/workflows/ci.yml`) runs the tests on Python 3.11 (the `requires-pyt
 ## Changes
 
 - Conventional commits (`feat:`, `fix:`, `docs:`, `test:`, `chore:`, `style:`, `refactor:`), subjects that say what changed, as in `git log` here. No `Co-Authored-By` or "Generated with" lines in commits or pull requests.
-- One `CHANGELOG.md` entry per merge request, under the version it ships in.
+- One `CHANGELOG.md` entry per merge request, under the version it ships in. A request that only bumps a dependency needs none.
 - Ideas and deferred work go to `BACKLOG.md` (`aw backlog add`): one `###` item per entry with a priority tag; resolved items are deleted, not struck through.
 - Plans are local (`plan_scope = "local"`, gitignored under `.agents/plans/`) and are never cited in committed text: describe the rule or the backlog item instead.
 - Public repository: nothing here names private projects, hosts or people; examples use neutral names.
