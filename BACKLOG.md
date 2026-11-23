@@ -8,6 +8,19 @@ Deferred features and open checks. Each entry has enough context to be picked up
 
 ## Items
 
+### [HIGH] Release on every merge, inside the pull request
+
+**Context:** `changelog = "dir"` keeps one fragment per pull request, and `aw changelog collect` folds them into `changelog_file` at a release. Today a release is a pull request of its own, so `main` runs merged changes under the old version until someone releases. This repository should release on every merge. Its `main` ruleset requires a pull request, strict status checks (the branch up to date with `main`) and has no bypass actors: neither `on_merge` nor a CI bot can push a release commit to `main`, and a bot-opened release pull request does not trigger the required checks with the default `GITHUB_TOKEN`.
+
+**Direction:** the release happens in the pull request at merge time, with the final commit or as a commit of its own. The strict rule already makes the branch catch up with `main` before it merges; at that point no other open request holds the release edits, so nothing conflicts.
+
+- An opt-in key, e.g. `release_cmd`: a project command that `aw` runs after catching up, like `verify_cmd`. The project's command chooses the version (patch, or minor when a fragment has `### Removed`), runs `aw changelog collect --heading …`, and sets the version. `aw` chooses no version.
+- Where it runs: `/aw-finalize` before opening the request (the release is in the first pushed state, one CI run) or `aw finish` after catching up (a second CI run when `main` moved). Two sessions merging at once still race; the strict rule makes the second catch up again, and its release runs again on the new `main`.
+- `aw changelog check` must not report the collected entry as missing: check before the release commit, or treat a collected fragment as present.
+- README recipe and `CONTRIBUTING.md`: releases per merge instead of release pull requests, for projects that set the key.
+
+**Done when:** a pull request in this repository merges with its fragment collected into `CHANGELOG.md` under a new version, `aw --version` on `main` matches it, and two parallel sessions both release without a manual fix.
+
 ### [HIGH] Verify v1 in live agent sessions
 
 **Context:** v1 is tested with pytest and the CLI. Confirmed from inside Claude Code: `disable-model-invocation: true` hides `aw-start-task` and `aw-finalize` from the model while `/aw-start-task` works; the model goes on into implementation after the handover; the GitHub forge path ran end to end on this repository's pull requests #2–#5 (`aw mr create`, `checks --watch`, `comments`, `view`, a go in chat, `aw finish` merging and cleaning up). Unconfirmed:
