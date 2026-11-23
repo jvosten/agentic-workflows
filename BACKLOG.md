@@ -106,12 +106,6 @@ Deferred features and open checks. Each entry has enough context to be picked up
 
 **Scope:** add agents to `AGENT_DIRS` as they need their own skill directory.
 
-### [MEDIUM] Changelog fragments for shared repos
-
-**Context:** Session ids are no longer committed, but every PR still edits the same `CHANGELOG.md`, so parallel PRs conflict. towncrier and changesets solve this with one file per change (`changelog.d/<branch>.md`), compiled at release.
-
-**Scope:** `changelog_mode = file | fragments` plus `changelog_dir`; `aw-finalize` writes a fragment in fragments mode; `aw changelog build` compiles and removes fragments.
-
 ### [LOW] Session title hook
 
 **Context:** From agent-issue-tracker. Set the agent session title to `<slug> (#issue)` so parallel sessions are distinguishable. Claude Code hook; other agents vary.
@@ -583,6 +577,31 @@ This repo's own first plan hit the second set right after it was written (2026-1
 **Open:** commits made in a sandbox have no signing key; the rule must not come before that has an answer.
 
 **Done when:** an unsigned commit in a pull request blocks its merge, and `make check` passes on a machine with `commit.gpgsign = true`.
+
+---
+
+### [MEDIUM] REFACTOR: functions without a prescribed implementation (changelog, backlog, verification)
+
+**Context:** `aw` supports functions whose implementation differs between projects, and must not prescribe one. The changelog is the reference solution: a `changelog` choice key (`file`, `dir`, `none`) mapped to an enum and matched once in `src/aw/changelog.py`; one protocol with three operations (`target`, `has_entry`, `collect`); a target union (`file`, `commit`, `none`) in code and in `aw changelog target`'s output; a lightweight built-in default (`dir`, one fragment per session); one contract test suite run against every strategy and a fake. `aw` knows no categories, heading format or versioning scheme. The other functions are still loose keys and skill prose:
+
+- Backlog: `backlog_home`, `backlog_file`, `backlog_parent` and `backlog_type` select a file or a tracker through separate keys.
+- Verification: `verify_cmd` is one command string. A project may need several checks, per-path checks, or none that `aw` can run.
+
+**Still open for the changelog:**
+
+- A `cmd` strategy: the project's own commands for the three operations. The escape hatch for any tool without a preset.
+- A `commit` strategy: the entry is the commit message or a trailer (GitLab changelog trailers, release-please, git-cliff). `target=commit` is already in the output contract.
+- Presets (towncrier, scriv, changie, git-cliff, release-please): each a list of commands or commit settings, no format logic. `aw init` detects them (`[tool.towncrier]`, `scriv.ini`, `.changie.yaml`, `cliff.toml`, `release-please-config.json`); a user may also declare one.
+- A read-only listing of pending fragments, if a project's own release script needs their order.
+
+**Open questions:**
+
+- Which other functions get a seam. Candidates: backlog, verification, memory, plans, definition of done.
+- Whether strategies are built in or loaded from the project, and how this fits the sandbox rule (no `$HOME` dependence).
+- How existing keys (`backlog_*`, `verify_cmd`) migrate. `schema.toml` has `rename`, `derive` and `unquote` migrations.
+- Where the pattern lands in the refactor's layers: the enum and target union in `domain`, file access in `adapters`, the commands in the command table.
+
+**Done when:** the seam design is recorded (ADR), the changelog has `cmd` and at least one preset, and the backlog and verification functions each have a decision: move to the seam, or keep as they are and say why.
 
 ## Considered and not planned
 
