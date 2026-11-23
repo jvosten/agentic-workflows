@@ -600,6 +600,7 @@ This repo's own first plan hit the second set right after it was written (2026-1
 - Whether strategies are built in or loaded from the project, and how this fits the sandbox rule (no `$HOME` dependence).
 - How existing keys (`backlog_*`, `verify_cmd`) migrate. `schema.toml` has `rename`, `derive` and `unquote` migrations.
 - Where the pattern lands in the refactor's layers: the enum and target union in `domain`, file access in `adapters`, the commands in the command table.
+- Per-function config sections: `[changelog]` with `strategy`, `file` and `dir` instead of `changelog`, `changelog_file` and `changelog_dir`; likewise `[backlog]` and `[verify]`, and later `[changelog.cmd]`. The loader flattens a declared section into dotted keys (`changelog.strategy`), so `AW_*`, `--set`, `when` and `aw doctor` keep one flat key space; real tables such as `templates` are not flattened. `rename` migrations move the flat keys. A strategy chosen by which key is present (`[changelog] dir = …`) was rejected: it hides the enum, has no form for `none`, and is ambiguous when two keys are set.
 
 **Done when:** the seam design is recorded (ADR), the changelog has `cmd` and at least one preset, and the backlog and verification functions each have a decision: move to the seam, or keep as they are and say why.
 
