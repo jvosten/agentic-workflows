@@ -23,8 +23,11 @@
 ## Pull requests
 
 - Title: a conventional-commit summary of the outcome.
-- One `CHANGELOG.md` entry per pull request, under the version it ships in, in the commits the request opens with.
-- A pull request that only bumps a dependency (Dependabot) needs no entry and no version.
+- One changelog fragment per pull request in `changelog.d/` (`aw changelog target` names it), in the commits the
+  request opens with. It names no pull request number and no version.
+- A pull request that only bumps a dependency (Dependabot) needs no fragment.
+- A release is a pull request of its own: `aw changelog collect --heading "## <version> — <date>"` folds the
+  fragments into `CHANGELOG.md`, and the version is set in `pyproject.toml`, `src/aw/__init__.py` and `uv.lock`.
 - The description has three sections: Summary, Evidence (the test that failed before and passes now), Merge danger.
 - Pull requests merge with a merge commit, after the four CI checks pass.
 

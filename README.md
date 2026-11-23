@@ -156,8 +156,7 @@ Pushing an item to the tracker: `aw issue dupes <backlog_parent> --terms ...` sh
 
 | Command | Does |
 |---|---|
-| `aw mr next` | The number the next request gets (`#12`): one above the newest issue, pull request or discussion on GitHub, merge request on GitLab. `/aw-finalize` writes it into the changelog entry before the request opens, so the entry is in the request's first pushed state |
-| `aw mr create --title T --body-file F [--draft] [--expect N] [--dry-run]` | Opens the request from the current branch against `main_branch` (a stacked session: its base); refuses unpushed work; an open request for the branch is reported, never duplicated; appends the issue's closing line (`Fixes #12`) unless the body already closes exactly that issue (a closing keyword before `#12`; `see #12` or `#123` does not count); then checks what the request will close: the session issue missing is an error, any other issue a warning. `--expect N`: refuses before the create when the next number is not N, and exits 1 when a race gave the request another |
+| `aw mr create --title T --body-file F [--draft] [--dry-run]` | Opens the request from the current branch against `main_branch` (a stacked session: its base); refuses unpushed work; an open request for the branch is reported, never duplicated; appends the issue's closing line (`Fixes #12`) unless the body already closes exactly that issue (a closing keyword before `#12`; `see #12` or `#123` does not count); then checks what the request will close: the session issue missing is an error, any other issue a warning. `--expect N`: refuses before the create when the next number is not N, and exits 1 when a race gave the request another |
 | `aw mr update [ref] --title T --body-file F` | Replaces title and description; keeps the closing line or the part reference `create` appended, and checks what the request closes, as `create` does |
 | `aw mr view [ref]` | State, the issues it closes, CI, review, unresolved threads, files and lines changed: what the merge gate shows |
 | `aw mr checks [ref] [--watch]` | One line of counts plus the failing and pending checks; `--watch` waits without streaming progress. Exit 0 passed, 1 failed, 2 pending. With CI in the checkout (`.github/workflows/*.yml`, `.gitlab-ci.yml`), no checks reported is `no checks yet` and exit 2, never a pass: `--watch` waits up to two minutes for the first one |
@@ -232,7 +231,20 @@ Later layers win. `aw config --sources` shows which layer set each value. All ke
 
 **Trusted keys.** `merge_gate`, `merge_method`, `on_start`, `on_merge` and `on_issue_status` decide what runs or merges on the host, and `jira_base_url` where the Jira credentials go. In a session worktree their project value comes from the primary checkout's `.agents/aw.toml`, not from the branch's: a branch, perhaps written by an agent, never picks its own merge gate, hooks or credential host. The user, local and env layers apply as usual; `aw config --sources` shows such a value as `primary`. A branch that changes one of them takes effect once it has merged; until then `aw finish`, `aw merge` and `aw doctor` print `ignored from the branch: <keys>`.
 
-**Paths.** Keys that name a file or directory (`instructions_file`, `changelog_file`, `contributing_file`, `backlog_file`, `memory_dir`, `definition_of_done`, `templates`, `plan_dir`, `plan_file`) are relative to the repo root. In the committed `.agents/aw.toml` they stay inside the repo: `~`, an absolute path or a `..` past the root is refused, and `aw` follows no link out of the repo where it reads or writes. A template shared by several projects goes into the user or local layer. `aw doctor` fails a path that links out of the repo.
+**Paths.** Keys that name a file or directory (`instructions_file`, `changelog_file`, `changelog_dir`, `contributing_file`, `backlog_file`, `memory_dir`, `definition_of_done`, `templates`, `plan_dir`, `plan_file`) are relative to the repo root. In the committed `.agents/aw.toml` they stay inside the repo: `~`, an absolute path or a `..` past the root is refused, and `aw` follows no link out of the repo where it reads or writes. A template shared by several projects goes into the user or local layer. `aw doctor` fails a path that links out of the repo.
+
+**Changelog.** `changelog` says where a session's entry goes: `file` (one shared `changelog_file`), `dir` (one fragment per session in `changelog_dir`, named `<UTC timestamp>-<worktree name>.md`, collected into `changelog_file` on demand) or `none`. `aw` places, checks and collects entries; it knows no categories, heading format or versioning scheme. `aw template changelog` is the outline of a new fragment (override: `templates.changelog`). A config with only `changelog_file` reads as `changelog = "file"` (empty: `none`); `aw init` writes it.
+
+Moving a project from `file` to `dir`, so parallel sessions stop meeting at the top of one file:
+
+1. `aw init --set changelog=dir` and create `changelog.d/` (a `.gitkeep` keeps it while it is empty). The existing
+   changelog stays as it is: it becomes the file fragments are collected into, and nothing in it is converted.
+2. Sessions write fragments from then on; `/aw-finalize` asks `aw changelog target` where. Drop request numbers and
+   versions from your contribution rules: a fragment carries neither.
+3. Release when you choose: a change of its own runs `aw changelog collect --heading "<your heading line>"`, or
+   without `--heading` to keep each fragment as its own section, and sets the version the project's way. `aw` does
+   not choose versions; CI can run the same command after a merge.
+4. To shape fragments, set `templates.changelog` to your own outline.
 
 **Private terms.** `private_terms` lists words that must never leave this machine: a private project, host or person. `aw issue create`, `update` and `comment`, `aw mr create` and `update`, `aw backlog add` and `aw memory add` refuse a text that names one (case-insensitive), and `aw doctor` lists tracked files that do. Set it in `~/.agents/aw/config.toml` or `.agents/aw.local.toml`: the committed file refuses it, since committing the list would publish it.
 
@@ -300,6 +312,9 @@ How states, boards and the hook fit together on each tracker: [docs/boards.md](d
 | `aw restack [--dry-run] [--json]` | Stacked session: rebase onto the base's tip, or onto main once the base merged; push (sets the upstream), retarget |
 | `aw session` | Print the current worktree's session metadata |
 | `aw verify` | Run `verify_cmd` in the current checkout (through direnv if enabled) |
+| `aw changelog target` | Where this session's entry goes: `target=file` and `path=<path>` (the shared `changelog_file`, or this session's fragment in `changelog_dir`), or `target=none` |
+| `aw changelog check` | `entry=present` (exit 0) or `entry=missing` (exit 1) |
+| `aw changelog collect [--heading LINE]` | `changelog = dir`: fold the fragments, newest first, into `changelog_file` above its first `## ` line, then delete them; `--heading` puts one line above them and merges their `### ` sections by name. A release runs it, not a feature session |
 | `aw merge [--pr N]` | Merge one part; the branch catches up with main, worktree and issue stay, `on_merge` runs |
 | `aw finish [--pr N] [--close-parent]` | Last merge with `merge_method` (skipped when nothing is left); refuses a request that is not at the branch's head, so commits after it are never deleted, and merges exactly that commit (a push in between makes the forge refuse); a request from a fork is never the branch's; remove worktree, update main, delete local + remote branch; `--close-parent` also closes the parent story (see [Parent rollup](#issue-trackers)) |
 | `aw abandon [--discard] [--status backlog\|ready]` | End the session without a merge: an issue still in progress goes back (default backlog), worktree and branch (also on origin) are removed; refuses while the branch holds work main lacks, unless `--discard` drops that work, and always while it has an open merge request or another request targets it (deleting the branch would close that one) |

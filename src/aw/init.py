@@ -55,8 +55,10 @@ def _instructions_file(root: Path) -> str | None:
     return None
 
 
-def _changelog_file(root: Path) -> str | None:
-    return "CHANGELOG.md" if (root / "CHANGELOG.md").is_file() else None
+def _changelog(root: Path) -> str | None:
+    if (root / "changelog.d").is_dir():
+        return "dir"
+    return "file" if (root / "CHANGELOG.md").is_file() else None
 
 
 def _direnv(root: Path) -> bool:
@@ -88,7 +90,7 @@ def _verify_cmd(root: Path) -> str | None:
 DETECTORS: dict[str, Callable[[Path], Any]] = {
     "main_branch": _main_branch,
     "forge": _forge,
-    "changelog_file": _changelog_file,
+    "changelog": _changelog,
     "instructions_file": _instructions_file,
     "direnv": _direnv,
     "verify_cmd": _verify_cmd,

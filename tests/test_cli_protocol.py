@@ -6,6 +6,7 @@ contract). A change here is a change to every skill that reads it: update the sk
 
 import ast
 import json
+import re
 from datetime import date
 from pathlib import Path
 
@@ -68,6 +69,31 @@ def test_session_prints_its_metadata_as_key_value_lines(project, tmp_path, monke
         f"issue=7\ntype=feat\nslug=thing\nstarted={today.isoformat()}\n"
         f"branch=feat/thing-{today.strftime('%Y%m%d')}\nworktree={tmp_path}/wt/7-thing\n"
     )
+
+
+# changelog target and check: read by aw-finalize
+
+
+def test_changelog_target_and_check_name_the_entry_and_its_state(project, tmp_path, monkeypatch, capsys):
+    out(capsys, "start-task", "feat", "thing")
+    monkeypatch.chdir(tmp_path / "wt/thing")
+    monkeypatch.setenv("AW_CHANGELOG", "dir")
+    target = out(capsys, "changelog", "target")
+    assert re.fullmatch(r"target=file\npath=changelog\.d/\d{8}T\d{6}Z-thing\.md\n", target)
+    assert cli.main(["changelog", "check"]) == 1
+    assert capsys.readouterr().out == "entry=missing\n"
+
+    fragment = tmp_path / "wt/thing" / target.splitlines()[1].removeprefix("path=")
+    fragment.parent.mkdir()
+    fragment.write_text("- thing\n")
+    assert out(capsys, "changelog", "check") == "entry=present\n"
+    assert out(capsys, "changelog", "target") == target
+    assert out(capsys, "changelog", "collect", "--heading", "## 1.0") == f"collected={fragment.name}\n"
+    assert out(capsys, "changelog", "collect") == "nothing to collect\n"
+
+    monkeypatch.setenv("AW_CHANGELOG", "none")
+    assert out(capsys, "changelog", "target") == "target=none\n"
+    assert out(capsys, "changelog", "check") == "entry=present\n"
 
 
 # plan path and plan state: read by aw-plan, aw-plan-story, aw-start-task and aw-to-subtasks
@@ -268,8 +294,6 @@ PHRASES = {
     "no checks yet": ("src/aw/cli.py", ["aw-checkpoint", "aw-finalize"]),
     "ignored from the branch: ": ("src/aw/finish.py", ["aw-checkpoint", "aw-finalize"]),
     "sandboxed: ": ("src/aw/config.py", ["aw-checkpoint", "aw-finalize"]),
-    "the next request is ": ("src/aw/cli.py", ["aw-finalize"]),
-    " opened, not ": ("src/aw/cli.py", ["aw-finalize"]),
     " does not close ": ("src/aw/cli.py", ["aw-merge-request"]),
     " also closes #": ("src/aw/cli.py", ["aw-merge-request"]),
 }

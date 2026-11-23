@@ -36,6 +36,12 @@ def test_template_subtask_is_a_thin_ticket(repo, capsys):
     assert "## What to build" in out and "## Acceptance criteria" in out and "## Blocked by" in out
 
 
+def test_template_changelog_is_an_entry_outline(repo, capsys):
+    assert cli.main(["template", "changelog"]) == 0
+    out = capsys.readouterr().out
+    assert "### Added" in out and "### Fixed" in out and "{" not in out
+
+
 def test_template_plan_has_sections_and_grilling_record(repo, capsys):
     assert cli.main(["template", "plan"]) == 0
     out = capsys.readouterr().out

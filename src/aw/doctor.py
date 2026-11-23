@@ -8,7 +8,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from aw import install, memory, plan, templates, trackers, ui, update
+from aw import changelog, install, memory, plan, templates, trackers, ui, update
 from aw.config import PROJECT_FILE, AwError, Config, git, load, load_schema, repo_root
 from aw.trackers.github import GitHub
 from aw.trackers.jira import CREDENTIALS, Jira
@@ -252,9 +252,9 @@ def check_config(cfg: Config) -> list[Result]:
         if (cfg.checkout / cfg.get("instructions_file")).is_file()
         else ("fail", f"instructions_file {cfg.get('instructions_file')} not found")
     )
-    value = cfg.get("changelog_file")
-    if value and not (cfg.checkout / value).exists():
-        results.append(("warn", f"changelog_file {value} not found"))
+    for key in changelog.path_keys(cfg):
+        if not (cfg.checkout / cfg.get(key)).exists():
+            results.append(("warn", f"{key} {cfg.get(key)} not found"))
     if cfg.get("forge") != "none":
         try:
             source = templates.source(cfg, "mr")
