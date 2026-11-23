@@ -120,29 +120,6 @@ def _pages(args: list[str], cwd: Path) -> list[Any]:
     return [item for page in json_pages(_run(args, cwd)) for item in page or []]
 
 
-LATEST = """query($owner:String!,$repo:String!){repository(owner:$owner,name:$repo){
-  issues(first:1,orderBy:{field:CREATED_AT,direction:DESC}){nodes{number}}
-  pullRequests(first:1,orderBy:{field:CREATED_AT,direction:DESC}){nodes{number}}
-  discussions(first:1,orderBy:{field:CREATED_AT,direction:DESC}){nodes{number}}}}"""
-
-
-def next_number(kind: str, cwd: Path) -> str:
-    """The number the next merge request gets, as far as the forge shows it: one above the newest. GitHub numbers
-    issues, pull requests and discussions in one sequence, GitLab merge requests on their own. Anything opened in
-    between, or a deleted issue, can still take it: a caller that wrote it down checks what it got."""
-    if kind == "github":
-        query = ["gh", "api", "graphql", "-f", f"query={LATEST}", "-F", "owner={owner}", "-F", "repo={repo}"]
-        repo = _json(query, cwd)["data"]["repository"]
-        kinds = ("issues", "pullRequests", "discussions")
-        numbers = [node["number"] for key in kinds for node in (repo.get(key) or {}).get("nodes") or []]
-    elif kind == "gitlab":
-        rows = _json(["glab", "api", "projects/:id/merge_requests?state=all&order_by=created_at&per_page=1"], cwd)
-        numbers = [row["iid"] for row in rows or []]
-    else:
-        raise _unsupported(kind)
-    return str(max(numbers, default=0) + 1)
-
-
 LISTED = 100  # requests listed per branch; a full page may hold more, and forks can fill one
 
 

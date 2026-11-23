@@ -21,7 +21,9 @@ version = 1
 
 # Migrations, oldest first, for config files that still have an old shape: config loading applies them in memory,
 # aw init writes them, aw doctor lists the pending ones. rename: the old key, to: the new one; rewrite: the new value,
-# "{value}" standing for the old one; note: what the migration keeps.
+# "{value}" standing for the old one; note: what the migration keeps. derive: a new key set from an old one that
+# stays, when the file sets the old one and not the new one: from: the old key, set: the new value when the old one is
+# not empty, empty: the new value when it is.
 [[migrations]]
 rename = "on_issue_start"
 to = "on_start"
@@ -31,6 +33,12 @@ note = "run only with an issue as before"
 [[migrations]]
 unquote = ["on_start", "on_issue_status", "on_merge"]
 note = "aw quotes placeholder values itself"
+
+[[migrations]]
+derive = "changelog"
+from = "changelog_file"
+set = "file"
+empty = "none"
 
 [keys.main_branch]
 type = "str"
@@ -141,13 +149,29 @@ detect = "verify_cmd"
 default = ""
 help = "Command that validates a change before commit (empty: none)"
 
+[keys.changelog]
+type = "choice"
+choices = ["file", "dir", "none"]
+ask = true
+detect = "changelog"
+default = "none"
+help = "Where a session's changelog entry goes (file: changelog_file; dir: one fragment in changelog_dir per session, collected into changelog_file; none: no entry)"
+
 [keys.changelog_file]
 path = true
 type = "str"
 ask = true
-detect = "changelog_file"
-default = ""
-help = "Changelog that aw-finalize adds an entry to (empty: none)"
+when = { changelog = "!none" }
+default = "CHANGELOG.md"
+help = "Changelog file: the one entries go into (changelog = file), or fragments are collected into (dir)"
+
+[keys.changelog_dir]
+path = true
+type = "str"
+ask = true
+when = { changelog = "dir" }
+default = "changelog.d"
+help = "Directory of changelog fragments, one per session (changelog = dir)"
 
 [keys.merge_method]
 type = "choice"
@@ -227,7 +251,7 @@ help = "Model that skills name when they delegate mechanical steps to a subagent
 path = true
 type = "table"
 default = {}
-help = "Document templates that override the bundled ones, name = path from the repo root (story, subtask, plan)"
+help = "Document templates that override the bundled ones, name = path from the repo root (story, subtask, plan, changelog)"
 
 [keys.plan_dir]
 path = true

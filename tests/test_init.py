@@ -22,6 +22,7 @@ def test_detects_defaults(repo):
         "instructions_file": "AGENTS.md",
         "direnv": False,
         "verify_cmd": "make validate",
+        "changelog": "file",
         "changelog_file": "CHANGELOG.md",
         "merge_method": "merge",
         "merge_gate": "approve",
@@ -57,6 +58,16 @@ def test_tracker_detection(repo):
 
     git("remote", "set-url", "origin", "git@github.com:someone/proj.git", cwd=repo)
     assert init.detect(repo, {"tracker": {"detect": "forge"}}) == {"tracker": "github"}
+
+
+def test_changelog_detection(repo):
+    spec = {"changelog": {"detect": "changelog"}}
+    (repo / "CHANGELOG.md").unlink(missing_ok=True)
+    assert init.detect(repo, spec) == {}
+    (repo / "CHANGELOG.md").write_text("# Changelog\n")
+    assert init.detect(repo, spec) == {"changelog": "file"}
+    (repo / "changelog.d").mkdir()
+    assert init.detect(repo, spec) == {"changelog": "dir"}
 
 
 def test_prompt_reasks_on_invalid(monkeypatch):
@@ -160,6 +171,35 @@ def test_a_migration_renames_rewrites_and_keeps_the_old_behaviour(repo, tmp_path
     data = read(repo)
     assert data["on_start"] == "[ -n {issue} ] && touch started" and "on_issue_start" not in data
     assert load().migrated == []
+
+
+def test_a_changelog_file_becomes_the_file_strategy(repo):
+    (repo / ".agents").mkdir()
+    (repo / ".agents/aw.toml").write_text('aw_version = 1\nchangelog_file = "docs/CHANGES.md"\n')
+    cfg = load()
+    assert (cfg.get("changelog"), cfg.get("changelog_file")) == ("file", "docs/CHANGES.md")
+    assert cfg.migrated == [("project", "changelog_file set → changelog = file")]
+
+    init.run(True, [])
+    data = read(repo)
+    assert (data["changelog"], data["changelog_file"]) == ("file", "docs/CHANGES.md")
+    assert load().migrated == []
+
+
+def test_an_empty_changelog_file_becomes_no_changelog(repo):
+    (repo / ".agents").mkdir()
+    (repo / ".agents/aw.toml").write_text('aw_version = 1\nchangelog_file = ""\n')
+    cfg = load()
+    assert cfg.get("changelog") == "none"
+    assert cfg.migrated == [("project", "changelog_file empty → changelog = none")]
+
+
+def test_a_set_changelog_strategy_is_not_migrated(repo):
+    (repo / ".agents").mkdir()
+    (repo / ".agents/aw.toml").write_text('aw_version = 1\nchangelog = "dir"\nchangelog_file = "CHANGES.md"\n')
+    cfg = load()
+    assert (cfg.get("changelog"), cfg.get("changelog_dir")) == ("dir", "changelog.d")
+    assert cfg.migrated == []
 
 
 def test_quotes_around_placeholders_are_migrated_away(repo, tmp_path):

@@ -262,11 +262,18 @@ QUOTED_PLACEHOLDER = re.compile(r"""(["'])(\{\w+\})\1""")  # "{x}" or '{x}' in a
 def migrate(data: dict[str, Any], migrations: list[dict[str, Any]]) -> tuple[dict[str, Any], list[str]]:
     """One config file's data with the pending migrations applied, and a note for each one applied.
 
-    A step renames a key (optionally rewriting its value), or unquotes placeholders in hooks. A new key already set
-    in the same file wins over a renamed old one: the old one is dropped.
+    A step renames a key (optionally rewriting its value), derives a new key from an old one that stays, or unquotes
+    placeholders in hooks. A new key already set in the same file wins: a renamed old one is dropped, a deriving one
+    changes nothing.
     """
     data, notes = dict(data), []
     for step in migrations:
+        if "derive" in step:
+            new, old = step["derive"], step["from"]
+            if old in data and new not in data:
+                data[new] = step["set"] if data[old] else step["empty"]
+                notes.append(f"{old} {'set' if data[old] else 'empty'} → {new} = {data[new]}")
+            continue
         if "unquote" in step:
             for key in step["unquote"]:
                 value = data.get(key)

@@ -14,6 +14,7 @@ from pathlib import Path
 from aw import (
     __version__,
     backlog,
+    changelog,
     doctor,
     finish,
     forge,
@@ -267,9 +268,9 @@ def _mr(args: argparse.Namespace) -> int:
     cwd, mark = cfg.checkout, MR_PREFIX[kind]
     branch = git("branch", "--show-current", cwd=cwd)
     ref: str = getattr(args, "ref", None) or ""
-    if not branch and args.op != "next":
+    if not branch:
         raise AwError("detached HEAD: aw mr needs the branch (a rebase in progress? finish it first)")
-    if not ref and args.op not in ("create", "next"):  # the branch's own request: by name, glab finds forks' too
+    if not ref and args.op != "create":  # the branch's own request: by name, glab finds forks' too
         if (own := forge.find_open(kind, branch, cwd)) is None:
             raise AwError(f"{branch} has no open merge request; pass its number")
         ref = own.number
@@ -278,9 +279,6 @@ def _mr(args: argparse.Namespace) -> int:
             raise AwError(f"on {branch}: create the merge request from the session branch")
         body = _body(args.body_file)
         cfg.public(args.title, body)
-        expect = args.expect.removeprefix(mark) if args.expect else None
-        if expect is not None and not expect.isdigit():
-            raise AwError(f"--expect takes a request number, got {args.expect!r}")
         target = _target(cfg)
         done = [f"{mark}{r.number}" for r in forge.merged(kind, branch, cwd)]
         part = len(done) + 1 if args.part else None
@@ -293,8 +291,6 @@ def _mr(args: argparse.Namespace) -> int:
                 + (f" part={part}" if part else "")
             )
             print(body, end="" if body.endswith("\n") else "\n")
-            if expect and (upcoming := forge.next_number(kind, cwd)) != expect:
-                print(f"expect {mark}{expect}, but the next request is {mark}{upcoming}")
             return 0
         try:
             unpushed = git("rev-list", "--count", "@{upstream}..HEAD", cwd=cwd)
@@ -305,25 +301,11 @@ def _mr(args: argparse.Namespace) -> int:
         if existing := forge.find_open(kind, branch, cwd):
             print(f"{mark}{existing.number} already open: {existing.url} (aw mr update changes it)")
             return 0
-        if expect and (upcoming := forge.next_number(kind, cwd)) != expect:  # moved since: nothing is created
-            raise AwError(
-                f"the next request is {mark}{upcoming}, not {mark}{expect}: fix the entry that names {mark}{expect}, "
-                f"push, then create with --expect {upcoming}"
-            )
         made = forge.create(kind, branch, target, args.title, body, args.draft, cwd)
         print(f"{mark}{made.number} {made.url}")
-        raced = expect is not None and made.number != expect
-        if raced:  # another request or issue took the number between the check and the create
-            print(
-                f"error: {mark}{made.number} opened, not {mark}{expect} (--expect): change {mark}{expect} to "
-                f"{mark}{made.number} where it names this request, and push",
-                file=sys.stderr,
-            )
         _check_closes(cfg, kind, f"{mark}{made.number}", made.number, part)
-        return 1 if raced else 0
-    if args.op == "next":
-        print(f"{mark}{forge.next_number(kind, cwd)}")
-    elif args.op == "update":
+        return 0
+    if args.op == "update":
         body = _body(args.body_file) if args.body_file else None
         if args.title is None and body is None:
             raise AwError("mr update: pass --title, --body-file, or both")
@@ -491,6 +473,27 @@ def _template(args: argparse.Namespace) -> None:
     shown = (path.relative_to(cfg.checkout) if path.is_relative_to(cfg.checkout) else ui.home(path)) if path else None
     print(f"template: {shown or 'bundled ' + args.name}", file=sys.stderr)
     print(templates.read(cfg, args.name), end="")
+
+
+def _changelog(args: argparse.Namespace) -> int:
+    cfg = load()
+    if args.op == "collect":
+        names = changelog.for_checkout(cfg).collect(args.heading)
+        print("\n".join(f"collected={name}" for name in names) or "nothing to collect")
+        return 0
+    log = changelog.for_session(cfg)
+    if args.op == "check":
+        present = log.has_entry()
+        print(f"entry={'present' if present else 'missing'}")
+        return 0 if present else 1
+    match log.target():
+        case changelog.FileTarget(path):
+            print(f"target=file\npath={path.relative_to(cfg.checkout)}")
+        case changelog.CommitTarget(trailer):
+            print(f"target=commit\ntrailer={trailer}")
+        case changelog.NoTarget():
+            print("target=none")
+    return 0
 
 
 def _session(args: argparse.Namespace) -> None:
@@ -855,14 +858,7 @@ def build_parser() -> argparse.ArgumentParser:
     o.add_argument(
         "--part", action="store_true", help="one part of a multi-merge session: references the issue without closing it"
     )
-    o.add_argument(
-        "--expect",
-        metavar="N",
-        help="the number already written down (aw mr next, e.g. in the changelog): refuse when the next request "
-        "would get another; exit 1 when a race gave it another anyway",
-    )
     o.add_argument("--dry-run", action="store_true")
-    mr_ops.add_parser("next", help="the number the next merge request gets, for a changelog entry written first")
     o = mr_ops.add_parser("update", help="replace title and description")
     o.add_argument("ref", nargs="?", help="number or branch (default: the current branch)")
     o.add_argument("--title")
@@ -934,6 +930,14 @@ def build_parser() -> argparse.ArgumentParser:
     o.add_argument("--missed", required=True, help="gotchas that bit although an entry existed, or none")
     o.add_argument("--note", help="one line, e.g. a tag that was missing")
     s.set_defaults(func=_memory)
+
+    s = sub.add_parser("changelog", help="where this session's changelog entry goes, whether it exists, collect")
+    log_ops = s.add_subparsers(dest="op", required=True)
+    log_ops.add_parser("target", help="where the entry goes: target=file with path=, target=commit, or target=none")
+    log_ops.add_parser("check", help="entry=present (exit 0) or entry=missing (exit 1)")
+    o = log_ops.add_parser("collect", help="fold changelog = dir's fragments into changelog_file, then delete them")
+    o.add_argument("--heading", help="one line above the collected section; omitted: the fragments as they are")
+    s.set_defaults(func=_changelog)
 
     s = sub.add_parser("template", help="print a document template (project override from templates)")
     s.add_argument("name", help="template name")

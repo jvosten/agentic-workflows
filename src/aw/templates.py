@@ -10,7 +10,7 @@ from pathlib import Path
 
 from aw.config import AwError, Config
 
-NAMES = ("story", "subtask", "plan", "mr")
+NAMES = ("story", "subtask", "plan", "mr", "changelog")
 GITHUB_DEFAULTS = (
     ".github/pull_request_template.md",
     ".github/PULL_REQUEST_TEMPLATE.md",
